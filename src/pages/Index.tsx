@@ -142,7 +142,7 @@ const Index = () => {
     }
     setIsBuilding(true);
     try {
-      const { data, error } = await supabase.functions.invoke("generate-app", { body: { prompt: trimmed, system, stage } });
+      const { data, error } = await supabase.functions.invoke("Appigen", { body: { prompt: trimmed, system, stage } });
       if (error) throw error;
       if (!data?.code) throw new Error("No code returned from AI");
       setLastCode(data.code);
