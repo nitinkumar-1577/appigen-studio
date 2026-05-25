@@ -61,7 +61,7 @@ The generated app must feel like a real polished commercial product.
 
 End with:
 ReactDOM.createRoot(document.getElementById("root")).render(<App />);
-`
+`;
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", {
@@ -125,7 +125,7 @@ ${prompt}
             },
           ],
           temperature: 0.7,
-          max_tokens:8192,
+          max_tokens: 4096,
         }),
       }
     );
@@ -164,9 +164,7 @@ ${prompt}
     if (!code) {
       throw new Error("No code returned from Groq");
     }
-    if (!code.includes("function App")) {
-      throw new Error("Invalid React component generated");
-    }
+
     return new Response(
       JSON.stringify({
         code,
