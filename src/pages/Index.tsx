@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Sidebar, type ViewKey } from "@/components/appigen/Sidebar";
 import { PromptPanel } from "@/components/appigen/PromptPanel";
 import { PreviewPanel } from "@/components/appigen/PreviewPanel";
