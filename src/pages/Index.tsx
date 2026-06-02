@@ -55,7 +55,7 @@ function buildDocFromPrompt(prompt: string, code?: string) {
               onClick={() => toggle(t.id)}
               className={"flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-900/60 p-3.5 cursor-pointer transition hover:border-indigo-500/60 " + (t.done ? "opacity-60" : "")}>
               <span className={"h-5 w-5 rounded-md border-2 flex items-center justify-center " + (t.done ? "bg-indigo-500 border-indigo-500" : "border-slate-700")}>
-                {t.done && <span className="text-[11px]">✓</span>}
+                {t.done && <span className="text-[11px]">\u2713</span>}
               </span>
               <span className={t.done ? "line-through" : ""}>{t.title}</span>
             </li>
@@ -66,6 +66,33 @@ function buildDocFromPrompt(prompt: string, code?: string) {
   );
 }
 ReactDOM.createRoot(document.getElementById("root")).render(<App />);`;
+
+  // Phase 10/15: runtime error capture + visible overlay + parent postMessage
+  const runtimeShield = `
+(function(){
+  function report(kind, message, stack){
+    try { parent.postMessage({ __appigen: true, kind: kind, message: String(message||''), stack: String(stack||'') }, '*'); } catch(e){}
+    var host = document.getElementById('__appigen_err');
+    if(!host){
+      host = document.createElement('div');
+      host.id = '__appigen_err';
+      host.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:99999;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:rgba(127,29,29,.95);color:#fee2e2;border:1px solid rgba(248,113,113,.6);border-radius:10px;padding:12px 14px;max-height:45vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.5);backdrop-filter:blur(8px);';
+      document.body && document.body.appendChild(host);
+    }
+    host.innerHTML = '<div style="font-weight:700;color:#fecaca;margin-bottom:4px">\u26A0 Runtime '+kind+'</div><div style="white-space:pre-wrap;word-break:break-word">'+(message||'')+'</div>'+(stack?'<details style="margin-top:6px;opacity:.85"><summary style="cursor:pointer">stack</summary><pre style="white-space:pre-wrap">'+stack+'</pre></details>':'');
+  }
+  window.addEventListener('error', function(e){ report('error', e.message, e.error && e.error.stack); });
+  window.addEventListener('unhandledrejection', function(e){ var r = e.reason || {}; report('promise', r.message || r, r.stack); });
+  var _ce = console.error;
+  console.error = function(){ try { report('console', Array.prototype.slice.call(arguments).map(String).join(' '), ''); } catch(_){ } _ce.apply(console, arguments); };
+  setTimeout(function(){
+    var root = document.getElementById('root');
+    if(root && root.childElementCount === 0 && !document.getElementById('__appigen_err')){
+      report('blank', 'Preview rendered nothing within 2.5s', '');
+    }
+  }, 2500);
+})();
+`;
 
   return `<!doctype html>
 <html lang="en">
@@ -82,11 +109,20 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);`;
     ::-webkit-scrollbar { width: 8px; height: 8px; }
     ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 999px; }
   </style>
+  <script>${runtimeShield}</script>
 </head>
 <body>
   <div id="root"></div>
   <script type="text/babel" data-presets="react">
+try {
 ${reactSource}
+} catch (e) {
+  parent.postMessage({ __appigen: true, kind: 'compile', message: e && e.message, stack: e && e.stack }, '*');
+  var pre = document.createElement('pre');
+  pre.style.cssText = 'color:#fecaca;background:#7f1d1d;padding:16px;margin:16px;border-radius:8px;white-space:pre-wrap;font:12px ui-monospace,Menlo,monospace';
+  pre.textContent = 'Compile error: ' + (e && e.message);
+  document.body.appendChild(pre);
+}
   </script>
 </body>
 </html>`;
