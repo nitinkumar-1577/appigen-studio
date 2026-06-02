@@ -145,12 +145,56 @@ const Index = () => {
   const [lastCode, setLastCode] = useState<string | null>(null);
   const { user, addNotification } = useApp();
 
+  // Phase 9: auto-repair loop. Tracks attempts per code revision.
+  const repairAttemptsRef = useRef(0);
+  const lastReportedRef = useRef<string>("");
+  const isRepairingRef = useRef(false);
+
   useEffect(() => {
     if (!user) {
       const t = setTimeout(() => setAuthOpen(true), 600);
       return () => clearTimeout(t);
     }
   }, [user]);
+
+  // Reset repair counter when code revision changes
+  useEffect(() => { repairAttemptsRef.current = 0; lastReportedRef.current = ""; }, [lastCode]);
+
+  // Listen for runtime/compile errors from preview iframe and auto-repair
+  useEffect(() => {
+    const onMsg = async (ev: MessageEvent) => {
+      const m = ev.data;
+      if (!m || typeof m !== "object" || !m.__appigen) return;
+      const sig = `${m.kind}::${m.message}`;
+      if (sig === lastReportedRef.current) return;
+      lastReportedRef.current = sig;
+      if (!lastCode || isRepairingRef.current) return;
+      if (repairAttemptsRef.current >= 2) return; // max 2 auto attempts
+      // Only repair on real failures
+      if (!["error", "compile", "promise", "blank"].includes(m.kind)) return;
+
+      repairAttemptsRef.current += 1;
+      isRepairingRef.current = true;
+      toast({ title: "🔧 Auto-repairing", description: `Attempt ${repairAttemptsRef.current}/2 — ${String(m.message).slice(0, 80)}` });
+      try {
+        const { data, error } = await supabase.functions.invoke("Appigen", {
+          body: { mode: "repair", code: lastCode, error: `${m.kind}: ${m.message}\n${m.stack || ""}` },
+        });
+        if (error) throw error;
+        if (data?.code) {
+          setLastCode(data.code);
+          setDoc(buildDocFromPrompt(prompt, data.code));
+          toast({ title: "✅ Repair applied", description: "Re-rendering preview" });
+        }
+      } catch (e: any) {
+        toast({ title: "Auto-repair failed", description: e?.message || "Unknown", variant: "destructive" });
+      } finally {
+        isRepairingRef.current = false;
+      }
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, [lastCode, prompt]);
 
   const handleDownload = async () => {
     try {
