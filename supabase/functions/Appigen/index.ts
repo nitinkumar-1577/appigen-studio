@@ -63,13 +63,32 @@ function cleanCode(raw: string): string {
   // remove stray "Here is..." style prose lines before first JSX/keyword
   const firstCodeIdx = s.search(/(^|\n)\s*(function\s+App|const\s+App|class\s+App|React\.)/);
   if (firstCodeIdx > 0) s = s.slice(firstCodeIdx).trimStart();
+  // hard-remove all module syntax before the browser preview ever sees it
+  s = stripModuleSyntax(s);
   // strip any TS type annotations on common patterns (best-effort)
   s = s.replace(/:\s*React\.FC(<[^>]*>)?/g, "");
+  // avoid double-rendering if the model emitted multiple mount calls
+  s = s.replace(/ReactDOM\s*\.\s*createRoot\s*\(\s*document\s*\.\s*getElementById\s*\(\s*["']root["']\s*\)\s*\)\s*\.\s*render\s*\(\s*<App\s*\/?>\s*\)\s*;?/g, "").trim();
+  s = s.replace(/ReactDOM\s*\.\s*render\s*\(\s*<App\s*\/?>\s*,\s*document\s*\.\s*getElementById\s*\(\s*["']root["']\s*\)\s*\)\s*;?/g, "").trim();
   // ensure render call exists
-  if (!/ReactDOM\.createRoot\([^)]*\)\s*\.render\(\s*<App\s*\/?>\s*\)/.test(s)) {
-    s = s.replace(/[;\s]*$/, "") +
-      '\nReactDOM.createRoot(document.getElementById("root")).render(<App />);';
-  }
+  s = s.replace(/[;\s]*$/, "") +
+    '\nReactDOM.createRoot(document.getElementById("root")).render(<App />);';
+  return s.trim();
+}
+
+function stripModuleSyntax(src: string): string {
+  let s = (src ?? "").replace(/\r\n/g, "\n");
+  s = s.replace(/^\s*import\s+["'][^"']+["']\s*;?\s*$/gm, "");
+  s = s.replace(/^\s*import\s+(?:type\s+)?[\s\S]*?\s+from\s*["'][^"']+["']\s*;?\s*$/gm, "");
+  s = s.replace(/^\s*import\s*\([\s\S]*?\)\s*;?\s*$/gm, "");
+  s = s.replace(/\bimport\s*\([\s\S]*?\)/g, "Promise.resolve({})");
+  s = s.replace(/^\s*export\s+(?:type\s+)?(?:\*|\{[\s\S]*?\})\s+from\s*["'][^"']+["']\s*;?\s*$/gm, "");
+  s = s.replace(/^\s*export\s*\{[\s\S]*?\}\s*;?\s*$/gm, "");
+  s = s.replace(/^\s*export\s+default\s+(?=(?:async\s+)?function\b|class\b)/gm, "");
+  s = s.replace(/^\s*export\s+default\s+[^;\n]+;?\s*$/gm, "");
+  s = s.replace(/^\s*export\s+(?=(?:const|let|var|function|class)\b)/gm, "");
+  s = s.replace(/\bimport\s+(?:type\s+)?[^;\n]*?\bfrom\s*["'][^"']+["']\s*;?/g, "");
+  s = s.replace(/(^|[;\n])\s*export\s+(?:default\s+)?/g, "$1");
   return s.trim();
 }
 
