@@ -120,10 +120,16 @@ async function groq(
     lastErr = { status: res.status, body: text };
     // Retry on 429 / 5xx with exponential backoff + jitter
     if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
-      const wait = Math.min(8000, 500 * 2 ** attempt) + Math.random() * 250;
+      // Honor Groq's "Please try again in Xs" hint when present
+      let wait = Math.min(8000, 500 * 2 ** attempt) + Math.random() * 250;
+      const m = text.match(/try again in ([\d.]+)s/i);
+      if (m) wait = Math.min(30000, Math.ceil(parseFloat(m[1]) * 1000) + 500);
+      const ra = res.headers.get("retry-after");
+      if (ra && !isNaN(Number(ra))) wait = Math.max(wait, Number(ra) * 1000);
       await new Promise((r) => setTimeout(r, wait));
       continue;
     }
+
     // non-retryable
     throw new Error(`Groq ${res.status}: ${text.slice(0, 400)}`);
   }
@@ -184,7 +190,7 @@ ${system ? "EXTRA SYSTEM HINTS:\n" + system : ""}`.trim();
       { role: "user", content: blueprint },
     ],
     temperature: 0.6,
-    max_tokens: 6000,
+    max_tokens: 3500,
   });
   return cleanCode(data?.choices?.[0]?.message?.content ?? "");
 }
@@ -200,7 +206,7 @@ async function repairCode(apiKey: string, brokenCode: string, errorMsg: string) 
       },
     ],
     temperature: 0.2,
-    max_tokens: 6000,
+    max_tokens: 3500,
   });
   return cleanCode(data?.choices?.[0]?.message?.content ?? "");
 }
