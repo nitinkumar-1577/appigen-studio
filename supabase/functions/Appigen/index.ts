@@ -120,10 +120,16 @@ async function groq(
     lastErr = { status: res.status, body: text };
     // Retry on 429 / 5xx with exponential backoff + jitter
     if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
-      const wait = Math.min(8000, 500 * 2 ** attempt) + Math.random() * 250;
+      // Honor Groq's "Please try again in Xs" hint when present
+      let wait = Math.min(8000, 500 * 2 ** attempt) + Math.random() * 250;
+      const m = text.match(/try again in ([\d.]+)s/i);
+      if (m) wait = Math.min(30000, Math.ceil(parseFloat(m[1]) * 1000) + 500);
+      const ra = res.headers.get("retry-after");
+      if (ra && !isNaN(Number(ra))) wait = Math.max(wait, Number(ra) * 1000);
       await new Promise((r) => setTimeout(r, wait));
       continue;
     }
+
     // non-retryable
     throw new Error(`Groq ${res.status}: ${text.slice(0, 400)}`);
   }
