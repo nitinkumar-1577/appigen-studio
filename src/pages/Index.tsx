@@ -204,7 +204,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);`
     out = out.replace(/^\s*import\s+["'][^"']+["']\s*;?\s*$/gm, '');
     out = out.replace(/^\s*import\s+(?:type\s+)?[\s\S]*?\s+from\s*["'][^"']+["']\s*;?\s*$/gm, '');
     out = out.replace(/^\s*import\s*\([\s\S]*?\)\s*;?\s*$/gm, '');
-    out = out.replace(/\bimport\s*\(\s*(["'])(?:\\.|(?!\1)[\s\S])*?\1\s*\)/g, 'Promise.resolve({})');
+    out = out.replace(/\bimport\s*\([\s\S]*?\)/g, 'Promise.resolve({})');
     out = out.replace(/^\s*export\s+(?:type\s+)?(?:\*|\{[\s\S]*?\})\s+from\s*["'][^"']+["']\s*;?\s*$/gm, '');
     out = out.replace(/^\s*export\s*\{[\s\S]*?\}\s*;?\s*$/gm, '');
     out = out.replace(/^\s*export\s+default\s+(?=(?:async\s+)?function\b|class\b)/gm, '');
