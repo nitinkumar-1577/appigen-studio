@@ -199,19 +199,19 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);`
   <script>
 (function(){
   function hardStripModules(src){
-    var out = String(src || '').replace(/\r\n/g, '\n');
-    out = out.replace(/^\s*\x60\x60\x60(?:jsx|tsx|js|ts|javascript|typescript)?\s*/i, '').replace(/\x60\x60\x60\s*$/i, '');
-    out = out.replace(/^\s*import\s+["'][^"']+["']\s*;?\s*$/gm, '');
-    out = out.replace(/^\s*import\s+(?:type\s+)?[\s\S]*?\s+from\s*["'][^"']+["']\s*;?\s*$/gm, '');
-    out = out.replace(/^\s*import\s*\([\s\S]*?\)\s*;?\s*$/gm, '');
-    out = out.replace(/\bimport\s*\([\s\S]*?\)/g, 'Promise.resolve({})');
-    out = out.replace(/^\s*export\s+(?:type\s+)?(?:\*|\{[\s\S]*?\})\s+from\s*["'][^"']+["']\s*;?\s*$/gm, '');
-    out = out.replace(/^\s*export\s*\{[\s\S]*?\}\s*;?\s*$/gm, '');
-    out = out.replace(/^\s*export\s+default\s+(?=(?:async\s+)?function\b|class\b)/gm, '');
-    out = out.replace(/^\s*export\s+default\s+[^;\n]+;?\s*$/gm, '');
-    out = out.replace(/^\s*export\s+(?=(?:const|let|var|function|class)\b)/gm, '');
-    out = out.replace(/\bimport\s+(?:type\s+)?[^;\n]*?\bfrom\s*["'][^"']+["']\s*;?/g, '');
-    out = out.replace(/(^|[;\n])\s*export\s+(?:default\s+)?/g, '$1');
+    var out = String(src || '').replace(/\\r\\n/g, '\\n');
+    out = out.replace(/^\\s*\\x60\\x60\\x60(?:jsx|tsx|js|ts|javascript|typescript)?\\s*/i, '').replace(/\\x60\\x60\\x60\\s*$/i, '');
+    out = out.replace(/^\\s*import\\s+["'][^"']+["']\\s*;?\\s*$/gm, '');
+    out = out.replace(/^\\s*import\\s+(?:type\\s+)?[\\s\\S]*?\\s+from\\s*["'][^"']+["']\\s*;?\\s*$/gm, '');
+    out = out.replace(/^\\s*import\\s*\\([\\s\\S]*?\\)\\s*;?\\s*$/gm, '');
+    out = out.replace(/\\bimport\\s*\\([\\s\\S]*?\\)/g, 'Promise.resolve({})');
+    out = out.replace(/^\\s*export\\s+(?:type\\s+)?(?:\\*|\\{[\\s\\S]*?\\})\\s+from\\s*["'][^"']+["']\\s*;?\\s*$/gm, '');
+    out = out.replace(/^\\s*export\\s*\\{[\\s\\S]*?\\}\\s*;?\\s*$/gm, '');
+    out = out.replace(/^\\s*export\\s+default\\s+(?=(?:async\\s+)?function\\b|class\\b)/gm, '');
+    out = out.replace(/^\\s*export\\s+default\\s+[^;\\n]+;?\\s*$/gm, '');
+    out = out.replace(/^\\s*export\\s+(?=(?:const|let|var|function|class)\\b)/gm, '');
+    out = out.replace(/\\bimport\\s+(?:type\\s+)?[^;\\n]*?\\bfrom\\s*["'][^"']+["']\\s*;?/g, '');
+    out = out.replace(/(^|[;\\n])\\s*export\\s+(?:default\\s+)?/g, '$1');
     return out.trim();
   }
   function showCompileError(e){
@@ -224,9 +224,9 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);`
   try {
     var raw = document.getElementById('__appigen_source').textContent || '';
     var source = hardStripModules(raw);
-    if (/(^|[;\n])\s*(?:import(?:\s|\()|export\s)/.test(source)) throw new Error('Module syntax blocked before compile');
+    if (/(^|[;\\n])\\s*(?:import(?:\\s|\\()|export\\s)/.test(source)) throw new Error('Module syntax blocked before compile');
     var compiled = window.Babel.transform(source, { presets: ['react'], sourceType: 'script' }).code;
-    if (/(^|[;\n])\s*(?:import(?:\s|\()|export\s)/.test(compiled)) throw new Error('Module syntax blocked before execution');
+    if (/(^|[;\\n])\\s*(?:import(?:\\s|\\()|export\\s)/.test(compiled)) throw new Error('Module syntax blocked before execution');
     var runner = document.createElement('script');
     runner.type = 'text/javascript';
     runner.text = compiled;
