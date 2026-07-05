@@ -200,7 +200,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);`
 (function(){
   function hardStripModules(src){
     var out = String(src || '').replace(/\r\n/g, '\n');
-    out = out.replace(/^\s*```(?:jsx|tsx|js|ts|javascript|typescript)?\s*/i, '').replace(/```\s*$/i, '');
+    out = out.replace(/^\s*\x60\x60\x60(?:jsx|tsx|js|ts|javascript|typescript)?\s*/i, '').replace(/\x60\x60\x60\s*$/i, '');
     out = out.replace(/^\s*import\s+["'][^"']+["']\s*;?\s*$/gm, '');
     out = out.replace(/^\s*import\s+(?:type\s+)?[\s\S]*?\s+from\s*["'][^"']+["']\s*;?\s*$/gm, '');
     out = out.replace(/^\s*import\s*\([\s\S]*?\)\s*;?\s*$/gm, '');
