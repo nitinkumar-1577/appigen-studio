@@ -35,13 +35,17 @@ function sanitizeReactSource(src: string): string {
   let out = src;
   // Strip ```jsx / ``` fences if any slipped through
   out = out.replace(/^\s*```(?:jsx|tsx|js|ts|javascript|typescript)?\s*/i, "").replace(/```\s*$/i, "");
-  // Remove ES module import statements (side-effect, default, named, namespace, dynamic-ish)
-  out = out.replace(/^\s*import\s+[^;]*?;?\s*$/gm, "");
-  out = out.replace(/^\s*import\s*\(.+?\)\s*;?\s*$/gm, "");
+  // Remove ES module import statements — including multi-line { ... } forms
+  //   import X from "..."; | import { a, b } from "..."; | import * as X from "..."; | import "..."
+  out = out.replace(/^[ \t]*import\b[\s\S]*?["'][^"']+["'][ \t]*;?[ \t]*$/gm, "");
+  // Remove dynamic imports: import("...")
+  out = out.replace(/^[ \t]*import\s*\([^)]*\)[ \t]*;?[ \t]*$/gm, "");
   // Convert `export default X` / `export { ... }` / `export const/function/class`
-  out = out.replace(/^\s*export\s+default\s+/gm, "");
-  out = out.replace(/^\s*export\s+(const|let|var|function|class)\s+/gm, "$1 ");
-  out = out.replace(/^\s*export\s*\{[^}]*\}\s*;?\s*$/gm, "");
+  out = out.replace(/^[ \t]*export\s+default\s+/gm, "");
+  out = out.replace(/^[ \t]*export\s+(const|let|var|function|class)\s+/gm, "$1 ");
+  out = out.replace(/^[ \t]*export\s*\{[^}]*\}[ \t]*;?[ \t]*$/gm, "");
+  // Final safety: neutralize any stray "import ... from ..." tokens that survived (e.g. inline)
+  out = out.replace(/\bimport\s+[^;\n]*?\bfrom\s+["'][^"']+["'][ \t]*;?/g, "");
   return out;
 }
 
