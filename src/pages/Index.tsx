@@ -193,6 +193,14 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);`
     });
   };
   ${JSON.stringify(iconGlobals)}.forEach(function(name){ if (!window[name]) window[name] = window.__appigenIcon(name); });
+  window.require = function(name){
+    if (name === 'react') return window.React;
+    if (name === 'react-dom' || name === 'react-dom/client') return window.ReactDOM;
+    if (name === 'lucide-react') {
+      return new Proxy({}, { get: function(_, key){ return window[String(key)] || window.__appigenIcon(String(key)); } });
+    }
+    return {};
+  };
 })();
   </script>
   <script id="__appigen_source" type="text/plain">${escapeScriptText(reactSource)}</script>
@@ -225,7 +233,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);`
     var raw = document.getElementById('__appigen_source').textContent || '';
     var source = hardStripModules(raw);
     if (/(^|[;\\n])\\s*(?:import(?:\\s|\\()|export\\s)/.test(source)) throw new Error('Module syntax blocked before compile');
-    var compiled = window.Babel.transform(source, { presets: ['react'], sourceType: 'script' }).code;
+    var compiled = window.Babel.transform(source, { presets: [['react', { runtime: 'classic' }]], sourceType: 'script' }).code;
     if (/(^|[;\\n])\\s*(?:import(?:\\s|\\()|export\\s)/.test(compiled)) throw new Error('Module syntax blocked before execution');
     var runner = document.createElement('script');
     runner.type = 'text/javascript';
