@@ -121,6 +121,7 @@ export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChan
   }, [currentFile, code]);
 
   const srcDoc = useMemo(() => doc, [doc, nonce]);
+  const previewKey = useMemo(() => `${nonce}-${doc.length}-${doc.slice(0, 128)}`, [doc, nonce]);
   const handleRefresh = () => setNonce((n) => n + 1);
   const handleFullscreen = () => iframeRef.current?.requestFullscreen?.();
 
@@ -225,7 +226,7 @@ export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChan
           {tab === "preview" && (
             <iframe
               ref={iframeRef}
-              key={nonce}
+              key={previewKey}
               title="AppiGen Sandbox Preview"
               srcDoc={srcDoc}
               sandbox="allow-scripts allow-forms allow-popups allow-modals allow-same-origin"

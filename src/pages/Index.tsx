@@ -16,7 +16,6 @@ import { useApp } from "@/components/appigen/AppContext";
 import { Sparkles, Pencil } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import JSZip from "jszip";
 
 const VIEW_TITLES: Record<ViewKey, string> = {
@@ -31,22 +30,54 @@ const VIEW_TITLES: Record<ViewKey, string> = {
 const DEFAULT_PROMPT =
   "Build a minimalist task manager with drag-and-drop columns, calm color palette, and keyboard shortcuts.";
 
-function sanitizeReactSource(src: string): string {
-  let out = src;
-  // Strip ```jsx / ``` fences if any slipped through
+const ROOT_RENDER_CALL = /ReactDOM\s*\.\s*createRoot\s*\(\s*document\s*\.\s*getElementById\s*\(\s*["']root["']\s*\)\s*\)\s*\.\s*render\s*\(\s*<App\s*\/?>\s*\)\s*;?/g;
+const LEGACY_RENDER_CALL = /ReactDOM\s*\.\s*render\s*\(\s*<App\s*\/?>\s*,\s*document\s*\.\s*getElementById\s*\(\s*["']root["']\s*\)\s*\)\s*;?/g;
+const BARE_CREATE_ROOT_CALL = /\bcreateRoot\s*\(\s*document\s*\.\s*getElementById\s*\(\s*["']root["']\s*\)\s*\)\s*\.\s*render\s*\(\s*<App\s*\/?>\s*\)\s*;?/g;
+
+function stripModuleSyntax(src: string): string {
+  let out = (src || "").replace(/\r\n/g, "\n");
   out = out.replace(/^\s*```(?:jsx|tsx|js|ts|javascript|typescript)?\s*/i, "").replace(/```\s*$/i, "");
-  // Remove ES module import statements — including multi-line { ... } forms
-  //   import X from "..."; | import { a, b } from "..."; | import * as X from "..."; | import "..."
-  out = out.replace(/^[ \t]*import\b[\s\S]*?["'][^"']+["'][ \t]*;?[ \t]*$/gm, "");
-  // Remove dynamic imports: import("...")
-  out = out.replace(/^[ \t]*import\s*\([^)]*\)[ \t]*;?[ \t]*$/gm, "");
-  // Convert `export default X` / `export { ... }` / `export const/function/class`
-  out = out.replace(/^[ \t]*export\s+default\s+/gm, "");
-  out = out.replace(/^[ \t]*export\s+(const|let|var|function|class)\s+/gm, "$1 ");
-  out = out.replace(/^[ \t]*export\s*\{[^}]*\}[ \t]*;?[ \t]*$/gm, "");
-  // Final safety: neutralize any stray "import ... from ..." tokens that survived (e.g. inline)
-  out = out.replace(/\bimport\s+[^;\n]*?\bfrom\s+["'][^"']+["'][ \t]*;?/g, "");
-  return out;
+  out = out.replace(/^\s*import\s+["'][^"']+["']\s*;?\s*$/gm, "");
+  out = out.replace(/^\s*import\s+(?:type\s+)?[\s\S]*?\s+from\s*["'][^"']+["']\s*;?\s*$/gm, "");
+  out = out.replace(/^\s*import\s*\([\s\S]*?\)\s*;?\s*$/gm, "");
+  out = out.replace(/\bimport\s*\(\s*(["'`])(?:\\.|(?!\1)[\s\S])*?\1\s*\)/g, "Promise.resolve({})");
+  out = out.replace(/^\s*export\s+(?:type\s+)?(?:\*|\{[\s\S]*?\})\s+from\s*["'][^"']+["']\s*;?\s*$/gm, "");
+  out = out.replace(/^\s*export\s*\{[\s\S]*?\}\s*;?\s*$/gm, "");
+  out = out.replace(/^\s*export\s+default\s+(?=(?:async\s+)?function\b|class\b)/gm, "");
+  out = out.replace(/^\s*export\s+default\s+[^;\n]+;?\s*$/gm, "");
+  out = out.replace(/^\s*export\s+(?=(?:const|let|var|function|class)\b)/gm, "");
+  out = out.replace(/\bimport\s+(?:type\s+)?[^;\n]*?\bfrom\s*["'][^"']+["']\s*;?/g, "");
+  out = out.replace(/(^|[;\n])\s*export\s+(?:default\s+)?/g, "$1");
+  return out.trim();
+}
+
+function sanitizeReactSource(src: string): string {
+  const body = stripModuleSyntax(src)
+    .replace(ROOT_RENDER_CALL, "")
+    .replace(LEGACY_RENDER_CALL, "")
+    .replace(BARE_CREATE_ROOT_CALL, "")
+    .trim();
+  return `${body}\nReactDOM.createRoot(document.getElementById("root")).render(<App />);`;
+}
+
+function escapeScriptText(src: string): string {
+  return src.replace(/<\/script/gi, "<\\/script").replace(/<!--/g, "<\\!--");
+}
+
+function collectPotentialGlobals(src: string): string[] {
+  const names = new Set<string>([
+    "Activity", "AlertCircle", "ArrowLeft", "ArrowRight", "BarChart3", "Bell", "BookOpen", "Bot", "Calendar", "Camera",
+    "Check", "CheckCircle", "ChevronDown", "ChevronLeft", "ChevronRight", "ChevronUp", "Circle", "Clock", "Code", "Copy",
+    "CreditCard", "Database", "Download", "Edit", "ExternalLink", "Eye", "File", "Filter", "Folder", "Github", "Globe",
+    "Heart", "Home", "Image", "Info", "Layers", "LayoutDashboard", "LineChart", "Link", "List", "Lock", "Mail", "MapPin",
+    "Menu", "MessageCircle", "Mic", "Minus", "Moon", "MoreHorizontal", "MoreVertical", "PanelLeft", "Paperclip", "Pause", "Pencil",
+    "Play", "Plus", "RefreshCw", "Rocket", "Save", "Search", "Send", "Settings", "Share", "Shield", "ShoppingCart",
+    "Sparkles", "Star", "Sun", "Trash", "TrendingUp", "Upload", "User", "Users", "Wand2", "X", "Zap"
+  ]);
+  for (const match of src.matchAll(/<\s*([A-Z][A-Za-z0-9_]*)\b/g)) {
+    if (match[1] !== "App" && match[1] !== "React.Fragment") names.add(match[1]);
+  }
+  return Array.from(names).sort();
 }
 
 function buildDocFromPrompt(prompt: string, code?: string) {
@@ -85,6 +116,7 @@ function buildDocFromPrompt(prompt: string, code?: string) {
 }
 ReactDOM.createRoot(document.getElementById("root")).render(<App />);`
   );
+  const iconGlobals = collectPotentialGlobals(reactSource);
 
 
   // Phase 10/15: runtime error capture + visible overlay + parent postMessage
@@ -133,16 +165,84 @@ ReactDOM.createRoot(document.getElementById("root")).render(<App />);`
 </head>
 <body>
   <div id="root"></div>
-  <script type="text/babel" data-presets="react">
-try {
-${reactSource}
-} catch (e) {
-  parent.postMessage({ __appigen: true, kind: 'compile', message: e && e.message, stack: e && e.stack }, '*');
-  var pre = document.createElement('pre');
-  pre.style.cssText = 'color:#fecaca;background:#7f1d1d;padding:16px;margin:16px;border-radius:8px;white-space:pre-wrap;font:12px ui-monospace,Menlo,monospace';
-  pre.textContent = 'Compile error: ' + (e && e.message);
-  document.body.appendChild(pre);
-}
+  <script>
+(function(){
+  window.React = window.React;
+  window.ReactDOM = window.ReactDOM;
+  window.useState = window.React.useState;
+  window.useEffect = window.React.useEffect;
+  window.useRef = window.React.useRef;
+  window.useMemo = window.React.useMemo;
+  window.useCallback = window.React.useCallback;
+  window.useReducer = window.React.useReducer;
+  window.useContext = window.React.useContext;
+  window.Fragment = window.React.Fragment;
+  window.__appigenDisabledImport = function(){ return Promise.resolve({}); };
+  window.__appigenIcon = function(name){
+    return window.React.forwardRef(function AppiGenIcon(props, ref){
+      props = props || {};
+      var size = props.size || 20;
+      var strokeWidth = props.strokeWidth || 2;
+      var className = props.className || '';
+      var rest = Object.assign({}, props);
+      delete rest.size; delete rest.strokeWidth; delete rest.className;
+      return window.React.createElement('svg', Object.assign({ ref: ref, xmlns: 'http://www.w3.org/2000/svg', width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: strokeWidth, strokeLinecap: 'round', strokeLinejoin: 'round', className: className, 'aria-hidden': 'true', focusable: 'false' }, rest),
+        window.React.createElement('circle', { cx: 12, cy: 12, r: 8 }),
+        window.React.createElement('path', { d: 'M12 8v8M8 12h8' })
+      );
+    });
+  };
+  ${JSON.stringify(iconGlobals)}.forEach(function(name){ if (!window[name]) window[name] = window.__appigenIcon(name); });
+  window.require = function(name){
+    if (name === 'react') return window.React;
+    if (name === 'react-dom' || name === 'react-dom/client') return window.ReactDOM;
+    if (name === 'lucide-react') {
+      return new Proxy({}, { get: function(_, key){ return window[String(key)] || window.__appigenIcon(String(key)); } });
+    }
+    return {};
+  };
+})();
+  </script>
+  <script id="__appigen_source" type="text/plain">${escapeScriptText(reactSource)}</script>
+  <script>
+(function(){
+  function hardStripModules(src){
+    var out = String(src || '').replace(/\\r\\n/g, '\\n');
+    out = out.replace(/^\\s*\\x60\\x60\\x60(?:jsx|tsx|js|ts|javascript|typescript)?\\s*/i, '').replace(/\\x60\\x60\\x60\\s*$/i, '');
+    out = out.replace(/^\\s*import\\s+["'][^"']+["']\\s*;?\\s*$/gm, '');
+    out = out.replace(/^\\s*import\\s+(?:type\\s+)?[\\s\\S]*?\\s+from\\s*["'][^"']+["']\\s*;?\\s*$/gm, '');
+    out = out.replace(/^\\s*import\\s*\\([\\s\\S]*?\\)\\s*;?\\s*$/gm, '');
+    out = out.replace(/\\bimport\\s*\\([\\s\\S]*?\\)/g, 'Promise.resolve({})');
+    out = out.replace(/^\\s*export\\s+(?:type\\s+)?(?:\\*|\\{[\\s\\S]*?\\})\\s+from\\s*["'][^"']+["']\\s*;?\\s*$/gm, '');
+    out = out.replace(/^\\s*export\\s*\\{[\\s\\S]*?\\}\\s*;?\\s*$/gm, '');
+    out = out.replace(/^\\s*export\\s+default\\s+(?=(?:async\\s+)?function\\b|class\\b)/gm, '');
+    out = out.replace(/^\\s*export\\s+default\\s+[^;\\n]+;?\\s*$/gm, '');
+    out = out.replace(/^\\s*export\\s+(?=(?:const|let|var|function|class)\\b)/gm, '');
+    out = out.replace(/\\bimport\\s+(?:type\\s+)?[^;\\n]*?\\bfrom\\s*["'][^"']+["']\\s*;?/g, '');
+    out = out.replace(/(^|[;\\n])\\s*export\\s+(?:default\\s+)?/g, '$1');
+    return out.trim();
+  }
+  function showCompileError(e){
+    parent.postMessage({ __appigen: true, kind: 'compile', message: e && e.message, stack: e && e.stack }, '*');
+    var pre = document.createElement('pre');
+    pre.style.cssText = 'color:#fecaca;background:#7f1d1d;padding:16px;margin:16px;border-radius:8px;white-space:pre-wrap;font:12px ui-monospace,Menlo,monospace';
+    pre.textContent = 'Compile error: ' + (e && e.message ? e.message : e);
+    document.body.appendChild(pre);
+  }
+  try {
+    var raw = document.getElementById('__appigen_source').textContent || '';
+    var source = hardStripModules(raw);
+    if (/(^|[;\\n])\\s*(?:import(?:\\s|\\()|export\\s)/.test(source)) throw new Error('Module syntax blocked before compile');
+    var compiled = window.Babel.transform(source, { presets: [['react', { runtime: 'classic' }]], sourceType: 'script' }).code;
+    if (/(^|[;\\n])\\s*(?:import(?:\\s|\\()|export\\s)/.test(compiled)) throw new Error('Module syntax blocked before execution');
+    var runner = document.createElement('script');
+    runner.type = 'text/javascript';
+    runner.text = compiled;
+    document.body.appendChild(runner);
+  } catch (e) {
+    showCompileError(e);
+  }
+})();
   </script>
 </body>
 </html>`;
@@ -328,10 +428,10 @@ const Index = () => {
             </div>
           </header>
 
-          <main className="relative z-0 flex flex-1 flex-col overflow-hidden lg:flex-row">
+          <main className="relative z-0 flex flex-1 flex-col overflow-hidden">
             {view === "studio" && (
-              <ResizablePanelGroup direction="horizontal" className="hidden lg:flex h-full w-full">
-                <ResizablePanel defaultSize={42} minSize={25} maxSize={65} className="overflow-y-auto">
+              <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+                <section className="min-h-0 shrink-0 overflow-y-auto border-b border-border/60 lg:w-[42%] lg:border-b-0 lg:border-r">
                   <PromptPanel
                     prompt={prompt}
                     onPromptChange={setPrompt}
@@ -339,9 +439,8 @@ const Index = () => {
                     onDownload={handleDownload}
                     isBuilding={isBuilding}
                   />
-                </ResizablePanel>
-                <ResizableHandle withHandle className="bg-border/60 hover:bg-primary/40 transition-colors" />
-                <ResizablePanel defaultSize={58} minSize={35} className="min-h-0">
+                </section>
+                <section className="min-h-[60vh] flex-1 lg:min-h-0">
                   <PreviewPanel
                     isBuilding={isBuilding}
                     doc={doc}
@@ -352,30 +451,7 @@ const Index = () => {
                       setDoc(buildDocFromPrompt(prompt, newCode));
                     }}
                   />
-                </ResizablePanel>
-              </ResizablePanelGroup>
-            )}
-            {view === "studio" && (
-              <div className="flex flex-1 flex-col lg:hidden overflow-y-auto pb-32">
-                <PromptPanel
-                  prompt={prompt}
-                  onPromptChange={setPrompt}
-                  onBuild={handleBuild}
-                  onDownload={handleDownload}
-                  isBuilding={isBuilding}
-                />
-                <div className="min-h-[60vh]">
-                  <PreviewPanel
-                    isBuilding={isBuilding}
-                    doc={doc}
-                    code={lastCode}
-                    onPushToGithub={() => setGithubOpen(true)}
-                    onCodeChange={(newCode) => {
-                      setLastCode(newCode);
-                      setDoc(buildDocFromPrompt(prompt, newCode));
-                    }}
-                  />
-                </div>
+                </section>
               </div>
             )}
             {view === "dashboard" && <DashboardPage onNavigate={setView} />}
