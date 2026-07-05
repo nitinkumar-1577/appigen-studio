@@ -31,9 +31,23 @@ const VIEW_TITLES: Record<ViewKey, string> = {
 const DEFAULT_PROMPT =
   "Build a minimalist task manager with drag-and-drop columns, calm color palette, and keyboard shortcuts.";
 
+function sanitizeReactSource(src: string): string {
+  let out = src;
+  // Strip ```jsx / ``` fences if any slipped through
+  out = out.replace(/^\s*```(?:jsx|tsx|js|ts|javascript|typescript)?\s*/i, "").replace(/```\s*$/i, "");
+  // Remove ES module import statements (side-effect, default, named, namespace, dynamic-ish)
+  out = out.replace(/^\s*import\s+[^;]*?;?\s*$/gm, "");
+  out = out.replace(/^\s*import\s*\(.+?\)\s*;?\s*$/gm, "");
+  // Convert `export default X` / `export { ... }` / `export const/function/class`
+  out = out.replace(/^\s*export\s+default\s+/gm, "");
+  out = out.replace(/^\s*export\s+(const|let|var|function|class)\s+/gm, "$1 ");
+  out = out.replace(/^\s*export\s*\{[^}]*\}\s*;?\s*$/gm, "");
+  return out;
+}
+
 function buildDocFromPrompt(prompt: string, code?: string) {
   const safePrompt = (prompt || "Untitled App").replace(/</g, "&lt;");
-  const reactSource =
+  const reactSource = sanitizeReactSource(
     code ??
     `function App() {
   const [tasks, setTasks] = React.useState([
@@ -65,7 +79,9 @@ function buildDocFromPrompt(prompt: string, code?: string) {
     </div>
   );
 }
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);`;
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);`
+  );
+
 
   // Phase 10/15: runtime error capture + visible overlay + parent postMessage
   const runtimeShield = `
