@@ -120,21 +120,6 @@ function stripModuleSyntax(src: string): string {
   return s.trim();
 }
 
-function stripModuleSyntax(src: string): string {
-  let s = (src ?? "").replace(/\r\n/g, "\n");
-  s = s.replace(/^\s*import\s+["'][^"']+["']\s*;?\s*$/gm, "");
-  s = s.replace(/^\s*import\s+(?:type\s+)?[\s\S]*?\s+from\s*["'][^"']+["']\s*;?\s*$/gm, "");
-  s = s.replace(/^\s*import\s*\([\s\S]*?\)\s*;?\s*$/gm, "");
-  s = s.replace(/\bimport\s*\([\s\S]*?\)/g, "Promise.resolve({})");
-  s = s.replace(/^\s*export\s+(?:type\s+)?(?:\*|\{[\s\S]*?\})\s+from\s*["'][^"']+["']\s*;?\s*$/gm, "");
-  s = s.replace(/^\s*export\s*\{[\s\S]*?\}\s*;?\s*$/gm, "");
-  s = s.replace(/^\s*export\s+default\s+(?=(?:async\s+)?function\b|class\b)/gm, "");
-  s = s.replace(/^\s*export\s+default\s+[^;\n]+;?\s*$/gm, "");
-  s = s.replace(/^\s*export\s+(?=(?:const|let|var|function|class)\b)/gm, "");
-  s = s.replace(/\bimport\s+(?:type\s+)?[^;\n]*?\bfrom\s*["'][^"']+["']\s*;?/g, "");
-  s = s.replace(/(^|[;\n])\s*export\s+(?:default\s+)?/g, "$1");
-  return s.trim();
-}
 
 // Bracket balance sanity check
 function bracketsBalanced(src: string): boolean {
