@@ -120,6 +120,9 @@ function stripModuleSyntax(src: string): string {
   return s.trim();
 }
 
+function isMultiFile(src: string): boolean {
+  return /^\s*\/\/\s*FILE:/m.test(src || "");
+
 
 // Bracket balance sanity check
 function bracketsBalanced(src: string): boolean {
