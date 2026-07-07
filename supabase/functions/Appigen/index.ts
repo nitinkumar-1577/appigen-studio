@@ -122,6 +122,8 @@ function stripModuleSyntax(src: string): string {
 
 function isMultiFile(src: string): boolean {
   return /^\s*\/\/\s*FILE:/m.test(src || "");
+}
+
 
 
 // Bracket balance sanity check
