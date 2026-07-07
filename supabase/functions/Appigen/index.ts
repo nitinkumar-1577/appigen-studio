@@ -280,8 +280,7 @@ Deno.serve(async (req) => {
       const errorMsg = typeof body.error === "string" ? body.error : "";
       if (!code || !errorMsg) return jsonResponse({ error: "Missing code or error for repair" }, 400);
       let fixed = await repairCode(GROQ_API_KEY, code, errorMsg);
-      if (!bracketsBalanced(fixed)) {
-        // one more pass with stricter instruction
+      if (!isMultiFile(fixed) && !bracketsBalanced(fixed)) {
         fixed = await repairCode(GROQ_API_KEY, fixed, "Brackets/JSX still unbalanced. Close every tag and bracket.");
       }
       if (!fixed) return jsonResponse({ error: "Repair produced empty code" }, 502);
@@ -299,8 +298,8 @@ Deno.serve(async (req) => {
     const plan = await enhanceAndPlan(GROQ_API_KEY, prompt, stage);
     let code = await generateCode(GROQ_API_KEY, plan, system, stage);
 
-    // Validator: bracket balance + render call. Auto-repair once.
-    if (!bracketsBalanced(code)) {
+    // Validator: bracket balance for single-file only (multi-file bracket check spans files).
+    if (!isMultiFile(code) && !bracketsBalanced(code)) {
       code = await repairCode(GROQ_API_KEY, code, "Unbalanced brackets / unclosed JSX tags detected by validator.");
     }
     if (!code) return jsonResponse({ error: "Generator returned empty code" }, 502);
