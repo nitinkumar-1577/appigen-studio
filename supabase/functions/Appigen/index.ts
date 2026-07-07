@@ -241,7 +241,7 @@ ${system ? "EXTRA SYSTEM HINTS:\n" + system : ""}`.trim();
       { role: "user", content: blueprint },
     ],
     temperature: 0.6,
-    max_tokens: 3500,
+    max_tokens: 5500,
   });
   return cleanCode(data?.choices?.[0]?.message?.content ?? "");
 }
@@ -257,7 +257,7 @@ async function repairCode(apiKey: string, brokenCode: string, errorMsg: string) 
       },
     ],
     temperature: 0.2,
-    max_tokens: 3500,
+    max_tokens: 5500,
   });
   return cleanCode(data?.choices?.[0]?.message?.content ?? "");
 }
