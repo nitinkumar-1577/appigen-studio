@@ -309,11 +309,17 @@ async function generateCode(apiKey: string, plan: any, system?: string, stage?: 
 App type: ${plan.appType || "app"}
 Complexity: ${plan.complexity || "moderate"}
 Pages/sections: ${(plan.pages || []).join(", ") || "(single page)"}
-Components: ${(plan.components || []).join(", ") || "(infer)"}
-Features: ${(plan.features || []).join(", ") || "(infer)"}
 Stage: ${stage || "polish"}
 
-DETAILED PROMPT:
+REQUIRED FILE LAYOUT (create each file with the // FILE: delimiter, one responsibility per file):
+- src/App.jsx (root, default export)
+${(plan.pages || []).map((p: string) => `- src/pages/${p} (route/screen)`).join("\n") || "- (no additional pages)"}
+${(plan.components || []).map((c: string) => `- ${c}`).join("\n") || "- (infer minimal components)"}
+${(plan.hooks || []).map((h: string) => `- ${h}`).join("\n")}
+${(plan.contexts || []).map((c: string) => `- ${c}`).join("\n")}
+${(plan.utils || []).map((u: string) => `- ${u}`).join("\n")}
+
+DETAILED SPEC:
 ${plan.enhancedPrompt || ""}
 
 ${system ? "EXTRA SYSTEM HINTS:\n" + system : ""}`.trim();
