@@ -1,5 +1,6 @@
-// AppiGen V3 — Core pipeline (Groq strict)
-// Phases: 1 Enhancer · 2 Planner · 8 Validator · 9 Auto-Repair · 16 Output cleaning
+// AppiGen V4 — Thinking Engine pipeline (Groq)
+// Stages: 1 Intent · 2 Requirements · 3 Architecture · 4 Blueprint
+//       · 5 Generate (multi-file) · 6 Validate · 7 Auto-Repair · 8 Clean
 // Plus: 429/5xx retry+backoff, strict input validation, structured errors.
 
 const corsHeaders = {
