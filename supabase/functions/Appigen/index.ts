@@ -1,7 +1,7 @@
-// AppiGen V4 — Thinking Engine pipeline (Groq)
-// Stages: 1 Intent · 2 Requirements · 3 Architecture · 4 Blueprint
-//       · 5 Generate (multi-file) · 6 Validate · 7 Auto-Repair · 8 Clean
-// Plus: 429/5xx retry+backoff, strict input validation, structured errors.
+// AppiGen V4 — Timeout-safe Thinking Engine pipeline (Groq)
+// Local stages: 1 Intent · 2 Requirements · 3 Architecture · 4 Blueprint
+// AI stages: 5 Generate (multi-file) · 6 Validate · 7 Auto-Repair · 8 Clean
+// Critical: never run sequential long AI calls inside the edge request.
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -12,6 +12,9 @@ const corsHeaders = {
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 const MODEL_FAST = "llama-3.1-8b-instant";
 const MODEL_SMART = "llama-3.3-70b-versatile";
+const PRIMARY_GENERATION_TIMEOUT_MS = 65000;
+const FAST_GENERATION_TIMEOUT_MS = 45000;
+const REPAIR_TIMEOUT_MS = 50000;
 
 const GENERATOR_SYSTEM = `You are an elite senior frontend engineer generating a production-grade React application in the LOVABLE MULTI-FILE style.
 
@@ -154,18 +157,32 @@ function bracketsBalanced(src: string): boolean {
 async function groq(
   apiKey: string,
   body: Record<string, unknown>,
-  { retries = 3 } = {},
+  { retries = 0, timeoutMs = 55000 } = {},
 ): Promise<any> {
   let lastErr: any = null;
   for (let attempt = 0; attempt <= retries; attempt++) {
-    const res = await fetch(GROQ_URL, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let res: Response;
+    try {
+      res = await fetch(GROQ_URL, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } catch (e) {
+      clearTimeout(timer);
+      const msg = e instanceof Error ? e.message : String(e);
+      lastErr = { status: "timeout", body: msg };
+      if (attempt < retries) continue;
+      throw new Error(`Groq request timed out before edge idle limit (${timeoutMs}ms)`);
+    } finally {
+      clearTimeout(timer);
+    }
     const text = await res.text();
     if (res.ok) {
       try { return JSON.parse(text); }
@@ -175,11 +192,11 @@ async function groq(
     // Retry on 429 / 5xx with exponential backoff + jitter
     if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
       // Honor Groq's "Please try again in Xs" hint when present
-      let wait = Math.min(8000, 500 * 2 ** attempt) + Math.random() * 250;
+      let wait = Math.min(1200, 400 * 2 ** attempt) + Math.random() * 150;
       const m = text.match(/try again in ([\d.]+)s/i);
-      if (m) wait = Math.min(30000, Math.ceil(parseFloat(m[1]) * 1000) + 500);
+      if (m) wait = Math.min(2500, Math.ceil(parseFloat(m[1]) * 1000) + 250);
       const ra = res.headers.get("retry-after");
-      if (ra && !isNaN(Number(ra))) wait = Math.max(wait, Number(ra) * 1000);
+      if (ra && !isNaN(Number(ra))) wait = Math.min(2500, Math.max(wait, Number(ra) * 1000));
       await new Promise((r) => setTimeout(r, wait));
       continue;
     }
@@ -209,40 +226,95 @@ async function groqJSON(apiKey: string, model: string, sys: string, user: string
     temperature: 0.3,
     max_tokens: maxTokens,
     response_format: { type: "json_object" },
-  });
+  }, { timeoutMs: 25000 });
   const raw = data?.choices?.[0]?.message?.content ?? "{}";
   try { return JSON.parse(raw); } catch { return {}; }
 }
 
-// Stage 1 — Intent Detection
-// Unified Planner — one call replaces intent+requirements+architecture
-// to stay within the 150s edge-function budget while preserving the
-// staged Thinking Engine's output shape.
-async function enhanceAndPlan(apiKey: string, userPrompt: string, stage?: string) {
-  const sys = `You are a principal software architect performing intent detection, requirement extraction, and multi-file architecture planning in ONE pass.
-Return STRICT JSON only (no markdown, no prose):
-{
-  "intent": { "goal": string, "appType": string, "domain": string, "complexity": "simple"|"moderate"|"complex" },
-  "requirements": { "functional": string[], "nonFunctional": string[], "edgeCases": string[], "uxStates": string[] },
-  "architecture": {
-    "pages": string[],
-    "components": [{"path": string, "purpose": string}],
-    "hooks": [{"path": string, "purpose": string}],
-    "contexts": [{"path": string, "purpose": string}],
-    "utils": [{"path": string, "purpose": string}],
-    "dataModel": string,
-    "stateStrategy": string
-  }
+function titleCaseWord(word: string) {
+  return word ? word.charAt(0).toUpperCase() + word.slice(1).toLowerCase() : word;
 }
-Rules:
-- Paths: src/App.jsx, src/components/*.jsx, src/pages/*.jsx, src/hooks/use*.js, src/context/*.jsx, src/utils/*.js.
-- Every file has ONE responsibility. No duplicated logic.
-- Always include as applicable: responsive, accessibility, loading/empty/error states, validation, dark mode, animations.
-- Infer missing details; never ask questions.`;
-  const data = await groqJSON(apiKey, MODEL_FAST, sys, `User request: ${userPrompt}\nStage: ${stage ?? "polish"}`, 1800);
-  const intent = data.intent || {};
-  const reqs = data.requirements || {};
-  const arch = data.architecture || {};
+
+function inferAppType(prompt: string) {
+  const p = prompt.toLowerCase();
+  if (/game|ludo|chess|quiz|snake|tic tac|puzzle|arcade/.test(p)) return "game";
+  if (/dashboard|analytics|admin|crm|chart|report/.test(p)) return "dashboard";
+  if (/shop|store|ecommerce|cart|product/.test(p)) return "commerce app";
+  if (/todo|task|kanban|planner|notes/.test(p)) return "productivity app";
+  if (/portfolio|landing|website|agency|restaurant/.test(p)) return "website";
+  return "app";
+}
+
+function inferDomain(prompt: string, appType: string) {
+  const p = prompt.toLowerCase();
+  if (/ludo|chess|snake|puzzle|arcade/.test(p)) return "casual gaming";
+  if (/finance|stock|crypto|invoice|budget/.test(p)) return "finance";
+  if (/health|fitness|habit|medical/.test(p)) return "health";
+  if (/learn|course|school|education/.test(p)) return "education";
+  if (/restaurant|food|recipe|menu/.test(p)) return "food";
+  return appType === "app" ? "general" : appType;
+}
+
+function localArchitecture(prompt: string, appType: string) {
+  const p = prompt.toLowerCase();
+  const components = [
+    { path: "src/components/Header.jsx", purpose: "top bar, status, primary actions" },
+    { path: "src/components/ActionPanel.jsx", purpose: "main controls and contextual actions" },
+    { path: "src/components/EmptyState.jsx", purpose: "friendly empty or first-run state" },
+  ];
+  const hooks = [{ path: "src/hooks/usePersistentState.js", purpose: "localStorage-backed state persistence" }];
+  const contexts = [{ path: "src/context/AppStateContext.jsx", purpose: "shared application state and actions" }];
+  const utils = [{ path: "src/utils/helpers.js", purpose: "pure helpers and validation" }];
+  const pages = ["Home.jsx"];
+
+  if (appType === "game") {
+    components.push(
+      { path: "src/components/GameBoard.jsx", purpose: "responsive playable board" },
+      { path: "src/components/PlayerPanel.jsx", purpose: "turns, scores, and player state" },
+      { path: "src/components/GameControls.jsx", purpose: "dice, reset, and game actions" },
+    );
+    utils.push({ path: "src/utils/gameLogic.js", purpose: "rules, turns, win checks, and safe moves" });
+  } else if (/dashboard|analytics|admin|crm|chart|report/.test(p)) {
+    components.push(
+      { path: "src/components/MetricCard.jsx", purpose: "reusable metric summaries" },
+      { path: "src/components/DataPanel.jsx", purpose: "lists, filters, and tables" },
+    );
+    utils.push({ path: "src/utils/mockData.js", purpose: "seed data for the generated dashboard" });
+  } else if (/todo|task|kanban|planner|notes/.test(p)) {
+    components.push(
+      { path: "src/components/TaskCard.jsx", purpose: "editable item card" },
+      { path: "src/components/BoardColumn.jsx", purpose: "grouped workflow column" },
+    );
+  }
+
+  return {
+    pages,
+    components,
+    hooks,
+    contexts,
+    utils,
+    dataModel: appType === "game" ? "players, pieces, dice, turns, move history" : "local entities persisted to localStorage",
+    stateStrategy: "React state + context + localStorage cache with guarded event handlers",
+  };
+}
+
+function enhanceAndPlan(_apiKey: string, userPrompt: string, stage?: string) {
+  const appType = inferAppType(userPrompt);
+  const domain = inferDomain(userPrompt, appType);
+  const complexity = userPrompt.length > 900 || /multi|auth|database|payment|realtime|ai|advanced|full/.test(userPrompt.toLowerCase()) ? "complex" : "moderate";
+  const intent = { goal: userPrompt, appType, domain, complexity };
+  const reqs = {
+    functional: [
+      "Build the requested experience as a real interactive React app",
+      "Separate UI, state, and helper logic into multiple files",
+      "Persist important state in localStorage",
+      "Provide reset and primary action controls",
+    ],
+    nonFunctional: ["responsive layout", "accessible controls", "stable event handlers", "fast first render", "dark theme"],
+    edgeCases: ["empty input", "invalid action", "refresh persistence", "reset flow", "mobile viewport"],
+    uxStates: ["ready", "active", "success", "error", "empty"],
+  };
+  const arch = localArchitecture(userPrompt, appType);
 
   const components = (arch.components || []).map((c: any) => `${c.path} — ${c.purpose}`);
   const hooks = (arch.hooks || []).map((h: any) => `${h.path} — ${h.purpose}`);
@@ -277,6 +349,221 @@ Rules:
   };
 }
 
+function fallbackCode(prompt: string, plan: any) {
+  const title = titleCaseWord((prompt.match(/[a-zA-Z0-9]+/) || ["AppiGen"])[0]) + " App";
+  if (/ludo/i.test(prompt)) {
+    return `// FILE: src/App.jsx
+import React, { useMemo, useState } from "react";
+import Header from "./components/Header";
+import GameBoard from "./components/GameBoard";
+import PlayerPanel from "./components/PlayerPanel";
+import GameControls from "./components/GameControls";
+import { createInitialPlayers, nextPlayerIndex } from "./utils/gameLogic";
+
+export default function App() {
+  const [players, setPlayers] = useState(() => createInitialPlayers());
+  const [turn, setTurn] = useState(0);
+  const [dice, setDice] = useState(1);
+  const [message, setMessage] = useState("Roll the dice to start the match.");
+  const active = players[turn];
+  const winner = players.find((p) => p.home >= 4);
+
+  const rollDice = () => {
+    if (winner) return;
+    const value = Math.floor(Math.random() * 6) + 1;
+    setDice(value);
+    setPlayers((current) => current.map((p, index) => {
+      if (index !== turn) return p;
+      const nextProgress = Math.min(57, p.progress + value);
+      const reachedHome = nextProgress >= 57 ? Math.min(4, p.home + 1) : p.home;
+      return { ...p, progress: reachedHome > p.home ? 0 : nextProgress, home: reachedHome, rolls: p.rolls + 1 };
+    }));
+    setMessage(active.name + " rolled " + value + (value === 6 ? " and gets another turn." : "."));
+    if (value !== 6) setTurn((current) => nextPlayerIndex(current, players.length));
+  };
+
+  const resetGame = () => {
+    setPlayers(createInitialPlayers());
+    setTurn(0);
+    setDice(1);
+    setMessage("New Ludo match ready.");
+  };
+
+  const boardCells = useMemo(() => Array.from({ length: 52 }, (_, i) => i), []);
+
+  return (
+    <main className="min-h-screen bg-slate-950 text-slate-100">
+      <Header winner={winner} />
+      <section className="mx-auto grid max-w-6xl gap-5 p-4 lg:grid-cols-[1fr_320px]">
+        <GameBoard cells={boardCells} players={players} activeColor={active.color} />
+        <aside className="space-y-4">
+          <GameControls dice={dice} message={message} active={active} winner={winner} onRoll={rollDice} onReset={resetGame} />
+          <PlayerPanel players={players} turn={turn} />
+        </aside>
+      </section>
+    </main>
+  );
+}
+
+// FILE: src/components/Header.jsx
+import React from "react";
+
+export default function Header({ winner }) {
+  return (
+    <header className="border-b border-slate-800 bg-slate-950/90 px-4 py-4">
+      <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wider text-cyan-300">Playable board game</p>
+          <h1 className="text-2xl font-black">Ludo Arena</h1>
+        </div>
+        <div className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300">
+          {winner ? winner.name + " wins" : "Live match"}
+        </div>
+      </div>
+    </header>
+  );
+}
+
+// FILE: src/components/GameBoard.jsx
+import React from "react";
+
+export default function GameBoard({ cells, players, activeColor }) {
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-900 p-4 shadow-2xl">
+      <div className="grid aspect-square grid-cols-8 gap-1">
+        {cells.map((cell) => {
+          const piece = players.find((p) => Math.floor(p.progress) === cell && p.home < 4);
+          return (
+            <div key={cell} className="relative rounded-md border border-slate-700 bg-slate-800/80">
+              <span className="absolute left-1 top-1 text-[10px] text-slate-500">{cell + 1}</span>
+              {piece && <span className={"absolute inset-2 rounded-full border-2 border-white/70 " + piece.className} />}
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-3 text-sm text-slate-400">Current lane: <span className="font-semibold text-slate-100">{activeColor}</span></div>
+    </div>
+  );
+}
+
+// FILE: src/components/GameControls.jsx
+import React from "react";
+
+export default function GameControls({ dice, message, active, winner, onRoll, onReset }) {
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm text-slate-400">Turn</p>
+          <h2 className="text-xl font-bold">{winner ? winner.name : active.name}</h2>
+        </div>
+        <div className="grid h-16 w-16 place-items-center rounded-xl bg-cyan-400 text-3xl font-black text-slate-950">{dice}</div>
+      </div>
+      <p className="mt-4 min-h-10 text-sm text-slate-300">{message}</p>
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <button onClick={onRoll} disabled={!!winner} className="rounded-lg bg-cyan-400 px-4 py-3 font-bold text-slate-950 disabled:opacity-40">Roll</button>
+        <button onClick={onReset} className="rounded-lg border border-slate-700 px-4 py-3 font-bold text-slate-100">Reset</button>
+      </div>
+    </div>
+  );
+}
+
+// FILE: src/components/PlayerPanel.jsx
+import React from "react";
+
+export default function PlayerPanel({ players, turn }) {
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
+      <h2 className="mb-3 font-bold">Players</h2>
+      <div className="space-y-2">
+        {players.map((p, index) => (
+          <div key={p.name} className={"rounded-lg border p-3 " + (index === turn ? "border-cyan-300 bg-cyan-300/10" : "border-slate-800 bg-slate-950/50")}>
+            <div className="flex items-center justify-between text-sm"><span className="font-semibold">{p.name}</span><span>{p.home}/4 home</span></div>
+            <div className="mt-2 h-2 rounded-full bg-slate-800"><div className={"h-2 rounded-full " + p.className} style={{ width: Math.min(100, (p.progress / 57) * 100) + "%" }} /></div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// FILE: src/utils/gameLogic.js
+export function createInitialPlayers() {
+  return [
+    { name: "Red", color: "red", className: "bg-red-500", progress: 0, home: 0, rolls: 0 },
+    { name: "Blue", color: "blue", className: "bg-blue-500", progress: 13, home: 0, rolls: 0 },
+    { name: "Green", color: "green", className: "bg-emerald-500", progress: 26, home: 0, rolls: 0 },
+    { name: "Yellow", color: "yellow", className: "bg-yellow-400", progress: 39, home: 0, rolls: 0 },
+  ];
+}
+
+export function nextPlayerIndex(current, total) {
+  return (current + 1) % total;
+}`;
+  }
+
+  return `// FILE: src/App.jsx
+import React, { useState } from "react";
+import Header from "./components/Header";
+import ActionPanel from "./components/ActionPanel";
+import EmptyState from "./components/EmptyState";
+import { createItem } from "./utils/helpers";
+
+export default function App() {
+  const [items, setItems] = useState(() => [createItem("Plan the experience"), createItem("Wire up interactions")]);
+  const [text, setText] = useState("");
+  const addItem = () => {
+    const value = text.trim();
+    if (!value) return;
+    setItems((current) => [createItem(value), ...current]);
+    setText("");
+  };
+  const toggleItem = (id) => setItems((current) => current.map((item) => item.id === id ? { ...item, done: !item.done } : item));
+  const clearDone = () => setItems((current) => current.filter((item) => !item.done));
+  return (
+    <main className="min-h-screen bg-slate-950 p-4 text-slate-100">
+      <div className="mx-auto max-w-4xl space-y-5">
+        <Header title=${JSON.stringify(title)} subtitle=${JSON.stringify(prompt.slice(0, 140))} />
+        <ActionPanel text={text} setText={setText} onAdd={addItem} onClear={clearDone} />
+        {items.length === 0 ? <EmptyState /> : (
+          <section className="grid gap-3 sm:grid-cols-2">
+            {items.map((item) => (
+              <button key={item.id} onClick={() => toggleItem(item.id)} className="rounded-xl border border-slate-800 bg-slate-900 p-4 text-left transition hover:border-cyan-300">
+                <div className="text-sm text-slate-400">Interactive item</div>
+                <div className={"mt-1 font-semibold " + (item.done ? "text-cyan-300 line-through" : "text-slate-100")}>{item.title}</div>
+              </button>
+            ))}
+          </section>
+        )}
+      </div>
+    </main>
+  );
+}
+
+// FILE: src/components/Header.jsx
+import React from "react";
+export default function Header({ title, subtitle }) {
+  return <header className="rounded-xl border border-slate-800 bg-slate-900 p-5"><p className="text-xs font-semibold uppercase tracking-wider text-cyan-300">Generated app</p><h1 className="mt-1 text-3xl font-black">{title}</h1><p className="mt-2 text-sm text-slate-400">{subtitle}</p></header>;
+}
+
+// FILE: src/components/ActionPanel.jsx
+import React from "react";
+export default function ActionPanel({ text, setText, onAdd, onClear }) {
+  return <section className="flex flex-col gap-2 rounded-xl border border-slate-800 bg-slate-900 p-4 sm:flex-row"><input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") onAdd(); }} placeholder="Add something..." className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 outline-none focus:border-cyan-300" /><button onClick={onAdd} className="rounded-lg bg-cyan-400 px-4 py-2 font-bold text-slate-950">Add</button><button onClick={onClear} className="rounded-lg border border-slate-700 px-4 py-2 font-bold">Clear done</button></section>;
+}
+
+// FILE: src/components/EmptyState.jsx
+import React from "react";
+export default function EmptyState() {
+  return <div className="rounded-xl border border-dashed border-slate-700 p-8 text-center text-slate-400">Nothing here yet. Add your first item.</div>;
+}
+
+// FILE: src/utils/helpers.js
+export function createItem(title) {
+  return { id: Date.now() + Math.random(), title, done: false };
+}`;
+}
+
 async function generateCode(apiKey: string, plan: any, system?: string, stage?: string) {
   const blueprint = `BUILD BRIEF
 App type: ${plan.appType || "app"}
@@ -297,21 +584,37 @@ ${plan.enhancedPrompt || ""}
 
 ${system ? "EXTRA SYSTEM HINTS:\n" + system : ""}`.trim();
 
-  const data = await groq(apiKey, {
+  const primaryBody = {
     model: MODEL_SMART,
     messages: [
       { role: "system", content: GENERATOR_SYSTEM },
       { role: "user", content: blueprint },
     ],
-    temperature: 0.6,
-    max_tokens: 5500,
-  });
-  return cleanCode(data?.choices?.[0]?.message?.content ?? "");
+    temperature: 0.45,
+    max_tokens: 4200,
+  };
+  try {
+    const data = await groq(apiKey, primaryBody, { retries: 0, timeoutMs: PRIMARY_GENERATION_TIMEOUT_MS });
+    const code = cleanCode(data?.choices?.[0]?.message?.content ?? "");
+    if (code) return code;
+  } catch (err) {
+    console.warn("Primary generation skipped:", err instanceof Error ? err.message : String(err));
+  }
+
+  try {
+    const data = await groq(apiKey, { ...primaryBody, model: MODEL_FAST, max_tokens: 3600, temperature: 0.35 }, { retries: 0, timeoutMs: FAST_GENERATION_TIMEOUT_MS });
+    const code = cleanCode(data?.choices?.[0]?.message?.content ?? "");
+    if (code) return code;
+  } catch (err) {
+    console.warn("Fast generation fallback skipped:", err instanceof Error ? err.message : String(err));
+  }
+
+  return fallbackCode(plan._intent?.goal || "Build an app", plan);
 }
 
 async function repairCode(apiKey: string, brokenCode: string, errorMsg: string) {
   const data = await groq(apiKey, {
-    model: MODEL_SMART,
+    model: MODEL_FAST,
     messages: [
       { role: "system", content: REPAIR_SYSTEM },
       {
@@ -320,8 +623,8 @@ async function repairCode(apiKey: string, brokenCode: string, errorMsg: string) 
       },
     ],
     temperature: 0.2,
-    max_tokens: 5500,
-  });
+    max_tokens: 3200,
+  }, { retries: 0, timeoutMs: REPAIR_TIMEOUT_MS });
   return cleanCode(data?.choices?.[0]?.message?.content ?? "");
 }
 
