@@ -191,35 +191,117 @@ async function groq(
 
 // ---------- pipeline ----------
 
-async function enhanceAndPlan(apiKey: string, userPrompt: string, stage?: string) {
-  const sys = `You are a product+architecture planner. Given a short user request, expand it into a precise build brief.
-Return STRICT JSON only (no markdown, no prose) with this shape:
-{
-  "enhancedPrompt": string,   // 4-12 sentences. Specific features, sections, states, theme, interactions.
-  "appType": string,
-  "pages": string[],
-  "components": string[],
-  "features": string[],
-  "complexity": "simple" | "moderate" | "complex"
-}
-Rules:
-- Always include: responsive, dark mode, loading states, empty states, error states, hover/active animations.
-- If the user request is vague, infer a reasonable scope (do not ask questions).
-- Keep it implementable as ONE single React component file with Tailwind.`;
-  const user = `User request: ${userPrompt}\nStage hint: ${stage ?? "polish"}`;
+// ============================================================
+// THINKING ENGINE — staged reasoning before any code is written.
+// Stages: 1 Intent · 2 Requirements · 3 Architecture · 4 Blueprint
+// Each stage enriches a shared `plan` object. Cheap models for
+// reasoning, smart model reserved for generation + repair.
+// ============================================================
+
+async function groqJSON(apiKey: string, model: string, sys: string, user: string, maxTokens = 900) {
   const data = await groq(apiKey, {
-    model: MODEL_FAST,
+    model,
     messages: [
       { role: "system", content: sys },
       { role: "user", content: user },
     ],
-    temperature: 0.4,
-    max_tokens: 900,
+    temperature: 0.3,
+    max_tokens: maxTokens,
     response_format: { type: "json_object" },
   });
   const raw = data?.choices?.[0]?.message?.content ?? "{}";
-  try { return JSON.parse(raw); }
-  catch { return { enhancedPrompt: userPrompt, appType: "app", pages: [], components: [], features: [], complexity: "moderate" }; }
+  try { return JSON.parse(raw); } catch { return {}; }
+}
+
+// Stage 1 — Intent Detection
+async function stageIntent(apiKey: string, userPrompt: string) {
+  const sys = `You are an intent-detection engine for an AI app builder. Return STRICT JSON:
+{
+  "goal": string,
+  "appType": string,
+  "domain": string,
+  "complexity": "simple" | "moderate" | "complex",
+  "targetDevices": string[],
+  "needsAuth": boolean,
+  "needsPersistence": boolean,
+  "needsRouting": boolean
+}
+No prose, no markdown.`;
+  return await groqJSON(apiKey, MODEL_FAST, sys, `User request: ${userPrompt}`, 500);
+}
+
+// Stage 2 — Requirement Extraction (infer hidden needs)
+async function stageRequirements(apiKey: string, userPrompt: string, intent: any) {
+  const sys = `You are a senior requirements analyst. Infer hidden non-functional requirements the user did NOT state.
+Return STRICT JSON:
+{
+  "functional": string[],
+  "nonFunctional": string[],
+  "edgeCases": string[],
+  "uxStates": string[]
+}
+Always include as applicable: responsive, accessibility, loading states, empty states, error states,
+form validation, keyboard nav, dark mode, animations, performance. No prose.`;
+  const user = `Prompt: ${userPrompt}\nIntent: ${JSON.stringify(intent)}`;
+  return await groqJSON(apiKey, MODEL_FAST, sys, user, 700);
+}
+
+// Stage 3 — Architecture Planning (multi-file blueprint)
+async function stageArchitecture(apiKey: string, userPrompt: string, intent: any, reqs: any) {
+  const sys = `You are a principal frontend architect. Design a clean multi-file React architecture (Tailwind, no TS).
+Return STRICT JSON:
+{
+  "pages": string[],
+  "components": [{"path": string, "purpose": string}],
+  "hooks": [{"path": string, "purpose": string}],
+  "contexts": [{"path": string, "purpose": string}],
+  "utils": [{"path": string, "purpose": string}],
+  "dataModel": string,
+  "stateStrategy": string
+}
+Paths must follow: src/App.jsx, src/components/*.jsx, src/pages/*.jsx, src/hooks/use*.js, src/context/*.jsx, src/utils/*.js.
+Every file has ONE responsibility. Reusable components. No duplicated logic. No prose.`;
+  const user = `Prompt: ${userPrompt}\nIntent: ${JSON.stringify(intent)}\nRequirements: ${JSON.stringify(reqs)}`;
+  return await groqJSON(apiKey, MODEL_FAST, sys, user, 1400);
+}
+
+// Stage 4 — Blueprint Compilation (produces the enriched plan the generator consumes)
+async function enhanceAndPlan(apiKey: string, userPrompt: string, stage?: string) {
+  const intent = await stageIntent(apiKey, userPrompt);
+  const reqs = await stageRequirements(apiKey, userPrompt, intent);
+  const arch = await stageArchitecture(apiKey, userPrompt, intent, reqs);
+
+  const components = (arch.components || []).map((c: any) => `${c.path} — ${c.purpose}`);
+  const hooks = (arch.hooks || []).map((h: any) => `${h.path} — ${h.purpose}`);
+  const contexts = (arch.contexts || []).map((c: any) => `${c.path} — ${c.purpose}`);
+  const utils = (arch.utils || []).map((u: any) => `${u.path} — ${u.purpose}`);
+
+  const enhancedPrompt = [
+    `Goal: ${intent.goal || userPrompt}`,
+    `App type: ${intent.appType || "app"} (${intent.domain || "general"})`,
+    `Functional: ${(reqs.functional || []).join("; ")}`,
+    `Non-functional: ${(reqs.nonFunctional || []).join("; ")}`,
+    `Edge cases: ${(reqs.edgeCases || []).join("; ")}`,
+    `UX states: ${(reqs.uxStates || []).join("; ")}`,
+    `Data model: ${arch.dataModel || "in-memory useState"}`,
+    `State strategy: ${arch.stateStrategy || "local state + context where shared"}`,
+    `Stage: ${stage ?? "polish"}`,
+  ].join("\n");
+
+  return {
+    enhancedPrompt,
+    appType: intent.appType || "app",
+    pages: arch.pages || [],
+    components,
+    hooks,
+    contexts,
+    utils,
+    features: reqs.functional || [],
+    complexity: intent.complexity || "moderate",
+    _intent: intent,
+    _requirements: reqs,
+    _architecture: arch,
+  };
 }
 
 async function generateCode(apiKey: string, plan: any, system?: string, stage?: string) {
