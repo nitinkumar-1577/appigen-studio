@@ -215,62 +215,34 @@ async function groqJSON(apiKey: string, model: string, sys: string, user: string
 }
 
 // Stage 1 — Intent Detection
-async function stageIntent(apiKey: string, userPrompt: string) {
-  const sys = `You are an intent-detection engine for an AI app builder. Return STRICT JSON:
-{
-  "goal": string,
-  "appType": string,
-  "domain": string,
-  "complexity": "simple" | "moderate" | "complex",
-  "targetDevices": string[],
-  "needsAuth": boolean,
-  "needsPersistence": boolean,
-  "needsRouting": boolean
-}
-No prose, no markdown.`;
-  return await groqJSON(apiKey, MODEL_FAST, sys, `User request: ${userPrompt}`, 500);
-}
-
-// Stage 2 — Requirement Extraction (infer hidden needs)
-async function stageRequirements(apiKey: string, userPrompt: string, intent: any) {
-  const sys = `You are a senior requirements analyst. Infer hidden non-functional requirements the user did NOT state.
-Return STRICT JSON:
-{
-  "functional": string[],
-  "nonFunctional": string[],
-  "edgeCases": string[],
-  "uxStates": string[]
-}
-Always include as applicable: responsive, accessibility, loading states, empty states, error states,
-form validation, keyboard nav, dark mode, animations, performance. No prose.`;
-  const user = `Prompt: ${userPrompt}\nIntent: ${JSON.stringify(intent)}`;
-  return await groqJSON(apiKey, MODEL_FAST, sys, user, 700);
-}
-
-// Stage 3 — Architecture Planning (multi-file blueprint)
-async function stageArchitecture(apiKey: string, userPrompt: string, intent: any, reqs: any) {
-  const sys = `You are a principal frontend architect. Design a clean multi-file React architecture (Tailwind, no TS).
-Return STRICT JSON:
-{
-  "pages": string[],
-  "components": [{"path": string, "purpose": string}],
-  "hooks": [{"path": string, "purpose": string}],
-  "contexts": [{"path": string, "purpose": string}],
-  "utils": [{"path": string, "purpose": string}],
-  "dataModel": string,
-  "stateStrategy": string
-}
-Paths must follow: src/App.jsx, src/components/*.jsx, src/pages/*.jsx, src/hooks/use*.js, src/context/*.jsx, src/utils/*.js.
-Every file has ONE responsibility. Reusable components. No duplicated logic. No prose.`;
-  const user = `Prompt: ${userPrompt}\nIntent: ${JSON.stringify(intent)}\nRequirements: ${JSON.stringify(reqs)}`;
-  return await groqJSON(apiKey, MODEL_FAST, sys, user, 1400);
-}
-
-// Stage 4 — Blueprint Compilation (produces the enriched plan the generator consumes)
+// Unified Planner — one call replaces intent+requirements+architecture
+// to stay within the 150s edge-function budget while preserving the
+// staged Thinking Engine's output shape.
 async function enhanceAndPlan(apiKey: string, userPrompt: string, stage?: string) {
-  const intent = await stageIntent(apiKey, userPrompt);
-  const reqs = await stageRequirements(apiKey, userPrompt, intent);
-  const arch = await stageArchitecture(apiKey, userPrompt, intent, reqs);
+  const sys = `You are a principal software architect performing intent detection, requirement extraction, and multi-file architecture planning in ONE pass.
+Return STRICT JSON only (no markdown, no prose):
+{
+  "intent": { "goal": string, "appType": string, "domain": string, "complexity": "simple"|"moderate"|"complex" },
+  "requirements": { "functional": string[], "nonFunctional": string[], "edgeCases": string[], "uxStates": string[] },
+  "architecture": {
+    "pages": string[],
+    "components": [{"path": string, "purpose": string}],
+    "hooks": [{"path": string, "purpose": string}],
+    "contexts": [{"path": string, "purpose": string}],
+    "utils": [{"path": string, "purpose": string}],
+    "dataModel": string,
+    "stateStrategy": string
+  }
+}
+Rules:
+- Paths: src/App.jsx, src/components/*.jsx, src/pages/*.jsx, src/hooks/use*.js, src/context/*.jsx, src/utils/*.js.
+- Every file has ONE responsibility. No duplicated logic.
+- Always include as applicable: responsive, accessibility, loading/empty/error states, validation, dark mode, animations.
+- Infer missing details; never ask questions.`;
+  const data = await groqJSON(apiKey, MODEL_FAST, sys, `User request: ${userPrompt}\nStage: ${stage ?? "polish"}`, 1800);
+  const intent = data.intent || {};
+  const reqs = data.requirements || {};
+  const arch = data.architecture || {};
 
   const components = (arch.components || []).map((c: any) => `${c.path} — ${c.purpose}`);
   const hooks = (arch.hooks || []).map((h: any) => `${h.path} — ${h.purpose}`);
