@@ -159,6 +159,7 @@ function buildDocFromPrompt(prompt: string, code?: string) {
 
   const runtimeShield = `
 (function(){
+  var hasMounted = false;
   function report(kind, message, stack){
     try { parent.postMessage({ __appigen: true, kind: kind, message: String(message||''), stack: String(stack||'') }, '*'); } catch(e){}
     var host = document.getElementById('__appigen_err');
@@ -176,10 +177,11 @@ function buildDocFromPrompt(prompt: string, code?: string) {
   console.error = function(){ try { report('console', Array.prototype.slice.call(arguments).map(String).join(' '), ''); } catch(_){ } _ce.apply(console, arguments); };
   setTimeout(function(){
     var root = document.getElementById('root');
-    if(root && root.childElementCount === 0 && !document.getElementById('__appigen_err')){
+    if(root && !hasMounted && root.childElementCount === 0 && !document.getElementById('__appigen_err')){
       report('blank', 'Preview rendered nothing within 2.5s', '');
     }
   }, 2500);
+  window.__appigenMarkMounted = function(){ hasMounted = true; };
 })();
 `;
 
@@ -231,6 +233,30 @@ function buildDocFromPrompt(prompt: string, code?: string) {
     return window[key] || window.__appigenIcon(key);
   }});
 
+  var RouterContext = React.createContext({ path: '/' });
+  function BrowserRouter(props){
+    return React.createElement(RouterContext.Provider, { value: { path: '/' } }, props && props.children);
+  }
+  function Routes(props){
+    var children = React.Children.toArray(props && props.children);
+    var selected = children.find(function(child){
+      return child && child.props && (child.props.path === '/' || child.props.index || child.props.path === '*');
+    }) || children[0] || null;
+    return selected && selected.props ? (selected.props.element || selected.props.children || null) : null;
+  }
+  function Route(props){ return props.element || props.children || null; }
+  function Link(props){
+    var rest = Object.assign({}, props || {});
+    var to = rest.to || '#';
+    delete rest.to;
+    return React.createElement('a', Object.assign({ href: String(to) }, rest), props && props.children);
+  }
+  function NavLink(props){ return React.createElement(Link, props, props && props.children); }
+  function Outlet(){ return null; }
+  function useNavigate(){ return function(){}; }
+  function useLocation(){ return { pathname: '/', search: '', hash: '', state: null, key: 'default' }; }
+  function useParams(){ return {}; }
+
   // ========= Virtual Module System =========
   var FILES = ${filesJSON};
   var CACHE = Object.create(null);
@@ -251,6 +277,7 @@ function buildDocFromPrompt(prompt: string, code?: string) {
     'react-dom': ReactDOM,
     'react-dom/client': ReactDOM,
     'lucide-react': lucideProxy,
+    'react-router-dom': { BrowserRouter: BrowserRouter, HashRouter: BrowserRouter, MemoryRouter: BrowserRouter, Routes: Routes, Route: Route, Link: Link, NavLink: NavLink, Outlet: Outlet, useNavigate: useNavigate, useLocation: useLocation, useParams: useParams },
   };
 
   function resolveSpec(fromPath, spec){
@@ -304,6 +331,7 @@ function buildDocFromPrompt(prompt: string, code?: string) {
       throw new Error('Syntax error in '+path+': '+(e && e.message ? e.message : e));
     }
     fn(makeRequire(path), module, module.exports, React, ReactDOM);
+    if (!module.exports.default && typeof module.exports.App === 'function') module.exports.default = module.exports.App;
     return module.exports;
   }
 
@@ -325,6 +353,7 @@ function buildDocFromPrompt(prompt: string, code?: string) {
       }
     } else {
       ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+      if (window.__appigenMarkMounted) window.__appigenMarkMounted();
     }
   } catch (e) {
     showError(e && e.message ? e.message : String(e), e && e.stack);
@@ -349,7 +378,7 @@ const slugify = (s: string) =>
 
 const Index = () => {
   const [isBuilding, setIsBuilding] = useState(false);
-  const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
+  const [prompt, setPrompt] = useState("");
   const [doc, setDoc] = useState<string>(() => buildDocFromPrompt(DEFAULT_PROMPT));
   const [view, setView] = useState<ViewKey>("studio");
   const [authOpen, setAuthOpen] = useState(false);
@@ -365,13 +394,6 @@ const Index = () => {
   const repairAttemptsRef = useRef(0);
   const lastReportedRef = useRef<string>("");
   const isRepairingRef = useRef(false);
-
-  useEffect(() => {
-    if (!user) {
-      const t = setTimeout(() => setAuthOpen(true), 600);
-      return () => clearTimeout(t);
-    }
-  }, [user]);
 
   // Listen for runtime/compile errors from preview iframe and auto-repair
   useEffect(() => {
