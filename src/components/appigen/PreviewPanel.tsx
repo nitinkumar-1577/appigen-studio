@@ -123,7 +123,18 @@ export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChan
   const srcDoc = useMemo(() => doc, [doc, nonce]);
   const previewKey = useMemo(() => `${nonce}-${doc.length}-${doc.slice(0, 128)}`, [doc, nonce]);
   const handleRefresh = () => setNonce((n) => n + 1);
-  const handleFullscreen = () => iframeRef.current?.requestFullscreen?.();
+  const handleFullscreen = async () => {
+    try {
+      if (!iframeRef.current?.requestFullscreen) return;
+      await iframeRef.current.requestFullscreen();
+    } catch (error) {
+      toast({
+        title: "Fullscreen unavailable",
+        description: "Your browser blocked fullscreen for this preview.",
+        variant: "destructive",
+      });
+    }
+  };
 
   const handleSave = () => {
     if (selectedPath === "src/components/App.jsx" && onCodeChange) {
