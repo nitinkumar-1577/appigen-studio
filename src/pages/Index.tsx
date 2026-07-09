@@ -378,7 +378,7 @@ const slugify = (s: string) =>
 
 const Index = () => {
   const [isBuilding, setIsBuilding] = useState(false);
-  const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
+  const [prompt, setPrompt] = useState("");
   const [doc, setDoc] = useState<string>(() => buildDocFromPrompt(DEFAULT_PROMPT));
   const [view, setView] = useState<ViewKey>("studio");
   const [authOpen, setAuthOpen] = useState(false);
@@ -394,13 +394,6 @@ const Index = () => {
   const repairAttemptsRef = useRef(0);
   const lastReportedRef = useRef<string>("");
   const isRepairingRef = useRef(false);
-
-  useEffect(() => {
-    if (!user) {
-      const t = setTimeout(() => setAuthOpen(true), 600);
-      return () => clearTimeout(t);
-    }
-  }, [user]);
 
   // Listen for runtime/compile errors from preview iframe and auto-repair
   useEffect(() => {

@@ -94,8 +94,19 @@ export const PromptPanel = ({ onBuild, onDownload, isBuilding, prompt, onPromptC
     };
     rec.onend = () => setRecording(false);
     rec.onerror = () => { setRecording(false); toast({ title: "Mic error", variant: "destructive" }); };
-    recRef.current = rec; rec.start(); setRecording(true);
-    toast({ title: "🎙 Listening…", description: "Speak your prompt." });
+    recRef.current = rec;
+    try {
+      rec.start();
+      setRecording(true);
+      toast({ title: "🎙 Listening…", description: "Speak your prompt." });
+    } catch (error: any) {
+      setRecording(false);
+      toast({
+        title: "Voice unavailable",
+        description: error?.message || "Your browser blocked microphone access.",
+        variant: "destructive",
+      });
+    }
   };
 
   return (
