@@ -189,8 +189,15 @@ async function groq(
       catch (e) { throw new Error("Groq returned non-JSON: " + text.slice(0, 300)); }
     }
     lastErr = { status: res.status, body: text };
-    // Retry on 429 / 5xx with exponential backoff + jitter
+    // Retry on 429 / 5xx with exponential backoff + jitter.
+    // Important: if there are no retries left, fail immediately so the
+    // caller can return a safe local fallback before the preview goes blank.
     if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
+      if (attempt >= retries) {
+        const retryHint = text.match(/try again in ([\d.]+)s/i)?.[1];
+        const reason = res.status === 429 ? "rate limit" : "temporary provider error";
+        throw new Error(`Groq ${res.status} ${reason}${retryHint ? `; retry after ${retryHint}s` : ""}: ${text.slice(0, 240)}`);
+      }
       // Honor Groq's "Please try again in Xs" hint when present
       let wait = Math.min(1200, 400 * 2 ** attempt) + Math.random() * 150;
       const m = text.match(/try again in ([\d.]+)s/i);
@@ -205,6 +212,11 @@ async function groq(
     throw new Error(`Groq ${res.status}: ${text.slice(0, 400)}`);
   }
   throw new Error(`Groq failed after retries: ${JSON.stringify(lastErr).slice(0, 400)}`);
+}
+
+function isGroqUnavailable(err: unknown) {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /Groq\s+(429|5\d\d)|rate limit|timed out|temporary provider/i.test(msg);
 }
 
 // ---------- pipeline ----------
@@ -613,19 +625,28 @@ ${system ? "EXTRA SYSTEM HINTS:\n" + system : ""}`.trim();
 }
 
 async function repairCode(apiKey: string, brokenCode: string, errorMsg: string) {
-  const data = await groq(apiKey, {
-    model: MODEL_FAST,
-    messages: [
-      { role: "system", content: REPAIR_SYSTEM },
-      {
-        role: "user",
-        content: `ERROR:\n${errorMsg}\n\nBROKEN CODE:\n${brokenCode}\n\nReturn the FULL fixed file only.`,
-      },
-    ],
-    temperature: 0.2,
-    max_tokens: 3200,
-  }, { retries: 0, timeoutMs: REPAIR_TIMEOUT_MS });
-  return cleanCode(data?.choices?.[0]?.message?.content ?? "");
+  try {
+    const compactCode = brokenCode.length > 18000 ? brokenCode.slice(0, 18000) : brokenCode;
+    const data = await groq(apiKey, {
+      model: MODEL_FAST,
+      messages: [
+        { role: "system", content: REPAIR_SYSTEM },
+        {
+          role: "user",
+          content: `ERROR:\n${errorMsg}\n\nBROKEN CODE:\n${compactCode}\n\nReturn the FULL fixed file only.`,
+        },
+      ],
+      temperature: 0.2,
+      max_tokens: 2200,
+    }, { retries: 0, timeoutMs: REPAIR_TIMEOUT_MS });
+    return cleanCode(data?.choices?.[0]?.message?.content ?? "");
+  } catch (err) {
+    if (isGroqUnavailable(err)) {
+      console.warn("Repair skipped; provider unavailable:", err instanceof Error ? err.message : String(err));
+      return cleanCode(brokenCode);
+    }
+    throw err;
+  }
 }
 
 // ---------- handler ----------
