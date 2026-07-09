@@ -52,12 +52,16 @@ function stripModuleSyntax(src: string): string {
 }
 
 function sanitizeReactSource(src: string): string {
+  const defaultExportName =
+    src.match(/^\s*export\s+default\s+([A-Za-z_$][\w$]*)\s*;?\s*$/m)?.[1] ||
+    src.match(/^\s*export\s+default\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\b/m)?.[1] ||
+    "App";
   const body = stripModuleSyntax(src)
     .replace(ROOT_RENDER_CALL, "")
     .replace(LEGACY_RENDER_CALL, "")
     .replace(BARE_CREATE_ROOT_CALL, "")
     .trim();
-  return `${body}\nReactDOM.createRoot(document.getElementById("root")).render(<App />);`;
+  return `${body}\nconst __appigenDefault = typeof ${defaultExportName} !== "undefined" ? ${defaultExportName} : (typeof App !== "undefined" ? App : null);\nif (typeof __appigenDefault === "function") module.exports.default = __appigenDefault;`;
 }
 
 function escapeScriptText(src: string): string {
@@ -369,9 +373,6 @@ const Index = () => {
     }
   }, [user]);
 
-  // Reset repair counter when code revision changes
-  useEffect(() => { repairAttemptsRef.current = 0; lastReportedRef.current = ""; }, [lastCode]);
-
   // Listen for runtime/compile errors from preview iframe and auto-repair
   useEffect(() => {
     const onMsg = async (ev: MessageEvent) => {
@@ -432,6 +433,9 @@ const Index = () => {
       toast({ title: "Prompt is empty", description: "Describe the app you want to build first.", variant: "destructive" });
       return;
     }
+    repairAttemptsRef.current = 0;
+    lastReportedRef.current = "";
+    isRepairingRef.current = false;
     setIsBuilding(true);
     try {
       const { data, error } = await supabase.functions.invoke("Appigen", { body: { prompt: trimmed, system, stage } });
@@ -539,6 +543,9 @@ const Index = () => {
                     code={lastCode}
                     onPushToGithub={() => setGithubOpen(true)}
                     onCodeChange={(newCode) => {
+                      repairAttemptsRef.current = 0;
+                      lastReportedRef.current = "";
+                      isRepairingRef.current = false;
                       setLastCode(newCode);
                       setDoc(buildDocFromPrompt(prompt, newCode));
                     }}
@@ -552,6 +559,9 @@ const Index = () => {
                 onNavigate={setView}
                 onOpenProject={(p) => {
                   setProjectTitle(p.title);
+                  repairAttemptsRef.current = 0;
+                  lastReportedRef.current = "";
+                  isRepairingRef.current = false;
                   setPrompt(p.prompt);
                   setLastCode(p.code);
                   setDoc(buildDocFromPrompt(p.prompt, p.code));
