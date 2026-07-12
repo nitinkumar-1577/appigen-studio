@@ -161,6 +161,41 @@ function bracketsBalanced(src: string): boolean {
   return stack.length === 0 && !inStr && !inTpl;
 }
 
+async function callChat(
+  url: string,
+  authHeader: Record<string, string>,
+  body: Record<string, unknown>,
+  { timeoutMs = 60000 } = {},
+): Promise<any> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeader },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (e) {
+    clearTimeout(timer);
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`Chat request timed out (${timeoutMs}ms): ${msg}`);
+  } finally {
+    clearTimeout(timer);
+  }
+  const text = await res.text();
+  if (res.ok) {
+    try { return JSON.parse(text); }
+    catch { throw new Error("Non-JSON response: " + text.slice(0, 300)); }
+  }
+  throw new Error(`Chat ${res.status}: ${text.slice(0, 400)}`);
+}
+
+async function lovableAI(apiKey: string, body: Record<string, unknown>, opts: { timeoutMs?: number } = {}) {
+  return callChat(LOVABLE_URL, { Authorization: `Bearer ${apiKey}` }, body, opts);
+}
+
 async function groq(
   apiKey: string,
   body: Record<string, unknown>,
@@ -174,10 +209,7 @@ async function groq(
     try {
       res = await fetch(GROQ_URL, {
         method: "POST",
-        headers: {
-          "Authorization": `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
+        headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify(body),
         signal: controller.signal,
       });
@@ -186,44 +218,34 @@ async function groq(
       const msg = e instanceof Error ? e.message : String(e);
       lastErr = { status: "timeout", body: msg };
       if (attempt < retries) continue;
-      throw new Error(`Groq request timed out before edge idle limit (${timeoutMs}ms)`);
+      throw new Error(`Groq request timed out (${timeoutMs}ms)`);
     } finally {
       clearTimeout(timer);
     }
     const text = await res.text();
     if (res.ok) {
       try { return JSON.parse(text); }
-      catch (e) { throw new Error("Groq returned non-JSON: " + text.slice(0, 300)); }
+      catch { throw new Error("Groq non-JSON: " + text.slice(0, 300)); }
     }
     lastErr = { status: res.status, body: text };
-    // Retry on 429 / 5xx with exponential backoff + jitter.
-    // Important: if there are no retries left, fail immediately so the
-    // caller can return a safe local fallback before the preview goes blank.
     if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
       if (attempt >= retries) {
-        const retryHint = text.match(/try again in ([\d.]+)s/i)?.[1];
-        const reason = res.status === 429 ? "rate limit" : "temporary provider error";
-        throw new Error(`Groq ${res.status} ${reason}${retryHint ? `; retry after ${retryHint}s` : ""}: ${text.slice(0, 240)}`);
+        throw new Error(`Groq ${res.status}: ${text.slice(0, 200)}`);
       }
-      // Honor Groq's "Please try again in Xs" hint when present
       let wait = Math.min(1200, 400 * 2 ** attempt) + Math.random() * 150;
       const m = text.match(/try again in ([\d.]+)s/i);
       if (m) wait = Math.min(2500, Math.ceil(parseFloat(m[1]) * 1000) + 250);
-      const ra = res.headers.get("retry-after");
-      if (ra && !isNaN(Number(ra))) wait = Math.min(2500, Math.max(wait, Number(ra) * 1000));
       await new Promise((r) => setTimeout(r, wait));
       continue;
     }
-
-    // non-retryable
     throw new Error(`Groq ${res.status}: ${text.slice(0, 400)}`);
   }
-  throw new Error(`Groq failed after retries: ${JSON.stringify(lastErr).slice(0, 400)}`);
+  throw new Error(`Groq failed: ${JSON.stringify(lastErr).slice(0, 400)}`);
 }
 
-function isGroqUnavailable(err: unknown) {
+function isProviderUnavailable(err: unknown) {
   const msg = err instanceof Error ? err.message : String(err);
-  return /Groq\s+(429|5\d\d)|rate limit|timed out|temporary provider/i.test(msg);
+  return /429|5\d\d|rate limit|timed out|temporary/i.test(msg);
 }
 
 // ---------- pipeline ----------
