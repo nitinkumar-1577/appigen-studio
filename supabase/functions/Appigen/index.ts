@@ -9,12 +9,19 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+// Primary provider: Lovable AI Gateway (OpenAI-compatible). Reliable, high quota.
+const LOVABLE_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const LOVABLE_MODEL_SMART = "google/gemini-2.5-flash";
+const LOVABLE_MODEL_FAST = "google/gemini-2.5-flash-lite";
+
+// Optional fallback: Groq (kept for resilience; often rate-limited on free tier).
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 const MODEL_FAST = "llama-3.1-8b-instant";
 const MODEL_SMART = "llama-3.3-70b-versatile";
-const PRIMARY_GENERATION_TIMEOUT_MS = 65000;
-const FAST_GENERATION_TIMEOUT_MS = 45000;
-const REPAIR_TIMEOUT_MS = 50000;
+
+const PRIMARY_GENERATION_TIMEOUT_MS = 90000;
+const FAST_GENERATION_TIMEOUT_MS = 60000;
+const REPAIR_TIMEOUT_MS = 60000;
 
 const GENERATOR_SYSTEM = `You are an elite senior frontend engineer generating a production-grade React application in the LOVABLE MULTI-FILE style.
 
@@ -154,6 +161,41 @@ function bracketsBalanced(src: string): boolean {
   return stack.length === 0 && !inStr && !inTpl;
 }
 
+async function callChat(
+  url: string,
+  authHeader: Record<string, string>,
+  body: Record<string, unknown>,
+  { timeoutMs = 60000 } = {},
+): Promise<any> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeader },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (e) {
+    clearTimeout(timer);
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`Chat request timed out (${timeoutMs}ms): ${msg}`);
+  } finally {
+    clearTimeout(timer);
+  }
+  const text = await res.text();
+  if (res.ok) {
+    try { return JSON.parse(text); }
+    catch { throw new Error("Non-JSON response: " + text.slice(0, 300)); }
+  }
+  throw new Error(`Chat ${res.status}: ${text.slice(0, 400)}`);
+}
+
+async function lovableAI(apiKey: string, body: Record<string, unknown>, opts: { timeoutMs?: number } = {}) {
+  return callChat(LOVABLE_URL, { Authorization: `Bearer ${apiKey}` }, body, opts);
+}
+
 async function groq(
   apiKey: string,
   body: Record<string, unknown>,
@@ -167,10 +209,7 @@ async function groq(
     try {
       res = await fetch(GROQ_URL, {
         method: "POST",
-        headers: {
-          "Authorization": `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
+        headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify(body),
         signal: controller.signal,
       });
@@ -179,44 +218,34 @@ async function groq(
       const msg = e instanceof Error ? e.message : String(e);
       lastErr = { status: "timeout", body: msg };
       if (attempt < retries) continue;
-      throw new Error(`Groq request timed out before edge idle limit (${timeoutMs}ms)`);
+      throw new Error(`Groq request timed out (${timeoutMs}ms)`);
     } finally {
       clearTimeout(timer);
     }
     const text = await res.text();
     if (res.ok) {
       try { return JSON.parse(text); }
-      catch (e) { throw new Error("Groq returned non-JSON: " + text.slice(0, 300)); }
+      catch { throw new Error("Groq non-JSON: " + text.slice(0, 300)); }
     }
     lastErr = { status: res.status, body: text };
-    // Retry on 429 / 5xx with exponential backoff + jitter.
-    // Important: if there are no retries left, fail immediately so the
-    // caller can return a safe local fallback before the preview goes blank.
     if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
       if (attempt >= retries) {
-        const retryHint = text.match(/try again in ([\d.]+)s/i)?.[1];
-        const reason = res.status === 429 ? "rate limit" : "temporary provider error";
-        throw new Error(`Groq ${res.status} ${reason}${retryHint ? `; retry after ${retryHint}s` : ""}: ${text.slice(0, 240)}`);
+        throw new Error(`Groq ${res.status}: ${text.slice(0, 200)}`);
       }
-      // Honor Groq's "Please try again in Xs" hint when present
       let wait = Math.min(1200, 400 * 2 ** attempt) + Math.random() * 150;
       const m = text.match(/try again in ([\d.]+)s/i);
       if (m) wait = Math.min(2500, Math.ceil(parseFloat(m[1]) * 1000) + 250);
-      const ra = res.headers.get("retry-after");
-      if (ra && !isNaN(Number(ra))) wait = Math.min(2500, Math.max(wait, Number(ra) * 1000));
       await new Promise((r) => setTimeout(r, wait));
       continue;
     }
-
-    // non-retryable
     throw new Error(`Groq ${res.status}: ${text.slice(0, 400)}`);
   }
-  throw new Error(`Groq failed after retries: ${JSON.stringify(lastErr).slice(0, 400)}`);
+  throw new Error(`Groq failed: ${JSON.stringify(lastErr).slice(0, 400)}`);
 }
 
-function isGroqUnavailable(err: unknown) {
+function isProviderUnavailable(err: unknown) {
   const msg = err instanceof Error ? err.message : String(err);
-  return /Groq\s+(429|5\d\d)|rate limit|timed out|temporary provider/i.test(msg);
+  return /429|5\d\d|rate limit|timed out|temporary/i.test(msg);
 }
 
 // ---------- pipeline ----------
@@ -576,7 +605,12 @@ export function createItem(title) {
 }`;
 }
 
-async function generateCode(apiKey: string, plan: any, system?: string, stage?: string) {
+interface Providers {
+  lovableKey?: string;
+  groqKey?: string;
+}
+
+async function generateCode(providers: Providers, plan: any, system?: string, stage?: string) {
   const blueprint = `BUILD BRIEF
 App type: ${plan.appType || "app"}
 Complexity: ${plan.complexity || "moderate"}
@@ -594,59 +628,105 @@ ${(plan.utils || []).map((u: string) => `- ${u}`).join("\n")}
 DETAILED SPEC:
 ${plan.enhancedPrompt || ""}
 
-${system ? "EXTRA SYSTEM HINTS:\n" + system : ""}`.trim();
+${system ? "EXTRA SYSTEM HINTS:\n" + system : ""}
 
-  const primaryBody = {
-    model: MODEL_SMART,
-    messages: [
-      { role: "system", content: GENERATOR_SYSTEM },
-      { role: "user", content: blueprint },
-    ],
-    temperature: 0.45,
-    max_tokens: 4200,
-  };
-  try {
-    const data = await groq(apiKey, primaryBody, { retries: 0, timeoutMs: PRIMARY_GENERATION_TIMEOUT_MS });
-    const code = cleanCode(data?.choices?.[0]?.message?.content ?? "");
-    if (code) return code;
-  } catch (err) {
-    console.warn("Primary generation skipped:", err instanceof Error ? err.message : String(err));
+IMPORTANT: Output the COMPLETE source for EVERY file. Do NOT truncate. Do NOT write "// rest of code" or "// ...". Close every JSX tag and every bracket. Every import you write MUST resolve to a file you also emit (or to react / react-dom / lucide-react).`.trim();
+
+  const messages = [
+    { role: "system", content: GENERATOR_SYSTEM },
+    { role: "user", content: blueprint },
+  ];
+
+  // 1) Lovable AI Gateway — Gemini 2.5 Flash (primary, reliable, big context).
+  if (providers.lovableKey) {
+    try {
+      const data = await lovableAI(providers.lovableKey, {
+        model: LOVABLE_MODEL_SMART,
+        messages,
+        temperature: 0.4,
+        max_tokens: 8192,
+      }, { timeoutMs: PRIMARY_GENERATION_TIMEOUT_MS });
+      const code = cleanCode(data?.choices?.[0]?.message?.content ?? "");
+      if (code) return { code, provider: "lovable:gemini-2.5-flash" };
+    } catch (err) {
+      console.warn("Lovable primary generation failed:", err instanceof Error ? err.message : String(err));
+    }
+    // 1b) Lovable Flash Lite fallback
+    try {
+      const data = await lovableAI(providers.lovableKey, {
+        model: LOVABLE_MODEL_FAST,
+        messages,
+        temperature: 0.35,
+        max_tokens: 8192,
+      }, { timeoutMs: FAST_GENERATION_TIMEOUT_MS });
+      const code = cleanCode(data?.choices?.[0]?.message?.content ?? "");
+      if (code) return { code, provider: "lovable:gemini-2.5-flash-lite" };
+    } catch (err) {
+      console.warn("Lovable fast generation failed:", err instanceof Error ? err.message : String(err));
+    }
   }
 
-  try {
-    const data = await groq(apiKey, { ...primaryBody, model: MODEL_FAST, max_tokens: 3600, temperature: 0.35 }, { retries: 0, timeoutMs: FAST_GENERATION_TIMEOUT_MS });
-    const code = cleanCode(data?.choices?.[0]?.message?.content ?? "");
-    if (code) return code;
-  } catch (err) {
-    console.warn("Fast generation fallback skipped:", err instanceof Error ? err.message : String(err));
+  // 2) Groq fallback (may be rate-limited on free tier).
+  if (providers.groqKey) {
+    for (const model of [MODEL_SMART, MODEL_FAST]) {
+      try {
+        const data = await groq(providers.groqKey, {
+          model,
+          messages,
+          temperature: 0.4,
+          max_tokens: 5500,
+        }, { retries: 0, timeoutMs: FAST_GENERATION_TIMEOUT_MS });
+        const code = cleanCode(data?.choices?.[0]?.message?.content ?? "");
+        if (code) return { code, provider: `groq:${model}` };
+      } catch (err) {
+        console.warn(`Groq ${model} skipped:`, err instanceof Error ? err.message : String(err));
+      }
+    }
   }
 
-  return fallbackCode(plan._intent?.goal || "Build an app", plan);
+  return { code: fallbackCode(plan._intent?.goal || "Build an app", plan), provider: "local-fallback" };
 }
 
-async function repairCode(apiKey: string, brokenCode: string, errorMsg: string) {
-  try {
-    const compactCode = brokenCode.length > 18000 ? brokenCode.slice(0, 18000) : brokenCode;
-    const data = await groq(apiKey, {
-      model: MODEL_FAST,
-      messages: [
-        { role: "system", content: REPAIR_SYSTEM },
-        {
-          role: "user",
-          content: `ERROR:\n${errorMsg}\n\nBROKEN CODE:\n${compactCode}\n\nReturn the FULL fixed file only.`,
-        },
-      ],
-      temperature: 0.2,
-      max_tokens: 2200,
-    }, { retries: 0, timeoutMs: REPAIR_TIMEOUT_MS });
-    return cleanCode(data?.choices?.[0]?.message?.content ?? "");
-  } catch (err) {
-    if (isGroqUnavailable(err)) {
-      console.warn("Repair skipped; provider unavailable:", err instanceof Error ? err.message : String(err));
-      return cleanCode(brokenCode);
+async function repairCode(providers: Providers, brokenCode: string, errorMsg: string) {
+  const compact = brokenCode.length > 22000 ? brokenCode.slice(0, 22000) : brokenCode;
+  const messages = [
+    { role: "system", content: REPAIR_SYSTEM },
+    { role: "user", content: `ERROR:\n${errorMsg}\n\nBROKEN CODE:\n${compact}\n\nReturn the FULL fixed multi-file source using // FILE: delimiters.` },
+  ];
+
+  if (providers.lovableKey) {
+    try {
+      const data = await lovableAI(providers.lovableKey, {
+        model: LOVABLE_MODEL_SMART,
+        messages,
+        temperature: 0.2,
+        max_tokens: 8192,
+      }, { timeoutMs: REPAIR_TIMEOUT_MS });
+      const fixed = cleanCode(data?.choices?.[0]?.message?.content ?? "");
+      if (fixed) return fixed;
+    } catch (err) {
+      console.warn("Lovable repair failed:", err instanceof Error ? err.message : String(err));
     }
-    throw err;
   }
+  if (providers.groqKey) {
+    try {
+      const data = await groq(providers.groqKey, {
+        model: MODEL_FAST,
+        messages,
+        temperature: 0.2,
+        max_tokens: 3000,
+      }, { retries: 0, timeoutMs: REPAIR_TIMEOUT_MS });
+      const fixed = cleanCode(data?.choices?.[0]?.message?.content ?? "");
+      if (fixed) return fixed;
+    } catch (err) {
+      if (isProviderUnavailable(err)) {
+        console.warn("Groq repair unavailable:", err instanceof Error ? err.message : String(err));
+      } else {
+        throw err;
+      }
+    }
+  }
+  return cleanCode(brokenCode);
 }
 
 // ---------- handler ----------
@@ -655,8 +735,13 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
 
-  const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY");
-  if (!GROQ_API_KEY) return jsonResponse({ error: "GROQ_API_KEY not configured" }, 500);
+  const providers: Providers = {
+    lovableKey: Deno.env.get("LOVABLE_API_KEY") || undefined,
+    groqKey: Deno.env.get("GROQ_API_KEY") || undefined,
+  };
+  if (!providers.lovableKey && !providers.groqKey) {
+    return jsonResponse({ error: "No AI provider configured (LOVABLE_API_KEY or GROQ_API_KEY)" }, 500);
+  }
 
   let body: any;
   try { body = await req.json(); }
@@ -669,9 +754,9 @@ Deno.serve(async (req) => {
       const code = typeof body.code === "string" ? body.code : "";
       const errorMsg = typeof body.error === "string" ? body.error : "";
       if (!code || !errorMsg) return jsonResponse({ error: "Missing code or error for repair" }, 400);
-      let fixed = await repairCode(GROQ_API_KEY, code, errorMsg);
+      let fixed = await repairCode(providers, code, errorMsg);
       if (!isMultiFile(fixed) && !bracketsBalanced(fixed)) {
-        fixed = await repairCode(GROQ_API_KEY, fixed, "Brackets/JSX still unbalanced. Close every tag and bracket.");
+        fixed = await repairCode(providers, fixed, "Brackets/JSX still unbalanced. Close every tag and bracket.");
       }
       if (!fixed) return jsonResponse({ error: "Repair produced empty code" }, 502);
       return jsonResponse({ code: fixed, mode });
@@ -685,23 +770,23 @@ Deno.serve(async (req) => {
     const stage = typeof body.stage === "string" ? body.stage : undefined;
     const system = typeof body.system === "string" ? body.system : undefined;
 
-    const plan = await enhanceAndPlan(GROQ_API_KEY, prompt, stage);
-    let code = await generateCode(GROQ_API_KEY, plan, system, stage);
+    const plan = enhanceAndPlan("", prompt, stage);
+    let { code, provider } = await generateCode(providers, plan, system, stage);
 
-    // Validator: bracket balance for single-file only (multi-file bracket check spans files).
+    // Validator: bracket balance for single-file only (multi-file check would span files).
     if (!isMultiFile(code) && !bracketsBalanced(code)) {
-      code = await repairCode(GROQ_API_KEY, code, "Unbalanced brackets / unclosed JSX tags detected by validator.");
+      code = await repairCode(providers, code, "Unbalanced brackets / unclosed JSX tags detected by validator.");
     }
     if (!code) return jsonResponse({ error: "Generator returned empty code" }, 502);
 
-    return jsonResponse({ code, plan, mode });
+    return jsonResponse({ code, plan, provider, mode });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("Appigen pipeline error:", msg);
-    // Map common groq errors to friendly statuses
     let status = 500;
-    if (/Groq 429/.test(msg)) status = 429;
-    else if (/Groq 4\d\d/.test(msg)) status = 400;
+    if (/429/.test(msg)) status = 429;
+    else if (/4\d\d/.test(msg)) status = 400;
     return jsonResponse({ error: msg }, status);
   }
 });
+

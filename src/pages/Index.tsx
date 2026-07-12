@@ -376,6 +376,13 @@ function stripModuleSyntaxKeepImports(src: string): string {
 const slugify = (s: string) =>
   s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "untitled";
 
+function buildErrorDoc(prompt: string, message: string) {
+  const safePrompt = (prompt || "Untitled").replace(/[<&]/g, (c) => (c === "<" ? "&lt;" : "&amp;"));
+  const safeMsg = message.replace(/[<&]/g, (c) => (c === "<" ? "&lt;" : "&amp;"));
+  return `<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Build failed</title><script src="https://cdn.tailwindcss.com"></script></head><body class="min-h-screen bg-slate-950 text-slate-100 font-sans"><div class="min-h-screen flex items-center justify-center p-6"><div class="max-w-xl w-full rounded-2xl border border-red-500/40 bg-red-950/40 p-6 shadow-2xl"><div class="flex items-center gap-3"><div class="h-10 w-10 rounded-full bg-red-500/20 border border-red-500/40 flex items-center justify-center text-red-300 text-xl">!</div><div><div class="text-xs uppercase tracking-widest text-red-300 font-semibold">Build failed</div><div class="text-lg font-bold text-slate-100 mt-0.5">The AI couldn't finish generating your app</div></div></div><div class="mt-4 rounded-lg border border-red-500/30 bg-black/40 p-3 font-mono text-xs text-red-200 whitespace-pre-wrap break-words">${safeMsg}</div><div class="mt-4 text-xs text-slate-400"><span class="text-slate-300 font-semibold">Prompt:</span> ${safePrompt}</div><div class="mt-5 text-xs text-slate-400">Try again, simplify the prompt, or wait a moment if the provider is rate-limited. The system will automatically fall back to a secondary model where available.</div></div></div></body></html>`;
+}
+
+
 const Index = () => {
   const [isBuilding, setIsBuilding] = useState(false);
   const [prompt, setPrompt] = useState("");
@@ -491,7 +498,9 @@ const Index = () => {
       });
     } catch (err: any) {
       console.error("Build failed:", err);
-      toast({ title: "Build failed", description: err?.message || "Something went wrong calling the AI.", variant: "destructive" });
+      const msg = err?.message || err?.error?.message || "Something went wrong calling the AI.";
+      setDoc(buildErrorDoc(trimmed, msg));
+      toast({ title: "Build failed", description: msg, variant: "destructive" });
     } finally {
       setIsBuilding(false);
     }
