@@ -9,12 +9,19 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+// Primary provider: Lovable AI Gateway (OpenAI-compatible). Reliable, high quota.
+const LOVABLE_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const LOVABLE_MODEL_SMART = "google/gemini-2.5-flash";
+const LOVABLE_MODEL_FAST = "google/gemini-2.5-flash-lite";
+
+// Optional fallback: Groq (kept for resilience; often rate-limited on free tier).
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 const MODEL_FAST = "llama-3.1-8b-instant";
 const MODEL_SMART = "llama-3.3-70b-versatile";
-const PRIMARY_GENERATION_TIMEOUT_MS = 65000;
-const FAST_GENERATION_TIMEOUT_MS = 45000;
-const REPAIR_TIMEOUT_MS = 50000;
+
+const PRIMARY_GENERATION_TIMEOUT_MS = 90000;
+const FAST_GENERATION_TIMEOUT_MS = 60000;
+const REPAIR_TIMEOUT_MS = 60000;
 
 const GENERATOR_SYSTEM = `You are an elite senior frontend engineer generating a production-grade React application in the LOVABLE MULTI-FILE style.
 
