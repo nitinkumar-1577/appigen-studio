@@ -491,7 +491,9 @@ const Index = () => {
       });
     } catch (err: any) {
       console.error("Build failed:", err);
-      toast({ title: "Build failed", description: err?.message || "Something went wrong calling the AI.", variant: "destructive" });
+      const msg = err?.message || err?.error?.message || "Something went wrong calling the AI.";
+      setDoc(buildErrorDoc(trimmed, msg));
+      toast({ title: "Build failed", description: msg, variant: "destructive" });
     } finally {
       setIsBuilding(false);
     }
