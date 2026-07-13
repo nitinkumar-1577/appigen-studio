@@ -35,17 +35,37 @@ interface SidebarProps {
   onOpenSettings: () => void;
   onOpenSignIn: () => void;
   onOpenPricing: () => void;
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
 }
 
-export const Sidebar = ({ active, onChange, onOpenSettings, onOpenSignIn, onOpenPricing }: SidebarProps) => {
+export const Sidebar = ({ active, onChange, onOpenSettings, onOpenSignIn, onOpenPricing, mobileOpen = false, onMobileClose }: SidebarProps) => {
   const [collapsed, setCollapsed] = useState(false);
   const { accent, setAccent } = useApp();
 
+  const handleNav = (v: ViewKey) => {
+    onChange(v);
+    onMobileClose?.();
+  };
+
   return (
+    <>
+      {/* Mobile backdrop */}
+      {mobileOpen && (
+        <div
+          onClick={onMobileClose}
+          className="fixed inset-0 z-40 bg-background/70 backdrop-blur-sm md:hidden animate-fade-in"
+        />
+      )}
     <aside
       className={cn(
-        "relative flex h-full flex-col border-r border-sidebar-border bg-sidebar transition-smooth",
-        collapsed ? "w-[72px]" : "w-60"
+        "flex h-full flex-col border-r border-sidebar-border bg-sidebar transition-smooth",
+        // Desktop: normal in-flow sidebar
+        "md:relative",
+        collapsed ? "md:w-[72px]" : "md:w-60",
+        // Mobile: fixed off-canvas drawer
+        "fixed inset-y-0 left-0 z-50 w-64 shadow-elevated md:shadow-none md:translate-x-0",
+        mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
       )}
     >
       <div className="flex h-16 items-center gap-2.5 px-4">
