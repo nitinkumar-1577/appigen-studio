@@ -474,6 +474,7 @@ const Index = () => {
       if (!data?.code) throw new Error("No code returned from AI");
       setLastCode(data.code);
       setDoc(buildDocFromPrompt(trimmed, data.code));
+      setMobileStudioTab("preview");
 
       // Auto-derive title if user kept default
       const finalTitle =
