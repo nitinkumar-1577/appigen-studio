@@ -13,7 +13,7 @@ import { SettingsPanel } from "@/components/appigen/SettingsPanel";
 import { NotificationsMenu } from "@/components/appigen/NotificationsMenu";
 import { GithubModal } from "@/components/appigen/GithubModal";
 import { useApp } from "@/components/appigen/AppContext";
-import { Sparkles, Pencil } from "lucide-react";
+import { Sparkles, Pencil, Menu, MessageSquare, Eye } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import JSZip from "jszip";
