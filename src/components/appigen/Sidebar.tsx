@@ -152,12 +152,13 @@ export const Sidebar = ({ active, onChange, onOpenSettings, onOpenSignIn, onOpen
       <button
         onClick={() => setCollapsed((c) => !c)}
         aria-label="Toggle sidebar"
-        className="absolute -right-3 top-20 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-surface-elevated text-muted-foreground shadow-soft transition-smooth hover:text-primary"
+        className="absolute -right-3 top-20 z-10 hidden h-6 w-6 items-center justify-center rounded-full border border-border bg-surface-elevated text-muted-foreground shadow-soft transition-smooth hover:text-primary md:flex"
       >
         <ChevronLeft
           className={cn("h-3.5 w-3.5 transition-transform", collapsed && "rotate-180")}
         />
       </button>
     </aside>
+    </>
   );
 };
