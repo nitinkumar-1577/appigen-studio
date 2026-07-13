@@ -395,6 +395,8 @@ const Index = () => {
   const [projectTitle, setProjectTitle] = useState("Untitled Project");
   const [editingTitle, setEditingTitle] = useState(false);
   const [lastCode, setLastCode] = useState<string | null>(null);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [mobileStudioTab, setMobileStudioTab] = useState<"chat" | "preview">("chat");
   const { user, addNotification } = useApp();
 
   // Phase 9: auto-repair loop. Tracks attempts per code revision.
