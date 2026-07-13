@@ -70,7 +70,7 @@ export const Sidebar = ({ active, onChange, onOpenSettings, onOpenSignIn, onOpen
     >
       <div className="flex h-16 items-center gap-2.5 px-4">
         <button
-          onClick={() => onChange("studio")}
+          onClick={() => handleNav("studio")}
           className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-primary shadow-glow"
         >
           <Sparkles className="h-4 w-4 text-primary-foreground" strokeWidth={2.5} />
