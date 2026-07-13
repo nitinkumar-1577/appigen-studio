@@ -148,7 +148,7 @@ export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChan
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col p-3 pl-0 sm:p-5 sm:pl-0">
+    <div className="flex h-full min-h-0 flex-col p-3 sm:p-5 lg:pl-0">
       <div className="glass-strong flex h-full min-h-0 flex-col overflow-hidden rounded-xl shadow-elevated">
         {/* Top bar - tabs left aligned */}
         <div className="flex flex-wrap items-center gap-2 border-b border-border/60 bg-surface/60 px-3 py-2">

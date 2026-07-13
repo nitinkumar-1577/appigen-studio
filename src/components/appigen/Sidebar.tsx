@@ -35,22 +35,42 @@ interface SidebarProps {
   onOpenSettings: () => void;
   onOpenSignIn: () => void;
   onOpenPricing: () => void;
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
 }
 
-export const Sidebar = ({ active, onChange, onOpenSettings, onOpenSignIn, onOpenPricing }: SidebarProps) => {
+export const Sidebar = ({ active, onChange, onOpenSettings, onOpenSignIn, onOpenPricing, mobileOpen = false, onMobileClose }: SidebarProps) => {
   const [collapsed, setCollapsed] = useState(false);
   const { accent, setAccent } = useApp();
 
+  const handleNav = (v: ViewKey) => {
+    onChange(v);
+    onMobileClose?.();
+  };
+
   return (
+    <>
+      {/* Mobile backdrop */}
+      {mobileOpen && (
+        <div
+          onClick={onMobileClose}
+          className="fixed inset-0 z-40 bg-background/70 backdrop-blur-sm md:hidden animate-fade-in"
+        />
+      )}
     <aside
       className={cn(
-        "relative flex h-full flex-col border-r border-sidebar-border bg-sidebar transition-smooth",
-        collapsed ? "w-[72px]" : "w-60"
+        "flex h-full flex-col border-r border-sidebar-border bg-sidebar transition-smooth",
+        // Desktop: normal in-flow sidebar
+        "md:relative",
+        collapsed ? "md:w-[72px]" : "md:w-60",
+        // Mobile: fixed off-canvas drawer
+        "fixed inset-y-0 left-0 z-50 w-64 shadow-elevated md:shadow-none md:translate-x-0",
+        mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
       )}
     >
       <div className="flex h-16 items-center gap-2.5 px-4">
         <button
-          onClick={() => onChange("studio")}
+          onClick={() => handleNav("studio")}
           className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-primary shadow-glow"
         >
           <Sparkles className="h-4 w-4 text-primary-foreground" strokeWidth={2.5} />
@@ -69,7 +89,7 @@ export const Sidebar = ({ active, onChange, onOpenSettings, onOpenSignIn, onOpen
             return (
               <li key={item.key}>
                 <button
-                  onClick={() => onChange(item.key)}
+                  onClick={() => handleNav(item.key)}
                   className={cn(
                     "group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-smooth",
                     isActive
@@ -132,12 +152,13 @@ export const Sidebar = ({ active, onChange, onOpenSettings, onOpenSignIn, onOpen
       <button
         onClick={() => setCollapsed((c) => !c)}
         aria-label="Toggle sidebar"
-        className="absolute -right-3 top-20 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-surface-elevated text-muted-foreground shadow-soft transition-smooth hover:text-primary"
+        className="absolute -right-3 top-20 z-10 hidden h-6 w-6 items-center justify-center rounded-full border border-border bg-surface-elevated text-muted-foreground shadow-soft transition-smooth hover:text-primary md:flex"
       >
         <ChevronLeft
           className={cn("h-3.5 w-3.5 transition-transform", collapsed && "rotate-180")}
         />
       </button>
     </aside>
+    </>
   );
 };
