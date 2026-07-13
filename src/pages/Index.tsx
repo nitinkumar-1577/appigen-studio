@@ -17,6 +17,7 @@ import { Sparkles, Pencil, Menu, MessageSquare, Eye } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import JSZip from "jszip";
+import { cn } from "@/lib/utils";
 
 const VIEW_TITLES: Record<ViewKey, string> = {
   studio: "",
