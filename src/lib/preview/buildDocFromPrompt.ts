@@ -97,7 +97,28 @@ export function buildDocFromPrompt(prompt: string, code?: string) {
       host.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:99999;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:rgba(127,29,29,.95);color:#fee2e2;border:1px solid rgba(248,113,113,.6);border-radius:10px;padding:12px 14px;max-height:45vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.5);backdrop-filter:blur(8px);';
       document.body && document.body.appendChild(host);
     }
-    host.innerHTML = '<div style="font-weight:700;color:#fecaca;margin-bottom:4px">\u26A0 Runtime '+kind+'</div><div style="white-space:pre-wrap;word-break:break-word">'+(message||'')+'</div>'+(stack?'<details style="margin-top:6px;opacity:.85"><summary style="cursor:pointer">stack</summary><pre style="white-space:pre-wrap">'+stack+'</pre></details>':'');
+      host.replaceChildren();
+    var heading = document.createElement('div');
+    heading.style.cssText = 'font-weight:700;color:#fecaca;margin-bottom:4px';
+    heading.textContent = '⚠ Runtime ' + kind;
+    host.appendChild(heading);
+    var messageNode = document.createElement('div');
+    messageNode.style.cssText = 'white-space:pre-wrap;word-break:break-word';
+    messageNode.textContent = String(message || '');
+    host.appendChild(messageNode);
+    if (stack) {
+      var details = document.createElement('details');
+      details.style.cssText = 'margin-top:6px;opacity:.85';
+      var summary = document.createElement('summary');
+      summary.style.cursor = 'pointer';
+      summary.textContent = 'stack';
+      var stackNode = document.createElement('pre');
+      stackNode.style.whiteSpace = 'pre-wrap';
+      stackNode.textContent = String(stack);
+      details.appendChild(summary);
+      details.appendChild(stackNode);
+      host.appendChild(details);
+    }
   }
   window.addEventListener('error', function(e){ report('error', e.message, e.error && e.error.stack); });
   window.addEventListener('unhandledrejection', function(e){ var r = e.reason || {}; report('promise', r.message || r, r.stack); });
@@ -124,9 +145,9 @@ export function buildDocFromPrompt(prompt: string, code?: string) {
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>AppiGen Preview — ${safePrompt}</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.26.10/babel.min.js"></script>
   <style>
     html, body { background: #020617; color: #e2e8f0; margin: 0; }
     ::-webkit-scrollbar { width: 8px; height: 8px; }

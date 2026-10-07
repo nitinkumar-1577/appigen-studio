@@ -7,11 +7,13 @@ import { AppProvider } from "@/components/appigen/AppContext";
 import Index from "./pages/Index.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import { SnakeGame } from "@/components/SnakeGame";
+import { AppErrorBoundary } from "@/components/appigen/AppErrorBoundary";
 
 const queryClient = new QueryClient();
 
 const App = () => (
-  <QueryClientProvider client={queryClient}>
+  <AppErrorBoundary>
+    <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <AppProvider>
         <Toaster />
