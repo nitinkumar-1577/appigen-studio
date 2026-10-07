@@ -1,0 +1,2 @@
+- Keep preview document generation helpers in `src/lib/preview`, split by responsibility so studio pages depend on stable helper exports.
+- Wrap the application tree in a reusable React ErrorBoundary so rendering failures show a recovery action instead of a blank page.
