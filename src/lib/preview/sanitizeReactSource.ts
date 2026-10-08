@@ -16,8 +16,6 @@ export function sanitizeReactSource(src: string): string {
     src.match(/^\s*export\s+default\s+([A-Za-z_$][\w$]*)\s*;?\s*$/m)?.[1] ||
     src.match(/^\s*export\s+default\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\b/m)?.[1] ||
     "App";
-  const body = stripModuleSyntax(src)
-    .pipe?.()
-    .trim();
+  const body = stripReactRenderCalls(stripModuleSyntax(src)).trim();
   return `${body}\nconst __appigenDefault = typeof ${defaultExportName} !== "undefined" ? ${defaultExportName} : (typeof App !== "undefined" ? App : null);\nif (typeof __appigenDefault === "function") module.exports.default = __appigenDefault;`;
 }
