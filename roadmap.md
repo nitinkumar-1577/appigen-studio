@@ -1,2 +1,8 @@
-- [ ] Finish approved preview-helper refactor and validate requested safety changes.
-- [ ] Review uploaded AppiGen A–E upgrade brief and execute its scoped requirements after the current refactor.
+- [x] Finish approved preview-helper refactor and validate the requested safety changes.
+- [ ] Review and execute the uploaded AppiGen Studio upgrade brief, Parts A–E.
+  - [ ] Part A: design system and reusable UI states/components.
+  - [ ] Part B: per-project edit chat, versioning, cancel/progress, and prompt behavior.
+  - [ ] Part C: reliable preview dependencies, routing, errors, auto-repair, and boundary.
+  - [ ] Part D: staged build/review/validation pipeline with compatible function contract.
+  - [ ] Part E: project autosave/drafts/versions/gallery/export.
+  - [ ] Check 360px, 768px, and 1280px layouts; report Done / Not done.
