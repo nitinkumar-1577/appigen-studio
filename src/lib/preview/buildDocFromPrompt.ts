@@ -1,9 +1,6 @@
 import { parseFileMarkers } from "./parseFileMarkers";
-import { sanitizeReactSource } from "./sanitizeReactSource";
+import { sanitizeReactSource, stripReactRenderCalls } from "./sanitizeReactSource";
 
-const ROOT_RENDER_CALL = /ReactDOM\s*\.\s*createRoot\s*\(\s*document\s*\.\s*getElementById\s*\(\s*["']root["']\s*\)\s*\)\s*\.\s*render\s*\(\s*<App\s*\/?>\s*\)\s*;?/g;
-const LEGACY_RENDER_CALL = /ReactDOM\s*\.\s*render\s*\(\s*<App\s*\/?>\s*,\s*document\s*\.\s*getElementById\s*\(\s*["']root["']\s*\)\s*\)\s*;?/g;
-const BARE_CREATE_ROOT_CALL = /\bcreateRoot\s*\(\s*document\s*\.\s*getElementById\s*\(\s*["']root["']\s*\)\s*\)\s*\.\s*render\s*\(\s*<App\s*\/?>\s*\)\s*;?/g;
 function collectPotentialGlobals(src: string): string[] {
   const names = new Set<string>([
     "Activity", "AlertCircle", "ArrowLeft", "ArrowRight", "BarChart3", "Bell", "BookOpen", "Bot", "Calendar", "Camera",
@@ -56,7 +53,7 @@ function stripModuleSyntaxKeepImports(src: string): string {
   let out = (src || "").replace(/\r\n/g, "\n");
   out = out.replace(/^\s*```(?:jsx|tsx|js|ts|javascript|typescript)?\s*/i, "").replace(/```\s*$/i, "");
   // Remove any residual ReactDOM.createRoot(...).render(<App/>) — the loader mounts the default export.
-  out = out.replace(ROOT_RENDER_CALL, "").replace(LEGACY_RENDER_CALL, "").replace(BARE_CREATE_ROOT_CALL, "");
+  out = stripReactRenderCalls(out);
   return out.trim();
 }
 export function buildDocFromPrompt(prompt: string, code?: string) {
