@@ -1,0 +1,2 @@
+- [ ] Finish approved preview-helper refactor and validate requested safety changes.
+- [ ] Review uploaded AppiGen A–E upgrade brief and execute its scoped requirements after the current refactor.
