@@ -1,9 +1,6 @@
 import { parseFileMarkers } from "./parseFileMarkers";
 import { sanitizeReactSource } from "./sanitizeReactSource";
 
-const ROOT_RENDER_CALL = /ReactDOM\s*\.\s*createRoot\s*\(\s*document\s*\.\s*getElementById\s*\(\s*["']root["']\s*\)\s*\)\s*\.\s*render\s*\(\s*<App\s*\/?>\s*\)\s*;?/g;
-const LEGACY_RENDER_CALL = /ReactDOM\s*\.\s*render\s*\(\s*<App\s*\/?>\s*,\s*document\s*\.\s*getElementById\s*\(\s*["']root["']\s*\)\s*\)\s*;?/g;
-const BARE_CREATE_ROOT_CALL = /\bcreateRoot\s*\(\s*document\s*\.\s*getElementById\s*\(\s*["']root["']\s*\)\s*\)\s*\.\s*render\s*\(\s*<App\s*\/?>\s*\)\s*;?/g;
 function collectPotentialGlobals(src: string): string[] {
   const names = new Set<string>([
     "Activity", "AlertCircle", "ArrowLeft", "ArrowRight", "BarChart3", "Bell", "BookOpen", "Bot", "Calendar", "Camera",
