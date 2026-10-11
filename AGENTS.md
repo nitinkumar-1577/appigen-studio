@@ -1,2 +1,4 @@
-- Keep preview document generation helpers in `src/lib/preview`, split by responsibility so studio pages depend on stable helper exports.
-- Wrap the application tree in a reusable React ErrorBoundary so rendering failures show a recovery action instead of a blank page.
+# Project architecture decisions
+
+- Keep project persistence, per-project messages, drafts, and version helpers in a shared `src/lib/projects` module so Studio and My Apps use one ownership-aware contract.
+- Keep preview iframe generation, package shims, and runtime validation in `src/lib/preview`, split by responsibility so preview changes do not destabilize studio pages.
