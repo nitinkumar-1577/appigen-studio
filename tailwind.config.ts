@@ -14,7 +14,6 @@ export default {
       fontFamily: {
         sans: ['"Inter"', "system-ui", "sans-serif"],
         display: ['"Space Grotesk"', '"Inter"', "system-ui", "sans-serif"],
-        mono: ['"JetBrains Mono"', "ui-monospace", "monospace"],
       },
       colors: {
         border: "hsl(var(--border))",
@@ -28,6 +27,8 @@ export default {
         success: "hsl(var(--success))",
         warning: "hsl(var(--warning))",
         danger: "hsl(var(--danger))",
+        overlay: "hsl(var(--overlay))",
+        "accent-secondary": "hsl(var(--accent-secondary))",
         primary: {
           DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",

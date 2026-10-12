@@ -324,7 +324,7 @@ const Index = () => {
       <footer className="flex h-9 shrink-0 items-center justify-between border-t border-border/60 bg-background/60 px-6 text-[11px] text-muted-foreground backdrop-blur-xl">
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-1.5">
-            <span className="h-1.5 w-1.5 rounded-full bg-[hsl(140_60%_55%)] shadow-[0_0_8px_hsl(140_60%_55%)]" />
+            <span className="h-1.5 w-1.5 rounded-full bg-success shadow-glow" />
             All systems operational
           </span>
           <span className="hidden sm:inline opacity-60">·</span>

@@ -71,7 +71,7 @@ export const PromptPanel = ({ onBuild, onDownload, isBuilding, prompt, onPromptC
 
   const used = estimateCredits(prompt) + estimateCredits(system);
   const pct = Math.min(100, Math.round((used / CONTEXT_LIMIT) * 100));
-  const barColor = pct < 60 ? "bg-gradient-primary" : pct < 85 ? "bg-[hsl(40_90%_60%)]" : "bg-destructive";
+  const barColor = pct < 60 ? "bg-gradient-primary" : pct < 85 ? "bg-warning" : "bg-danger";
 
   const handleAttach = () => fileRef.current?.click();
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {

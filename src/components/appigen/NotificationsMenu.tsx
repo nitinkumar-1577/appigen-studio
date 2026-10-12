@@ -44,7 +44,7 @@ export const NotificationsMenu = () => {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-11 z-[60] w-[360px] overflow-hidden rounded-xl border border-border bg-[hsl(222_32%_8%)] shadow-elevated animate-fade-in">
+        <div className="absolute right-0 top-11 z-[60] w-[min(360px,calc(100vw-1.5rem))] overflow-hidden rounded-xl border border-border bg-surface-elevated shadow-elevated animate-fade-in">
           <div className="flex items-center justify-between border-b border-border/60 px-4 py-2.5">
             <div className="text-sm font-semibold">Notifications</div>
             <div className="flex items-center gap-2">

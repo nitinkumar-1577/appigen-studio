@@ -75,7 +75,7 @@ export const GithubModal = ({ open, onClose }: GithubModalProps) => {
                 <div className="flex h-8 w-8 items-center justify-center rounded-full bg-foreground text-background"><GithubIcon className="h-4 w-4" /></div>
                 <div>
                   <div className="text-xs font-semibold">@{githubUser}</div>
-                  <div className="text-[11px] text-[hsl(140_60%_55%)]">● Connected</div>
+                  <div className="text-[11px] text-success">● Connected</div>
                 </div>
               </div>
               <button onClick={disconnectGithub} className="text-[11px] text-muted-foreground hover:text-destructive">Disconnect</button>
