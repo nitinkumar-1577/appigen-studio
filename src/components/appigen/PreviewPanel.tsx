@@ -82,9 +82,9 @@ const FileTreeItem = ({
         style={{ paddingLeft: 6 + depth * 12 }}
       >
         {isFolder ? (
-          open ? <FolderOpen className="h-3.5 w-3.5 text-amber-400/80" /> : <Folder className="h-3.5 w-3.5 text-amber-400/80" />
+          open ? <FolderOpen className="h-3.5 w-3.5 text-warning" /> : <Folder className="h-3.5 w-3.5 text-warning" />
         ) : (
-          <FileCode2 className="h-3.5 w-3.5 text-sky-400/80" />
+          <FileCode2 className="h-3.5 w-3.5 text-primary" />
         )}
         <span className="truncate">{node.name}</span>
       </button>
@@ -241,7 +241,7 @@ export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChan
               title="AppiGen Sandbox Preview"
               srcDoc={srcDoc}
               sandbox="allow-scripts allow-forms allow-popups allow-modals allow-same-origin"
-              className="h-full w-full border-0 bg-white animate-fade-in"
+              className="h-full w-full border-0 bg-background animate-fade-in"
             />
           )}
 
@@ -258,7 +258,7 @@ export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChan
               <div className="flex min-w-0 flex-1 flex-col">
                 <div className="flex items-center justify-between border-b border-border/60 px-3 py-1.5 text-[11px] text-muted-foreground">
                   <span className="font-mono truncate">{selectedPath}</span>
-                  {dirty && <span className="text-amber-400">● unsaved</span>}
+                  {dirty && <span className="text-warning">● unsaved</span>}
                 </div>
                 <div className="flex-1 min-h-0">
                   <Editor

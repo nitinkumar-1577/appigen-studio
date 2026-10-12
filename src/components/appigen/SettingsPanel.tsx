@@ -99,7 +99,7 @@ const Toggle = ({ label, desc, value, onChange }: { label: string; desc: string;
       <div className="text-[11px] text-muted-foreground">{desc}</div>
     </div>
     <button onClick={() => onChange(!value)} className={cn("relative h-5 w-9 shrink-0 rounded-full transition-smooth", value ? "bg-primary" : "bg-secondary")}>
-      <span className={cn("absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform", value ? "translate-x-4" : "translate-x-0.5")} />
+      <span className={cn("absolute top-0.5 h-4 w-4 rounded-full bg-primary-foreground transition-transform", value ? "translate-x-4" : "translate-x-0.5")} />
     </button>
   </div>
 );

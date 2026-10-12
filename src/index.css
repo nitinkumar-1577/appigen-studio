@@ -48,6 +48,8 @@
     --surface: 222 28% 9%;
     --surface-elevated: 222 26% 12%;
     --glass: 222 30% 12%;
+    --overlay: 222 30% 7%;
+    --accent-secondary: 280 88% 70%;
 
     /* Gradients */
     --gradient-primary: linear-gradient(135deg, hsl(258 90% 66%), hsl(280 88% 70%));

@@ -54,7 +54,7 @@ export const TemplatesPage = ({ onNavigate }: { onNavigate: (v: any) => void }) 
                   background: `linear-gradient(135deg, hsl(${t.hue} 70% 28%), hsl(${t.hue + 30} 75% 16%))`,
                 }}
               >
-                <t.icon className="h-10 w-10 text-white/90" strokeWidth={1.5} />
+                <t.icon className="h-10 w-10 text-foreground/90" strokeWidth={1.5} />
               </div>
               <div className="p-4">
                 <div className="flex items-center gap-2">
