@@ -23,6 +23,7 @@ export type LocalProjectVersion = {
 
 const DRAFT_KEY = "appigen.project-draft.v1";
 const VERSION_KEY = "appigen.project-versions.v1";
+const CHAT_KEY = "appigen.project-chats.v1";
 
 function readJson<T>(key: string, fallback: T): T {
   try {
@@ -64,5 +65,20 @@ export function writeLocalVersion(projectKey: string, version: LocalProjectVersi
     localStorage.setItem(VERSION_KEY, JSON.stringify(all));
   } catch {
     // Version history remains available in memory for the current session.
+  }
+}
+
+export function readProjectMessages(projectKey: string): ChatMessage[] {
+  const all = readJson<Record<string, ChatMessage[]>>(CHAT_KEY, {});
+  return all[projectKey] ?? [];
+}
+
+export function writeProjectMessages(projectKey: string, messages: ChatMessage[]) {
+  try {
+    const all = readJson<Record<string, ChatMessage[]>>(CHAT_KEY, {});
+    all[projectKey] = messages;
+    localStorage.setItem(CHAT_KEY, JSON.stringify(all));
+  } catch {
+    // Chat history remains available in memory for the current session.
   }
 }
