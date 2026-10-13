@@ -2,11 +2,18 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Wand2, Sparkles, Paperclip, Mic, Lock, Unlock, Download, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
+import { Button } from "@/components/ui/button";
+import type { ChatMessage } from "@/lib/projects/projectStorage";
 
 interface PromptPanelProps {
   onBuild: (system?: string, stage?: string) => void;
   onDownload: () => void;
+  onStop: () => void;
+  onNewProject: () => void;
   isBuilding: boolean;
+  progressStage: string;
+  messages: ChatMessage[];
+  hasCode: boolean;
   prompt: string;
   onPromptChange: (v: string) => void;
 }
@@ -26,7 +33,7 @@ const DEFAULT_PROMPT_TEXT = "Build a minimalist task manager with drag-and-drop 
 const STAGES = ["Sketch", "Wire up State", "Polish UI"] as const;
 type Stage = typeof STAGES[number];
 
-export const PromptPanel = ({ onBuild, onDownload, isBuilding, prompt, onPromptChange }: PromptPanelProps) => {
+export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuilding, progressStage, messages, hasCode, prompt, onPromptChange }: PromptPanelProps) => {
   const [systemOpen, setSystemOpen] = useState(true);
   const [advanced, setAdvanced] = useState(false);
   const [system, setSystem] = useState(
@@ -41,6 +48,11 @@ export const PromptPanel = ({ onBuild, onDownload, isBuilding, prompt, onPromptC
   const fileRef = useRef<HTMLInputElement>(null);
   const recRef = useRef<any>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
+  const transcriptRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (transcriptRef.current) transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
+  }, [messages, isBuilding]);
 
   useEffect(() => {
     // Only animate placeholder when input is empty AND not focused
@@ -186,27 +198,31 @@ export const PromptPanel = ({ onBuild, onDownload, isBuilding, prompt, onPromptC
       </div>
 
       {/* Conversation / scratch area */}
-      <div className="glass flex-1 overflow-hidden rounded-xl shadow-soft">
+      <div className="glass flex min-h-24 flex-1 flex-col overflow-hidden rounded-xl shadow-soft">
         <div className="flex items-center justify-between border-b border-border/60 px-4 py-2.5">
           <div className="flex items-center gap-2">
             <Sparkles className="h-3.5 w-3.5 text-primary" />
-            <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Generation Context</span>
+            <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{hasCode ? "Project chat" : "Generation context"}</span>
           </div>
-          <span className="text-[11px] font-mono text-muted-foreground">gemini-2.5-flash · {stage}</span>
+          <Button variant="ghost" size="sm" disabled={isBuilding} onClick={onNewProject}>New project</Button>
         </div>
-        <div className="space-y-3 p-4 text-sm">
-          <div className="rounded-lg bg-secondary/40 p-3 text-muted-foreground">
-            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-primary/80">Tip</div>
-            Be specific about layout, components, and behavior. Mention design references for best results.
-          </div>
+        <div ref={transcriptRef} aria-live="polite" className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 text-sm">
+          {!messages.length && <div className="rounded-lg bg-secondary/40 p-3 text-muted-foreground">
+            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-primary/80">Ready to create</div>
+            Describe the experience you want. Follow-up prompts update this project without replacing unrelated work.
+          </div>}
+          {messages.map((message, index) => <article key={`${message.timestamp}-${index}`} className={cn("max-w-[92%] whitespace-pre-wrap break-words rounded-lg px-3 py-2.5", message.role === "user" ? "ml-auto bg-primary/15 text-foreground" : "mr-auto border border-border/60 bg-surface-elevated text-foreground")}>
+            <div className="mb-1 text-[10px] font-semibold uppercase text-muted-foreground">{message.role === "user" ? "You" : "AppiGen"}</div>
+            {message.content}
+          </article>)}
           {isBuilding && (
-            <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 animate-fade-in">
+            <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 animate-fade-in" role="status">
               <div className="flex items-center gap-2 text-xs font-medium text-primary">
                 <span className="h-1.5 w-1.5 animate-blink rounded-full bg-primary" />
-                Generating components…
+                {progressStage}…
               </div>
               <div className="mt-2 space-y-1.5">
-                {["Designing layout", "Wiring state", "Polishing styles"].map((s, i) => (
+                {["Planning", "Generating", "Reviewing", "Validating"].map((s, i) => (
                   <div key={s} className="flex items-center gap-2 text-xs text-muted-foreground">
                     <span className="h-1 w-1 animate-blink rounded-full bg-primary" style={{ animationDelay: `${i * 0.2}s` }} />
                     {s}
@@ -236,8 +252,10 @@ export const PromptPanel = ({ onBuild, onDownload, isBuilding, prompt, onPromptC
             }
           }}
           rows={3}
+          disabled={isBuilding}
+          aria-label={hasCode ? "Describe an edit to this project" : "Describe the app to build"}
           placeholder={animPaused ? "Describe the app you want to build…" : (typed || "Describe the app you want to build…")}
-          className="w-full resize-none bg-transparent px-2 py-1.5 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
+          className="w-full resize-none bg-transparent px-2 py-1.5 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-60"
         />
 
         <div className="mt-1 px-1">
@@ -252,26 +270,23 @@ export const PromptPanel = ({ onBuild, onDownload, isBuilding, prompt, onPromptC
 
         <div className="mt-2 flex items-center justify-between">
           <div className="flex items-center gap-1">
-            <button onClick={handleAttach} title="Attach file" className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-smooth hover:bg-secondary hover:text-foreground"><Paperclip className="h-4 w-4" /></button>
+            <button onClick={handleAttach} disabled={isBuilding} aria-label="Attach file" title="Attach file" className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-smooth hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:scale-95 disabled:opacity-50"><Paperclip className="h-4 w-4" /></button>
             <button onClick={toggleMic} title={recording ? "Stop recording" : "Voice to prompt"}
-              className={cn("flex h-8 w-8 items-center justify-center rounded-lg transition-smooth",
+              disabled={isBuilding}
+              aria-label={recording ? "Stop voice recording" : "Add voice prompt"}
+              className={cn("flex h-10 w-10 items-center justify-center rounded-lg transition-smooth focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:scale-95 disabled:opacity-50",
                 recording ? "bg-destructive/20 text-destructive animate-pulse" : "text-muted-foreground hover:bg-secondary hover:text-foreground")}>
               <Mic className="h-4 w-4" />
             </button>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={onDownload} title="Download as .zip" className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-border bg-secondary/50 px-3 text-xs font-semibold text-foreground transition-smooth hover:border-primary/50 hover:bg-secondary">
+            <Button variant="secondary" onClick={onDownload} title="Download as .zip" aria-label="Download project ZIP" size="md">
               <Download className="h-3.5 w-3.5" />
               .zip
-            </button>
-            <button
-              onClick={() => onBuild(system, stage)}
-              disabled={isBuilding}
-              className={cn("pulse-ring relative inline-flex items-center gap-2 rounded-xl bg-gradient-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-glow transition-smooth hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-70")}
-            >
-              <Sparkles className="h-4 w-4" />
-              {isBuilding ? "Building…" : "Build App"}
-            </button>
+            </Button>
+            {isBuilding ? <Button variant="danger" size="md" onClick={onStop}>Stop</Button> : <Button variant="primary" size="md" onClick={() => onBuild(system, stage)} disabled={!prompt.trim()} className="pulse-ring relative">
+              <Sparkles className="h-4 w-4" />{hasCode ? "Update App" : "Build App"}
+            </Button>}
           </div>
         </div>
       </div>
