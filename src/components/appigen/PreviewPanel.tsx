@@ -13,6 +13,9 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
+import { parseFileMarkers } from "@/lib/preview/parseFileMarkers";
+import type { LocalProjectVersion } from "@/lib/projects/projectStorage";
+import { Button } from "@/components/ui/button";
 
 interface PreviewPanelProps {
   isBuilding: boolean;
@@ -20,6 +23,10 @@ interface PreviewPanelProps {
   code?: string | null;
   onPushToGithub: () => void;
   onCodeChange?: (code: string) => void;
+  versions: LocalProjectVersion[];
+  onRestoreVersion: (version: LocalProjectVersion) => void;
+  onManualFix: () => void;
+  fixing: boolean;
 }
 
 type Tab = "preview" | "code" | "github";
@@ -32,34 +39,27 @@ interface FileNode {
   language?: string;
 }
 
-const buildTree = (appCode: string): FileNode => ({
-  name: "project",
-  path: "project",
-  children: [
-    {
-      name: "src",
-      path: "src",
-      children: [
-        {
-          name: "components",
-          path: "src/components",
-          children: [
-            { name: "App.jsx", path: "src/components/App.jsx", content: appCode, language: "javascript" },
-          ],
-        },
-        { name: "hooks", path: "src/hooks", children: [
-          { name: "useApp.js", path: "src/hooks/useApp.js", content: "// custom hooks", language: "javascript" },
-        ]},
-        { name: "lib", path: "src/lib", children: [
-          { name: "utils.js", path: "src/lib/utils.js", content: "export const cn = (...c) => c.filter(Boolean).join(' ');", language: "javascript" },
-        ]},
-        { name: "main.jsx", path: "src/main.jsx", content: "import React from 'react';\nimport ReactDOM from 'react-dom/client';\nimport App from './components/App';\n\nReactDOM.createRoot(document.getElementById('root')).render(<App />);", language: "javascript" },
-      ],
-    },
-    { name: "index.html", path: "index.html", content: "<!doctype html>\n<html><body><div id=\"root\"></div></body></html>", language: "html" },
-    { name: "package.json", path: "package.json", content: "{\n  \"name\": \"appigen-app\",\n  \"version\": \"1.0.0\"\n}", language: "json" },
-  ],
-});
+const buildTree = (appCode: string): FileNode => {
+  const files = parseFileMarkers(appCode)?.files ?? { "src/App.jsx": appCode };
+  const root: FileNode = { name: "project", path: "project", children: [] };
+  Object.entries(files).forEach(([path, content]) => {
+    const parts = path.split("/");
+    let parent = root;
+    parts.forEach((part, index) => {
+      const currentPath = parts.slice(0, index + 1).join("/");
+      let node = parent.children?.find((item) => item.name === part);
+      if (!node) {
+        node = { name: part, path: currentPath, children: index < parts.length - 1 ? [] : undefined };
+        parent.children?.push(node);
+      }
+      if (index === parts.length - 1) {
+        node.content = content;
+        node.language = part.split(".").pop() === "css" ? "css" : part.endsWith(".json") ? "json" : part.endsWith(".html") ? "html" : "javascript";
+      } else parent = node;
+    });
+  });
+  return root;
+};
 
 const FileTreeItem = ({
   node,
@@ -95,13 +95,14 @@ const FileTreeItem = ({
   );
 };
 
-export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChange }: PreviewPanelProps) => {
+export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChange, versions, onRestoreVersion, onManualFix, fixing }: PreviewPanelProps) => {
   const [tab, setTab] = useState<Tab>("preview");
   const [nonce, setNonce] = useState(0);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const tree = useMemo(() => buildTree(code || "// Build an app to see generated code here"), [code]);
-  const [selectedPath, setSelectedPath] = useState<string>("src/components/App.jsx");
+  const entryPath = useMemo(() => parseFileMarkers(code || "")?.entry || "src/App.jsx", [code]);
+  const [selectedPath, setSelectedPath] = useState<string>("src/App.jsx");
   const [editorContent, setEditorContent] = useState<string>(code || "");
   const [dirty, setDirty] = useState(false);
 
@@ -114,6 +115,11 @@ export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChan
     };
     return find(tree);
   }, [tree, selectedPath]);
+
+  useEffect(() => {
+    const find = (n: FileNode): boolean => n.path === selectedPath && !n.children || !!n.children?.some(find);
+    if (!find(tree)) setSelectedPath(entryPath);
+  }, [tree, entryPath, selectedPath]);
 
   useEffect(() => {
     setEditorContent(currentFile?.content || "");
@@ -137,7 +143,7 @@ export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChan
   };
 
   const handleSave = () => {
-    if (selectedPath === "src/components/App.jsx" && onCodeChange) {
+    if (selectedPath === entryPath && onCodeChange) {
       onCodeChange(editorContent);
       toast({ title: "💾 Saved", description: "Preview updated with your edits." });
       setDirty(false);
@@ -202,6 +208,15 @@ export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChan
                 Save
               </button>
             )}
+            {versions.length > 0 && <div className="relative">
+              <Button variant="secondary" size="sm" onClick={() => setVersionMenuOpen((open) => !open)} aria-expanded={versionMenuOpen}>Versions ({versions.length})</Button>
+              {versionMenuOpen && <div className="absolute right-0 top-11 z-20 max-h-72 w-[min(20rem,calc(100vw-2rem))] overflow-auto rounded-lg border border-border bg-surface-elevated p-1 shadow-elevated">
+                {versions.map((version) => <button key={version.id} onClick={() => onRestoreVersion(version)} className="flex min-h-10 w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-xs text-foreground hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <span className="truncate">{version.prompt}</span><time className="shrink-0 text-muted-foreground">{new Date(version.createdAt).toLocaleString()}</time>
+                </button>)}
+              </div>}
+            </div>}
+            {tab === "preview" && code && <Button variant="secondary" size="sm" onClick={onManualFix} loading={fixing}>Fix with AI</Button>}
             <button
               onClick={handleRefresh}
               className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-smooth hover:bg-secondary hover:text-foreground"

@@ -128,6 +128,8 @@ export function buildDocFromPrompt(prompt: string, code?: string) {
 `;
 
   const filesJSON = JSON.stringify(files);
+  const userPackages = [...Object.keys(files).flatMap((path) => [...(files[path] || "").matchAll(/(?:from\s*|require\s*\()\s*['"](@?[a-zA-Z0-9_./-]+)['"]/g)].map((match) => match[1]).filter((name) => !name.startsWith(".") && !name.startsWith("/") && !name.startsWith("@/") && !["react", "react-dom", "react-dom/client", "lucide-react", "react-router-dom"].includes(name)))];
+  const packagesJSON = JSON.stringify([...new Set(userPackages)]);
   const entryJSON = JSON.stringify(entry);
   const iconsJSON = JSON.stringify(iconGlobals);
 
@@ -137,7 +139,12 @@ export function buildDocFromPrompt(prompt: string, code?: string) {
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>AppiGen Preview — ${safePrompt}</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/tailwindcss@3.4.16/lib/index.js"></script>
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <script src="https://unpkg.com/recharts@2.15.0/umd/Recharts.js"></script>
+  <script src="https://unpkg.com/framer-motion@11.15.0/dist/framer-motion.js"></script>
+  <script src="https://unpkg.com/date-fns@4.1.0/cdn.min.js"></script>
+  <script src="https://unpkg.com/clsx@2.1.1/dist/clsx.min.js"></script>
   <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.development.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/@babel/standalone@7.26.10/babel.min.js"></script>
@@ -169,10 +176,11 @@ export function buildDocFromPrompt(prompt: string, code?: string) {
   };
   ${iconsJSON}.forEach(function(n){ if(!window[n]) window[n] = window.__appigenIcon(n); });
 
+  var lucideExports = window.lucide || {};
   var lucideProxy = new Proxy({}, { get: function(_, k){
     var key = String(k);
     if (key === '__esModule') return true;
-    return window[key] || window.__appigenIcon(key);
+    return window[key] || lucideExports[key] || window.__appigenIcon(key);
   }});
 
   var RouterContext = React.createContext({ path: '/' });
@@ -195,12 +203,23 @@ export function buildDocFromPrompt(prompt: string, code?: string) {
   }
   function NavLink(props){ return React.createElement(Link, props, props && props.children); }
   function Outlet(){ return null; }
-  function useNavigate(){ return function(){}; }
-  function useLocation(){ return { pathname: '/', search: '', hash: '', state: null, key: 'default' }; }
-  function useParams(){ return {}; }
+  var RouteContext = React.createContext({ params: {} });
+  function pathMatch(pattern, pathname){
+    var names=[]; var regex=new RegExp('^'+String(pattern||'*').replace(/([.+?^${}()|[\]\\])/g,'\\$1').replace(/\\\\\\*|\\*/g,'.*').replace(/:([A-Za-z0-9_]+)/g,function(_,n){names.push(n);return '([^/]+)';})+'/?$');
+    var match=pathname.match(regex); if(!match) return null; var params={}; names.forEach(function(n,i){params[n]=decodeURIComponent(match[i+1]);}); return params;
+  }
+  function BrowserRouter(props){ var pair=React.useState(window.location.pathname), path=pair[0], setPath=pair[1]; React.useEffect(function(){ var pop=function(){setPath(window.location.pathname);}; window.addEventListener('popstate',pop); return function(){window.removeEventListener('popstate',pop);};},[]); var navigate=function(to){var next=typeof to==='number'?null:String(to); if(next===null){window.history.go(to);return;} window.history.pushState({},'',next);setPath(window.location.pathname);}; return React.createElement(RouterContext.Provider,{value:{path:path,navigate:navigate}},props&&props.children); }
+  function HashRouter(props){ var pair=React.useState(window.location.hash.slice(1)||'/'), path=pair[0], setPath=pair[1]; React.useEffect(function(){var pop=function(){setPath(window.location.hash.slice(1)||'/');};window.addEventListener('hashchange',pop);return function(){window.removeEventListener('hashchange',pop);};},[]);var navigate=function(to){window.location.hash=String(to);setPath(String(to));};return React.createElement(RouterContext.Provider,{value:{path:path,navigate:navigate}},props&&props.children); }
+  function Routes(props){ var ctx=React.useContext(RouterContext), children=React.Children.toArray(props&&props.children); for(var i=0;i<children.length;i++){var child=children[i];if(child&&child.props){var params=pathMatch(child.props.path|| (child.props.index?ctx.path:null),ctx.path);if(params)return React.createElement(RouteContext.Provider,{value:{params:params}},child.props.element||child.props.children||null);}} return null; }
+  function useNavigate(){return React.useContext(RouterContext).navigate;}
+  function useLocation(){var path=React.useContext(RouterContext).path;return {pathname:path,search:window.location.search,hash:window.location.hash,state:null,key:'appigen'};}
+  function useParams(){return React.useContext(RouteContext).params;}
 
   // ========= Virtual Module System =========
+  function showError(msg, stack){ parent.postMessage({ __appigen: true, kind: 'compile', message: msg, stack: stack || '' }, '*'); var pre=document.createElement('pre'); pre.style.cssText='color:hsl(0 75% 60%);background:hsl(0 75% 20%);padding:16px;margin:16px;border-radius:8px;white-space:pre-wrap;font:12px ui-monospace,Menlo,monospace'; pre.textContent='Preview error: '+msg+(stack?'\n\n'+stack:''); document.body.appendChild(pre); }
   var FILES = ${filesJSON};
+  var UNSUPPORTED_PACKAGES = ${packagesJSON};
+  if (UNSUPPORTED_PACKAGES.length) { showError('Unsupported package: ' + UNSUPPORTED_PACKAGES[0] + '. This package is not available in the AppiGen preview runtime.', ''); return; }
   var CACHE = Object.create(null);
 
   function normalize(p){
@@ -219,15 +238,17 @@ export function buildDocFromPrompt(prompt: string, code?: string) {
     'react-dom': ReactDOM,
     'react-dom/client': ReactDOM,
     'lucide-react': lucideProxy,
-    'react-router-dom': { BrowserRouter: BrowserRouter, HashRouter: BrowserRouter, MemoryRouter: BrowserRouter, Routes: Routes, Route: Route, Link: Link, NavLink: NavLink, Outlet: Outlet, useNavigate: useNavigate, useLocation: useLocation, useParams: useParams },
+    'react-router-dom': { BrowserRouter: BrowserRouter, HashRouter: HashRouter, MemoryRouter: BrowserRouter, Routes: Routes, Route: Route, Link: Link, NavLink: NavLink, Outlet: Outlet, useNavigate: useNavigate, useLocation: useLocation, useParams: useParams },
+    'recharts': window.Recharts || {},
+    'framer-motion': window.Motion || window.framerMotion || {},
+    'date-fns': window.dateFns || {},
+    'clsx': window.clsx || function(){ return Array.from(arguments).filter(Boolean).join(' '); },
   };
 
   function resolveSpec(fromPath, spec){
     if (spec in EXT_MODULES) return { ext: EXT_MODULES[spec] };
-    // Ignore unknown bare packages gracefully
     if (!/^[.@]/.test(spec) && !spec.startsWith('/')) {
-      // heuristic: node_modules-like -> empty module
-      return { ext: new Proxy(function(){}, { get: function(){ return function(){ return null; }; } }) };
+      throw new Error('Unsupported package: ' + spec + '. This package is not available in the AppiGen preview runtime.');
     }
     var target = spec;
     if (spec.startsWith('@/')) target = 'src/' + spec.slice(2);
@@ -235,8 +256,7 @@ export function buildDocFromPrompt(prompt: string, code?: string) {
     else if (spec.startsWith('/')) target = normalize(spec.slice(1));
     var cands = [target, target+'.jsx', target+'.js', target+'.tsx', target+'.ts', target+'/index.jsx', target+'/index.js', target+'/index.tsx'];
     for (var i=0;i<cands.length;i++) if (FILES[cands[i]] != null) return { file: cands[i] };
-    // fallback: empty
-    return { ext: {} };
+    throw new Error('Module not found: ' + spec + ' (imported from ' + fromPath + ')');
   }
 
   function makeRequire(fromPath){
