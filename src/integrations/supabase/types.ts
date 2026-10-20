@@ -53,7 +53,9 @@ export type Database = {
         Row: {
           code: string
           created_at: string
+          files: Json
           id: string
+          messages: Json
           prompt: string
           thumbnail: string | null
           title: string
@@ -63,7 +65,9 @@ export type Database = {
         Insert: {
           code: string
           created_at?: string
+          files?: Json
           id?: string
+          messages?: Json
           prompt: string
           thumbnail?: string | null
           title?: string
@@ -73,7 +77,9 @@ export type Database = {
         Update: {
           code?: string
           created_at?: string
+          files?: Json
           id?: string
+          messages?: Json
           prompt?: string
           thumbnail?: string | null
           title?: string

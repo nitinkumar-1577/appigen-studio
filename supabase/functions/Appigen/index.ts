@@ -2,6 +2,8 @@
 // Local stages: 1 Intent · 2 Requirements · 3 Architecture · 4 Blueprint
 // AI stages: 5 Generate (multi-file) · 6 Validate · 7 Auto-Repair · 8 Clean
 // Critical: never run sequential long AI calls inside the edge request.
+import { validateGeneratedCode } from "../../../src/lib/preview/validateGeneratedCode.ts";
+import { extractGroqCode } from "../_shared/groqResponse.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -9,71 +11,81 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-// Primary provider: Lovable AI Gateway (OpenAI-compatible). Reliable, high quota.
-const LOVABLE_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const LOVABLE_MODEL_SMART = "google/gemini-2.5-flash";
-const LOVABLE_MODEL_FAST = "google/gemini-2.5-flash-lite";
-
-// Optional fallback: Groq (kept for resilience; often rate-limited on free tier).
+// Groq's OpenAI-compatible chat completions API.
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
-const MODEL_FAST = "llama-3.1-8b-instant";
-const MODEL_SMART = "llama-3.3-70b-versatile";
+const MODEL_FAST = "openai/gpt-oss-20b";
+const MODEL_SMART = "openai/gpt-oss-120b";
 
-const PRIMARY_GENERATION_TIMEOUT_MS = 90000;
-const FAST_GENERATION_TIMEOUT_MS = 60000;
-const REPAIR_TIMEOUT_MS = 60000;
+const FAST_GENERATION_TIMEOUT_MS = 45000;
+const REPAIR_TIMEOUT_MS = 35000;
 
-const GENERATOR_SYSTEM = `You are an elite senior frontend engineer generating a production-grade React application in the LOVABLE MULTI-FILE style.
+const GENERATOR_SYSTEM = `You are an elite senior frontend engineer generating a production-grade, self-contained React TypeScript application.
 
 OUTPUT CONTRACT (STRICT — the parser depends on it):
 - Output ONLY raw source code. NO markdown, NO code fences, NO prose, NO explanations.
 - Split the app across MULTIPLE files using this EXACT delimiter on its own line before each file:
-    // FILE: <relative/path.jsx>
+    // FILE: <relative/path.tsx>
   Example:
-    // FILE: src/App.jsx
+    // FILE: src/App.tsx
     import Header from "./components/Header";
     export default function App(){ ... }
 
-    // FILE: src/components/Header.jsx
+    // FILE: src/components/Header.tsx
     export default function Header(){ ... }
 
-DIRECTORY STRUCTURE (use whichever apply):
-- src/App.jsx                (required — default-exports the root <App/> component)
-- src/components/*.jsx       (reusable UI: buttons, cards, modals, lists)
-- src/pages/*.jsx            (route-level views if the app has multiple screens)
-- src/hooks/use*.js          (custom hooks)
-- src/context/*.jsx          (React Context providers)
-- src/utils/*.js             (pure helpers)
+PROJECT STRUCTURE (required for every new app):
+- src/App.tsx: small application shell and page composition; default-export the root component.
+- src/pages/<Feature>Page.tsx: the main screen, with additional pages only when the prompt asks for them.
+- src/components/<Feature>*.tsx: reusable visual sections and controls, separate from page-level composition.
+- src/styles.css: the app's own design system: CSS variables, typography, responsive rules, and custom visual details.
+- src/hooks/use<Feature>.ts: put meaningful stateful workflows and interaction logic here when the app has them.
+- src/lib/<feature>.ts: put non-UI domain rules, calculations, and validation here when they are meaningful.
+- Add data/context files only when the requested app needs them. Do not create empty, duplicate, or ceremonial files.
+- Import "./styles.css" from src/App.tsx. Keep visual styling in this file and reusable components; do not put the whole app in App.tsx.
+- A simple app still needs the App, page, a reusable component, and stylesheet layers. A larger app should use more components and separate its real domain logic into hooks/lib modules.
 
 MODULE RULES:
 - Use ES module syntax: \`import X from "./path"\` and \`export default\` / \`export const\`.
 - Internal imports: relative ("./components/Foo") OR alias ("@/components/Foo" -> src/*).
-- External imports allowed ONLY: "react", "react-dom", "lucide-react". Nothing else.
-- Do NOT import CSS files. Tailwind is preloaded globally.
-- Do NOT call ReactDOM.createRoot — the runtime mounts <App/> from src/App.jsx's default export.
+- External imports allowed ONLY: "react", "react-dom", "react-dom/client", "lucide-react", "react-router-dom", "recharts", "framer-motion", "date-fns", "clsx". Nothing else.
+- Every relative import must resolve to a file included in this output. Never import an unavailable package.
+- CSS files are supported by the preview runtime. Import "./styles.css" from src/App.tsx; Tailwind utilities are also available.
+- Do NOT call ReactDOM.createRoot — the runtime mounts <App/> from src/App.tsx's default export.
 
 CODE RULES:
-- Plain JSX only. NO TypeScript syntax (no type annotations, interfaces, "as" casts, generics).
+- Generate valid TSX/TypeScript with correct React types, valid JSX attributes, balanced tags/braces/parentheses, and complete imports/exports. Never put TypeScript syntax inside JSX expressions or leave placeholder code.
+- Keep each file syntactically self-contained: no undeclared variables, unresolved imports, invalid hooks, or incomplete JSX.
 - ASCII characters only inside string literals (no smart quotes, em-dashes, or emojis in JSX text).
 - Every button has an onClick. Every input is controlled with useState/useReducer.
 - Wire ALL interactions to real state — no empty console.log stubs.
+- Implement every explicitly requested feature and expose requested results in the UI; do not leave calculated outputs implicit in internal state or omit named summary metrics.
+- Before returning, check that each requested control, calculation, edge case, and visible result is represented in the generated app.
 - Include loading, empty, and error states where relevant.
-- Mobile-first responsive Tailwind. Dark theme by default. Glassmorphism, gradients, soft shadows, smooth transitions (transition-all duration-200, hover:scale-[1.02], etc.).
+- Build a distinctive, polished visual design that fits the user's app and prompt. Define app-specific design tokens and custom CSS in src/styles.css; use Tailwind for layout and utility styling where useful. Avoid generic dashboard/card boilerplate unless requested.
+- Match the visual language to the product domain: games need a deliberate board/playfield, clear player identity, readable turns/status, and controls that fit the play area; dashboards need information hierarchy and usable dense data; editorial and commerce apps need their own appropriate composition.
+- Validate the layout mentally at narrow mobile widths and wide desktop widths. Keep primary interactions visible, provide adequate contrast and focus states, and avoid overflow or tiny controls.
+- Follow the user's requested features, constraints, visual direction, and content exactly; the user prompt is the source of truth.
+- Do not invent extra user-facing features, pages, data, integrations, or business rules. When a detail is unspecified, choose the smallest neutral implementation needed to make the requested experience work.
+- Never substitute a different app (such as a task manager or generic dashboard) for the app the user requested.
+- When given existing source code, preserve all unrelated behavior and make only the changes requested by the user.
+- Preserve explicit user wording and constraints over any inferred plan, stage, or optional hint.
 - Close every JSX tag and bracket. Reference only defined variables.
-- Split logic aggressively: aim for 3-8 files for anything non-trivial.
+- Separate the app shell, screen composition, reusable UI, styling, and meaningful state/domain logic into the project structure above. Keep each file focused; do not collapse a multi-part app into one file.
 
 Return the complete multi-file source. Nothing else.`;
 
-const REPAIR_SYSTEM = `You are an expert JS/JSX bug fixer for multi-file React projects.
+const REPAIR_SYSTEM = `You are an expert React TypeScript / TSX syntax and runtime error fixer for multi-file projects.
 
 You receive broken source (possibly multiple files delimited by "// FILE: <path>" lines) and the runtime/compile error it produced.
 
 RETURN the FULL fixed source using the SAME "// FILE: <path>" delimiter format. Rules:
 - NO markdown, NO fences, NO prose.
 - Preserve every file that was present; only edit what's needed to fix the error.
-- Keep ES module syntax (import/export). External imports limited to react, react-dom, lucide-react.
-- No TypeScript syntax. ASCII strings. Close every tag and bracket. Define every referenced variable.
-- src/App.jsx must default-export the root component. Do NOT call ReactDOM.createRoot.`;
+- Keep ES module syntax (import/export). External imports limited to react, react-dom, react-dom/client, lucide-react, react-router-dom, recharts, framer-motion, date-fns, and clsx. Every relative import must resolve to an included file.
+- Preserve CSS files such as src/styles.css and keep their imports intact; do not fold visual styles into App.tsx.
+- Return valid TSX/TypeScript with complete imports, defined identifiers, valid JSX attributes, balanced tags/braces/parentheses, and no placeholders.
+- Preserve the user's requested behavior and do not add unrelated features.
+- src/App.tsx must default-export the root component. Do NOT call ReactDOM.createRoot.`;
 
 // ---------- helpers ----------
 
@@ -92,6 +104,7 @@ function cleanCode(raw: string): string {
   if (fenceMatches.length) {
     s = fenceMatches.sort((a, b) => b[1].length - a[1].length)[0][1].trim();
   }
+  s = s.replace(/^\s*#\s*FILE:/gim, "// FILE:");
 
   // Multi-file mode: keep everything as-is (imports/exports are needed by the loader).
   if (/^\s*\/\/\s*FILE:/m.test(s)) {
@@ -137,65 +150,6 @@ function isMultiFile(src: string): boolean {
 
 
 
-// Bracket balance sanity check
-function bracketsBalanced(src: string): boolean {
-  const stack: string[] = [];
-  const pairs: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
-  let inStr: string | null = null;
-  let inTpl = false;
-  let inLineCmt = false;
-  let inBlockCmt = false;
-  for (let i = 0; i < src.length; i++) {
-    const c = src[i], n = src[i + 1];
-    if (inLineCmt) { if (c === "\n") inLineCmt = false; continue; }
-    if (inBlockCmt) { if (c === "*" && n === "/") { inBlockCmt = false; i++; } continue; }
-    if (inStr) { if (c === "\\") { i++; continue; } if (c === inStr) inStr = null; continue; }
-    if (inTpl) { if (c === "\\") { i++; continue; } if (c === "`") inTpl = false; continue; }
-    if (c === "/" && n === "/") { inLineCmt = true; i++; continue; }
-    if (c === "/" && n === "*") { inBlockCmt = true; i++; continue; }
-    if (c === '"' || c === "'") { inStr = c; continue; }
-    if (c === "`") { inTpl = true; continue; }
-    if ("([{".includes(c)) stack.push(c);
-    else if (")]}".includes(c)) { if (stack.pop() !== pairs[c]) return false; }
-  }
-  return stack.length === 0 && !inStr && !inTpl;
-}
-
-async function callChat(
-  url: string,
-  authHeader: Record<string, string>,
-  body: Record<string, unknown>,
-  { timeoutMs = 60000 } = {},
-): Promise<any> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...authHeader },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-  } catch (e) {
-    clearTimeout(timer);
-    const msg = e instanceof Error ? e.message : String(e);
-    throw new Error(`Chat request timed out (${timeoutMs}ms): ${msg}`);
-  } finally {
-    clearTimeout(timer);
-  }
-  const text = await res.text();
-  if (res.ok) {
-    try { return JSON.parse(text); }
-    catch { throw new Error("Non-JSON response: " + text.slice(0, 300)); }
-  }
-  throw new Error(`Chat ${res.status}: ${text.slice(0, 400)}`);
-}
-
-async function lovableAI(apiKey: string, body: Record<string, unknown>, opts: { timeoutMs?: number } = {}) {
-  return callChat(LOVABLE_URL, { Authorization: `Bearer ${apiKey}` }, body, opts);
-}
-
 async function groq(
   apiKey: string,
   body: Record<string, unknown>,
@@ -216,9 +170,12 @@ async function groq(
     } catch (e) {
       clearTimeout(timer);
       const msg = e instanceof Error ? e.message : String(e);
-      lastErr = { status: "timeout", body: msg };
-      if (attempt < retries) continue;
-      throw new Error(`Groq request timed out (${timeoutMs}ms)`);
+      if (controller.signal.aborted) {
+        lastErr = { status: "timeout", body: msg };
+        if (attempt < retries) continue;
+        throw new Error(`Groq request timed out (${timeoutMs}ms)`);
+      }
+      throw new Error(`Groq network request failed: ${msg}`);
     } finally {
       clearTimeout(timer);
     }
@@ -248,6 +205,19 @@ function isProviderUnavailable(err: unknown) {
   return /429|5\d\d|rate limit|timed out|temporary/i.test(msg);
 }
 
+function providerFailure(provider: string, error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const status = message.match(/\bGroq\s+(\d{3})\b/)?.[1];
+  if (status === "401" || status === "403") return `${provider} rejected its configured credentials (HTTP ${status}).`;
+  if (status === "429") return `${provider} is rate limited or out of quota (HTTP 429).`;
+  if (status && Number(status) >= 500) return `${provider} is currently unavailable (HTTP ${status}).`;
+  if (status === "404") return `${provider} returned HTTP 404; the model is unavailable or not enabled for this Groq account.`;
+  if (status === "400") return `${provider} rejected the request (HTTP 400): ${message.slice(0, 240)}`;
+  if (/timed out|timeout|abort/i.test(message)) return `${provider} timed out.`;
+  if (/non-json/i.test(message)) return `${provider} returned an invalid response.`;
+  return message.slice(0, 300);
+}
+
 // ---------- pipeline ----------
 
 // ============================================================
@@ -265,7 +235,8 @@ async function groqJSON(apiKey: string, model: string, sys: string, user: string
       { role: "user", content: user },
     ],
     temperature: 0.3,
-    max_tokens: maxTokens,
+    max_completion_tokens: maxTokens,
+    reasoning_effort: "low",
     response_format: { type: "json_object" },
   }, { timeoutMs: 25000 });
   const raw = data?.choices?.[0]?.message?.content ?? "{}";
@@ -296,46 +267,15 @@ function inferDomain(prompt: string, appType: string) {
   return appType === "app" ? "general" : appType;
 }
 
-function localArchitecture(prompt: string, appType: string) {
-  const p = prompt.toLowerCase();
-  const components = [
-    { path: "src/components/Header.jsx", purpose: "top bar, status, primary actions" },
-    { path: "src/components/ActionPanel.jsx", purpose: "main controls and contextual actions" },
-    { path: "src/components/EmptyState.jsx", purpose: "friendly empty or first-run state" },
-  ];
-  const hooks = [{ path: "src/hooks/usePersistentState.js", purpose: "localStorage-backed state persistence" }];
-  const contexts = [{ path: "src/context/AppStateContext.jsx", purpose: "shared application state and actions" }];
-  const utils = [{ path: "src/utils/helpers.js", purpose: "pure helpers and validation" }];
-  const pages = ["Home.jsx"];
-
-  if (appType === "game") {
-    components.push(
-      { path: "src/components/GameBoard.jsx", purpose: "responsive playable board" },
-      { path: "src/components/PlayerPanel.jsx", purpose: "turns, scores, and player state" },
-      { path: "src/components/GameControls.jsx", purpose: "dice, reset, and game actions" },
-    );
-    utils.push({ path: "src/utils/gameLogic.js", purpose: "rules, turns, win checks, and safe moves" });
-  } else if (/dashboard|analytics|admin|crm|chart|report/.test(p)) {
-    components.push(
-      { path: "src/components/MetricCard.jsx", purpose: "reusable metric summaries" },
-      { path: "src/components/DataPanel.jsx", purpose: "lists, filters, and tables" },
-    );
-    utils.push({ path: "src/utils/mockData.js", purpose: "seed data for the generated dashboard" });
-  } else if (/todo|task|kanban|planner|notes/.test(p)) {
-    components.push(
-      { path: "src/components/TaskCard.jsx", purpose: "editable item card" },
-      { path: "src/components/BoardColumn.jsx", purpose: "grouped workflow column" },
-    );
-  }
-
+function localArchitecture() {
   return {
-    pages,
-    components,
-    hooks,
-    contexts,
-    utils,
-    dataModel: appType === "game" ? "players, pieces, dice, turns, move history" : "local entities persisted to localStorage",
-    stateStrategy: "React state + context + localStorage cache with guarded event handlers",
+    pages: [],
+    components: [],
+    hooks: [],
+    contexts: [],
+    utils: [],
+    dataModel: "Only entities explicitly requested by the user",
+    stateStrategy: "Use the simplest state strategy that implements the requested interactions",
   };
 }
 
@@ -346,16 +286,15 @@ function enhanceAndPlan(_apiKey: string, userPrompt: string, stage?: string) {
   const intent = { goal: userPrompt, appType, domain, complexity };
   const reqs = {
     functional: [
-      "Build the requested experience as a real interactive React app",
-      "Separate UI, state, and helper logic into multiple files",
-      "Persist important state in localStorage",
-      "Provide reset and primary action controls",
+      "Implement only the user-requested features and interactions",
+      "Use production-ready React + Tailwind code",
+      "Do not add features, content, or behavior not specified by the user",
     ],
-    nonFunctional: ["responsive layout", "accessible controls", "stable event handlers", "fast first render", "dark theme"],
-    edgeCases: ["empty input", "invalid action", "refresh persistence", "reset flow", "mobile viewport"],
-    uxStates: ["ready", "active", "success", "error", "empty"],
+    nonFunctional: ["responsive layout", "accessible controls", "stable event handlers", "fast first render"],
+    edgeCases: ["Handle only edge cases directly relevant to the requested features"],
+    uxStates: ["Include states relevant to the requested experience"],
   };
-  const arch = localArchitecture(userPrompt, appType);
+  const arch = localArchitecture();
 
   const components = (arch.components || []).map((c: any) => `${c.path} — ${c.purpose}`);
   const hooks = (arch.hooks || []).map((h: any) => `${h.path} — ${h.purpose}`);
@@ -363,15 +302,9 @@ function enhanceAndPlan(_apiKey: string, userPrompt: string, stage?: string) {
   const utils = (arch.utils || []).map((u: any) => `${u.path} — ${u.purpose}`);
 
   const enhancedPrompt = [
-    `Goal: ${intent.goal || userPrompt}`,
-    `App type: ${intent.appType || "app"} (${intent.domain || "general"})`,
-    `Functional: ${(reqs.functional || []).join("; ")}`,
-    `Non-functional: ${(reqs.nonFunctional || []).join("; ")}`,
-    `Edge cases: ${(reqs.edgeCases || []).join("; ")}`,
-    `UX states: ${(reqs.uxStates || []).join("; ")}`,
-    `Data model: ${arch.dataModel || "in-memory useState"}`,
-    `State strategy: ${arch.stateStrategy || "local state + context where shared"}`,
-    `Stage: ${stage ?? "polish"}`,
+    `User specification (authoritative): ${userPrompt}`,
+    `Generation stage (implementation guidance only): ${stage ?? "polish"}`,
+    "Accuracy requirement: Treat the user's original prompt as the exact product specification. Implement every explicit requirement and do not invent additional functionality, sections, or assumptions.",
   ].join("\n");
 
   return {
@@ -606,119 +539,117 @@ export function createItem(title) {
 }
 
 interface Providers {
-  lovableKey?: string;
   groqKey?: string;
 }
 
-async function generateCode(providers: Providers, plan: any, system?: string, stage?: string) {
+type ConversationTurn = { role: "user" | "assistant"; content: string };
+
+async function generateCode(
+  providers: Providers,
+  plan: any,
+  system?: string,
+  stage?: string,
+  existingCode?: string,
+  conversation: ConversationTurn[] = [],
+) {
+  const failures: string[] = [];
+  const existingPaths = existingCode
+    ? [...existingCode.matchAll(/^\s*\/\/\s*FILE:\s*([^\n]+)/gm)].map((match) => match[1].trim())
+    : [];
+  const recentConversation = conversation.length
+    ? `RECENT PROJECT CONVERSATION (use as context; the current prompt is authoritative):\n${conversation.map((turn) => `${turn.role.toUpperCase()}:\n${turn.content}`).join("\n\n")}`
+    : "";
   const blueprint = `BUILD BRIEF
 App type: ${plan.appType || "app"}
 Complexity: ${plan.complexity || "moderate"}
 Pages/sections: ${(plan.pages || []).join(", ") || "(single page)"}
 Stage: ${stage || "polish"}
 
-REQUIRED FILE LAYOUT (create each file with the // FILE: delimiter, one responsibility per file):
-- src/App.jsx (root, default export)
+REQUIRED FILE LAYOUT (create each file with the // FILE: delimiter):
+- src/App.tsx (small root shell; imports ./styles.css)
+- src/pages/MainPage.tsx (main screen, own page composition)
+- src/components/MainView.tsx (reusable visual UI, separate from the root shell)
+- src/styles.css (app-specific design tokens, responsive CSS, and visual polish)
 ${(plan.pages || []).map((p: string) => `- src/pages/${p} (route/screen)`).join("\n") || "- (no additional pages)"}
 ${(plan.components || []).map((c: string) => `- ${c}`).join("\n") || "- (infer minimal components)"}
 ${(plan.hooks || []).map((h: string) => `- ${h}`).join("\n")}
 ${(plan.contexts || []).map((c: string) => `- ${c}`).join("\n")}
 ${(plan.utils || []).map((u: string) => `- ${u}`).join("\n")}
 
+For any app with meaningful interactions or state, also create a focused src/hooks/use<Feature>.ts module for the workflow and src/lib/<feature>.ts for reusable domain calculations/validation when applicable. Keep presentational components free of business rules. Add more screen/component/data files only to match the actual requested scope; do not create filler files.
+
 DETAILED SPEC:
 ${plan.enhancedPrompt || ""}
 
+${existingCode ? `INCREMENTAL UPDATE ROADMAP
+1. Read the existing project file tree and source below before changing anything.
+2. Identify only the files required for this request; preserve unrelated features and established architecture.
+3. Implement the smallest coherent changes, adding focused modules when the new behavior needs them.
+4. Return complete source for every project file so the live preview can rebuild consistently.
+Existing file tree: ${existingPaths.join(", ") || "(single-file project)"}
+
+EXISTING PROJECT SOURCE (authoritative starting point; preserve all unrelated behavior):
+${existingCode}` : ""}
+
+${recentConversation}
+
 ${system ? "EXTRA SYSTEM HINTS:\n" + system : ""}
 
-IMPORTANT: Output the COMPLETE source for EVERY file. Do NOT truncate. Do NOT write "// rest of code" or "// ...". Close every JSX tag and every bracket. Every import you write MUST resolve to a file you also emit (or to react / react-dom / lucide-react).`.trim();
+IMPORTANT: Output complete valid TSX/TypeScript/CSS for every file. Do NOT truncate or use placeholders. Close every JSX tag, bracket, and CSS block. Every local import MUST resolve to a file you emit or an allowed runtime module (react, react-dom, react-dom/client, lucide-react, react-router-dom, recharts, framer-motion, date-fns, clsx). The design must be intentionally specific to the requested app, not a generic sample. Preserve exactly the user's specified requirements; do not invent additional features.${existingCode ? " For this edit, apply only the requested changes to the existing source and return the complete updated project, preserving the established file structure." : ""}`.trim();
 
   const messages = [
     { role: "system", content: GENERATOR_SYSTEM },
     { role: "user", content: blueprint },
   ];
 
-  // 1) Lovable AI Gateway — Gemini 2.5 Flash (primary, reliable, big context).
-  if (providers.lovableKey) {
-    try {
-      const data = await lovableAI(providers.lovableKey, {
-        model: LOVABLE_MODEL_SMART,
-        messages,
-        temperature: 0.4,
-        max_tokens: 8192,
-      }, { timeoutMs: PRIMARY_GENERATION_TIMEOUT_MS });
-      const code = cleanCode(data?.choices?.[0]?.message?.content ?? "");
-      if (code) return { code, provider: "lovable:gemini-2.5-flash" };
-    } catch (err) {
-      console.warn("Lovable primary generation failed:", err instanceof Error ? err.message : String(err));
-    }
-    // 1b) Lovable Flash Lite fallback
-    try {
-      const data = await lovableAI(providers.lovableKey, {
-        model: LOVABLE_MODEL_FAST,
-        messages,
-        temperature: 0.35,
-        max_tokens: 8192,
-      }, { timeoutMs: FAST_GENERATION_TIMEOUT_MS });
-      const code = cleanCode(data?.choices?.[0]?.message?.content ?? "");
-      if (code) return { code, provider: "lovable:gemini-2.5-flash-lite" };
-    } catch (err) {
-      console.warn("Lovable fast generation failed:", err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  // 2) Groq fallback (may be rate-limited on free tier).
+  // Try the faster Groq model first, then use the larger model if needed.
   if (providers.groqKey) {
-    for (const model of [MODEL_SMART, MODEL_FAST]) {
+    for (const model of [MODEL_FAST, MODEL_SMART]) {
       try {
         const data = await groq(providers.groqKey, {
           model,
           messages,
-          temperature: 0.4,
-          max_tokens: 5500,
+          temperature: 0.2,
+          max_completion_tokens: 16000,
+          reasoning_effort: "low",
         }, { retries: 0, timeoutMs: FAST_GENERATION_TIMEOUT_MS });
-        const code = cleanCode(data?.choices?.[0]?.message?.content ?? "");
-        if (code) return { code, provider: `groq:${model}` };
+        const code = cleanCode(extractGroqCode(data, model));
+        const validationError = validateGeneratedCode(code, !existingCode);
+        if (!validationError) return { code, provider: `groq:${model}` };
+        failures.push(`Groq ${model} returned invalid project code: ${validationError}`);
       } catch (err) {
-        console.warn(`Groq ${model} skipped:`, err instanceof Error ? err.message : String(err));
+        const reason = providerFailure(`Groq ${model}`, err);
+        console.warn(`Groq model ${model} failed:`, reason);
+        failures.push(reason);
       }
     }
   }
 
-  return { code: fallbackCode(plan._intent?.goal || "Build an app", plan), provider: "local-fallback" };
+  throw new Error(`AI code generation failed: all configured Groq models failed. ${failures.join(" ") || "Set GROQ_API_KEY in Supabase Edge Function secrets."}`);
 }
 
-async function repairCode(providers: Providers, brokenCode: string, errorMsg: string) {
-  const compact = brokenCode.length > 22000 ? brokenCode.slice(0, 22000) : brokenCode;
+async function repairCode(providers: Providers, brokenCode: string, errorMsg: string, requireArchitecture = false) {
+  const failures: string[] = [];
   const messages = [
     { role: "system", content: REPAIR_SYSTEM },
-    { role: "user", content: `ERROR:\n${errorMsg}\n\nBROKEN CODE:\n${compact}\n\nReturn the FULL fixed multi-file source using // FILE: delimiters.` },
+    { role: "user", content: `ERROR:\n${errorMsg}\n\nBROKEN CODE (preserve every file):\n${brokenCode}\n\nReturn the FULL fixed multi-file source using // FILE: delimiters.` },
   ];
 
-  if (providers.lovableKey) {
-    try {
-      const data = await lovableAI(providers.lovableKey, {
-        model: LOVABLE_MODEL_SMART,
-        messages,
-        temperature: 0.2,
-        max_tokens: 8192,
-      }, { timeoutMs: REPAIR_TIMEOUT_MS });
-      const fixed = cleanCode(data?.choices?.[0]?.message?.content ?? "");
-      if (fixed) return fixed;
-    } catch (err) {
-      console.warn("Lovable repair failed:", err instanceof Error ? err.message : String(err));
-    }
-  }
   if (providers.groqKey) {
     try {
       const data = await groq(providers.groqKey, {
         model: MODEL_FAST,
         messages,
         temperature: 0.2,
-        max_tokens: 3000,
+        max_completion_tokens: 9000,
+        reasoning_effort: "low",
       }, { retries: 0, timeoutMs: REPAIR_TIMEOUT_MS });
-      const fixed = cleanCode(data?.choices?.[0]?.message?.content ?? "");
-      if (fixed) return fixed;
+      const fixed = cleanCode(extractGroqCode(data, MODEL_FAST));
+      const validationError = validateGeneratedCode(fixed, requireArchitecture);
+      if (!validationError) return fixed;
+      failures.push(`Groq repair returned invalid project code: ${validationError}`);
     } catch (err) {
+      failures.push(providerFailure("Groq repair", err));
       if (isProviderUnavailable(err)) {
         console.warn("Groq repair unavailable:", err instanceof Error ? err.message : String(err));
       } else {
@@ -726,7 +657,7 @@ async function repairCode(providers: Providers, brokenCode: string, errorMsg: st
       }
     }
   }
-  return cleanCode(brokenCode);
+  throw new Error(`Groq code repair failed. ${failures.join(" ") || "Set GROQ_API_KEY in Supabase Edge Function secrets."}`);
 }
 
 // ---------- handler ----------
@@ -736,46 +667,65 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
 
   const providers: Providers = {
-    lovableKey: Deno.env.get("LOVABLE_API_KEY") || undefined,
     groqKey: Deno.env.get("GROQ_API_KEY") || undefined,
   };
-  if (!providers.lovableKey && !providers.groqKey) {
-    return jsonResponse({ error: "No AI provider configured (LOVABLE_API_KEY or GROQ_API_KEY)" }, 500);
+  if (!providers.groqKey) {
+    return jsonResponse({ error: "Groq is not configured. Set GROQ_API_KEY in Supabase Edge Function secrets." }, 500);
   }
 
   let body: any;
   try { body = await req.json(); }
   catch { return jsonResponse({ error: "Invalid JSON body" }, 400); }
 
-  const mode: "build" | "repair" = body?.mode === "repair" ? "repair" : "build";
+  const mode: "build" | "edit" | "repair" = body?.mode === "repair" ? "repair" : body?.mode === "edit" ? "edit" : "build";
 
   try {
     if (mode === "repair") {
       const code = typeof body.code === "string" ? body.code : "";
       const errorMsg = typeof body.error === "string" ? body.error : "";
       if (!code || !errorMsg) return jsonResponse({ error: "Missing code or error for repair" }, 400);
-      let fixed = await repairCode(providers, code, errorMsg);
-      if (!isMultiFile(fixed) && !bracketsBalanced(fixed)) {
-        fixed = await repairCode(providers, fixed, "Brackets/JSX still unbalanced. Close every tag and bracket.");
-      }
+      const fixed = await repairCode(providers, code, errorMsg);
       if (!fixed) return jsonResponse({ error: "Repair produced empty code" }, 502);
+      const validationError = validateGeneratedCode(fixed);
+      if (validationError) {
+        return jsonResponse({ error: `Repaired project is still invalid: ${validationError}` }, 502);
+      }
       return jsonResponse({ code: fixed, mode });
     }
 
-    // build mode
+    // build or edit mode
     const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
     if (!prompt) return jsonResponse({ error: "Prompt missing" }, 400);
     if (prompt.length > 8000) return jsonResponse({ error: "Prompt too long (max 8000 chars)" }, 400);
+    const existingCode = mode === "edit" && typeof body.code === "string" ? body.code : undefined;
+    if (mode === "edit" && !existingCode) return jsonResponse({ error: "Existing project code missing for edit" }, 400);
 
     const stage = typeof body.stage === "string" ? body.stage : undefined;
     const system = typeof body.system === "string" ? body.system : undefined;
+    const conversation: ConversationTurn[] = [];
+    let remainingContext = 12000;
+    if (Array.isArray(body.conversation)) {
+      for (const turn of body.conversation.slice(-12)) {
+        if ((turn?.role !== "user" && turn?.role !== "assistant") || typeof turn.content !== "string") continue;
+        const content = turn.content.slice(0, Math.min(2400, remainingContext));
+        if (!content) break;
+        conversation.push({ role: turn.role, content });
+        remainingContext -= content.length;
+        if (remainingContext <= 0) break;
+      }
+    }
 
     const plan = enhanceAndPlan("", prompt, stage);
-    let { code, provider } = await generateCode(providers, plan, system, stage);
+    const { code: generatedCode, provider } = await generateCode(providers, plan, system, stage, existingCode, conversation);
+    let code = generatedCode;
 
-    // Validator: bracket balance for single-file only (multi-file check would span files).
-    if (!isMultiFile(code) && !bracketsBalanced(code)) {
-      code = await repairCode(providers, code, "Unbalanced brackets / unclosed JSX tags detected by validator.");
+    const validationError = validateGeneratedCode(code);
+    if (validationError) {
+      code = await repairCode(providers, code, `Generated project validation failed: ${validationError}`, !existingCode);
+      const repairedValidationError = validateGeneratedCode(code, !existingCode);
+      if (repairedValidationError) {
+        return jsonResponse({ error: `Generated project failed validation after automatic repair: ${repairedValidationError}` }, 502);
+      }
     }
     if (!code) return jsonResponse({ error: "Generator returned empty code" }, 502);
 
@@ -783,10 +733,9 @@ Deno.serve(async (req) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("Appigen pipeline error:", msg);
-    let status = 500;
-    if (/429/.test(msg)) status = 429;
-    else if (/4\d\d/.test(msg)) status = 400;
+    let status = 502;
+    if (/Groq 429\b/.test(msg)) status = 429;
+    else if (/timed out/i.test(msg)) status = 504;
     return jsonResponse({ error: msg }, status);
   }
 });
-

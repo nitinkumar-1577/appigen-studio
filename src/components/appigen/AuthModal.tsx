@@ -123,6 +123,25 @@ export const AuthModal = ({ open, onClose }: AuthModalProps) => {
     onClose();
   };
 
+  const signInWithSocialProvider = async (provider: "github" | "google") => {
+    setBusy(true);
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: { redirectTo: window.location.origin },
+      });
+      if (error) throw error;
+    } catch (error) {
+      toast({
+        title: `${provider === "github" ? "GitHub" : "Google"} sign-in unavailable`,
+        description: error instanceof Error ? error.message : "Check that this provider is enabled in Supabase Auth.",
+        variant: "destructive",
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in" onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} className="glass-strong relative w-[440px] max-w-[92vw] rounded-2xl p-7 shadow-elevated">
@@ -224,11 +243,19 @@ export const AuthModal = ({ open, onClose }: AuthModalProps) => {
         )}
 
         <div className="mt-5 border-t border-border/60 pt-4">
-          <button disabled title="GitHub OAuth not yet supported in Lovable Cloud"
-            className="inline-flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-border bg-secondary/40 px-4 py-2.5 text-xs font-semibold text-muted-foreground opacity-60">
+          <div className="grid grid-cols-2 gap-2">
+          <button onClick={() => void signInWithSocialProvider("github")} disabled={busy}
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-border bg-secondary/40 px-3 py-2.5 text-xs font-semibold text-foreground transition hover:bg-secondary disabled:cursor-wait disabled:opacity-60">
             <GithubIcon className="h-4 w-4" />
-            Continue with GitHub <span className="ml-1 rounded bg-secondary px-1.5 py-0.5 text-[10px]">Coming soon</span>
+            GitHub
           </button>
+          <button onClick={() => void signInWithSocialProvider("google")} disabled={busy}
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-border bg-secondary/40 px-3 py-2.5 text-xs font-semibold text-foreground transition hover:bg-secondary disabled:cursor-wait disabled:opacity-60">
+            <span aria-hidden="true" className="font-bold text-base">G</span>
+            Google
+          </button>
+          </div>
+          <p className="mt-2 text-center text-[10px] text-muted-foreground">Social sign-in requires the provider to be enabled in Supabase Auth.</p>
         </div>
 
         <p className="mt-3 text-center text-[11px] text-muted-foreground">By continuing you agree to AppiGen's Terms & Privacy.</p>

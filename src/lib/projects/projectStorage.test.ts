@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { discardProjectDraft, readProjectDraft, writeProjectDraft } from "./projectStorage";
+import {
+  clearLocalVersions,
+  discardProjectDraft,
+  readLocalVersionsForProject,
+  readProjectDraft,
+  writeLocalVersion,
+  writeProjectDraft,
+} from "./projectStorage";
 
 describe("project draft persistence", () => {
   afterEach(() => localStorage.clear());
@@ -7,6 +14,7 @@ describe("project draft persistence", () => {
   it("restores the saved project id and generated code", () => {
     writeProjectDraft({
       projectId: "project-123",
+      ownerId: "user-123",
       title: "Tasks",
       prompt: "Add filters",
       code: "export default function App() {}",
@@ -16,6 +24,7 @@ describe("project draft persistence", () => {
     });
 
     expect(readProjectDraft()?.projectId).toBe("project-123");
+    expect(readProjectDraft()?.ownerId).toBe("user-123");
     expect(readProjectDraft()?.code).toBe("export default function App() {}");
   });
 
@@ -31,5 +40,19 @@ describe("project draft persistence", () => {
     });
     discardProjectDraft();
     expect(readProjectDraft()).toBeNull();
+  });
+
+  it("restores and clears local version history by project", () => {
+    const version = {
+      id: "version-123",
+      code: "export default function App() { return null; }",
+      prompt: "Add a header",
+      createdAt: 43,
+    };
+    writeLocalVersion("local:current", version);
+
+    expect(readLocalVersionsForProject("local:current")).toEqual([version]);
+    clearLocalVersions("local:current");
+    expect(readLocalVersionsForProject("local:current")).toEqual([]);
   });
 });

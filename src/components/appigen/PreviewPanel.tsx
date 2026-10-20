@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
-import { parseFileMarkers } from "@/lib/preview/parseFileMarkers";
+import { parseFileMarkers, updateProjectFile } from "@/lib/preview/parseFileMarkers";
 import type { LocalProjectVersion } from "@/lib/projects/projectStorage";
 import { Button } from "@/components/ui/button";
 
@@ -40,7 +40,7 @@ interface FileNode {
 }
 
 const buildTree = (appCode: string): FileNode => {
-  const files = parseFileMarkers(appCode)?.files ?? { "src/App.jsx": appCode };
+  const files = parseFileMarkers(appCode)?.files ?? { "src/App.tsx": appCode };
   const root: FileNode = { name: "project", path: "project", children: [] };
   Object.entries(files).forEach(([path, content]) => {
     const parts = path.split("/");
@@ -54,7 +54,7 @@ const buildTree = (appCode: string): FileNode => {
       }
       if (index === parts.length - 1) {
         node.content = content;
-        node.language = part.split(".").pop() === "css" ? "css" : part.endsWith(".json") ? "json" : part.endsWith(".html") ? "html" : "javascript";
+        node.language = part.endsWith(".tsx") || part.endsWith(".ts") ? "typescript" : part.endsWith(".css") ? "css" : part.endsWith(".json") ? "json" : part.endsWith(".html") ? "html" : "javascript";
       } else parent = node;
     });
   });
@@ -97,12 +97,14 @@ const FileTreeItem = ({
 
 export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChange, versions, onRestoreVersion, onManualFix, fixing }: PreviewPanelProps) => {
   const [tab, setTab] = useState<Tab>("preview");
+  const [versionMenuOpen, setVersionMenuOpen] = useState(false);
   const [nonce, setNonce] = useState(0);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const handleSaveRef = useRef<() => void>(() => {});
 
   const tree = useMemo(() => buildTree(code || "// Build an app to see generated code here"), [code]);
-  const entryPath = useMemo(() => parseFileMarkers(code || "")?.entry || "src/App.jsx", [code]);
-  const [selectedPath, setSelectedPath] = useState<string>("src/App.jsx");
+  const entryPath = useMemo(() => parseFileMarkers(code || "")?.entry || "src/App.tsx", [code]);
+  const [selectedPath, setSelectedPath] = useState<string>("src/App.tsx");
   const [editorContent, setEditorContent] = useState<string>(code || "");
   const [dirty, setDirty] = useState(false);
 
@@ -126,7 +128,7 @@ export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChan
     setDirty(false);
   }, [currentFile, code]);
 
-  const srcDoc = useMemo(() => doc, [doc, nonce]);
+  const srcDoc = doc;
   const previewKey = useMemo(() => `${nonce}-${doc.length}-${doc.slice(0, 128)}`, [doc, nonce]);
   const handleRefresh = () => setNonce((n) => n + 1);
   const handleFullscreen = async () => {
@@ -143,19 +145,25 @@ export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChan
   };
 
   const handleSave = () => {
-    if (selectedPath === entryPath && onCodeChange) {
-      onCodeChange(editorContent);
+    if (!onCodeChange || !currentFile) return;
+    try {
+      const updatedCode = updateProjectFile(code || "", selectedPath, editorContent);
+      onCodeChange(updatedCode);
       toast({ title: "💾 Saved", description: "Preview updated with your edits." });
       setDirty(false);
-    } else {
-      toast({ title: "Saved locally", description: "Only App.jsx updates the preview." });
-      setDirty(false);
+    } catch (error) {
+      toast({
+        title: "Save failed",
+        description: error instanceof Error ? error.message : "Could not update this project file.",
+        variant: "destructive",
+      });
     }
   };
+  handleSaveRef.current = handleSave;
 
   return (
-    <div className="flex h-full min-h-0 flex-col p-3 sm:p-5 lg:pl-0">
-      <div className="glass-strong flex h-full min-h-0 flex-col overflow-hidden rounded-xl shadow-elevated">
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col p-3 sm:p-5 lg:pl-0">
+      <div className="glass-strong flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-xl shadow-elevated">
         {/* Top bar - tabs left aligned */}
         <div className="flex flex-wrap items-center gap-2 border-b border-border/60 bg-surface/60 px-3 py-2">
           <div className="flex items-center rounded-lg border border-border/60 bg-background/40 p-0.5">
@@ -255,7 +263,7 @@ export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChan
               key={previewKey}
               title="AppiGen Sandbox Preview"
               srcDoc={srcDoc}
-              sandbox="allow-scripts allow-forms allow-popups allow-modals allow-same-origin"
+              sandbox="allow-scripts allow-forms allow-popups allow-modals allow-same-origin allow-downloads"
               className="h-full w-full border-0 bg-background animate-fade-in"
             />
           )}
@@ -283,7 +291,7 @@ export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChan
                     value={editorContent}
                     onChange={(v) => { setEditorContent(v ?? ""); setDirty(true); }}
                     onMount={(editor, monaco) => {
-                      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, handleSave);
+                      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => handleSaveRef.current());
                     }}
                     options={{
                       fontSize: 12,

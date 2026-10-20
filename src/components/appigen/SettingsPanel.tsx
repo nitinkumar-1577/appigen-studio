@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 
 interface SettingsPanelProps { open: boolean; onClose: () => void; }
 
-const MODELS = ["google/gemini-2.5-flash", "google/gemini-2.5-pro", "openai/gpt-5", "openai/gpt-5-mini"];
+const MODELS = ["openai/gpt-oss-20b", "openai/gpt-oss-120b"];
 const DENSITIES = ["Comfortable", "Compact", "Spacious"] as const;
 type Density = typeof DENSITIES[number];
 type Theme = "dark" | "light" | "system";

@@ -5,9 +5,11 @@ import {
   LayoutTemplate,
   KeyRound,
   Sparkles,
+  Gamepad2,
   ChevronLeft,
   Settings,
   Palette,
+  type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ACCENT_THEMES, useApp } from "./AppContext";
@@ -19,14 +21,16 @@ export type ViewKey =
   | "apps"
   | "templates"
   | "api"
-  | "pricing";
+  | "pricing"
+  | "playground";
 
-const navItems: { key: ViewKey; icon: any; label: string }[] = [
+const navItems: { key: ViewKey; icon: LucideIcon; label: string }[] = [
   { key: "studio", icon: Sparkles, label: "Studio" },
   { key: "dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { key: "apps", icon: AppWindow, label: "My Apps" },
   { key: "templates", icon: LayoutTemplate, label: "Templates" },
   { key: "api", icon: KeyRound, label: "API Settings" },
+  { key: "playground", icon: Gamepad2, label: "Playground" },
 ];
 
 interface SidebarProps {

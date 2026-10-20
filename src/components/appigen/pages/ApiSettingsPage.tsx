@@ -2,11 +2,8 @@ import { useState } from "react";
 import { KeyRound, Save, Wand2 } from "lucide-react";
 
 const MODELS = [
-  "Gemini 2.5 Pro",
-  "Gemini 2.5 Flash",
-  "Gemini 2.5 Flash Lite",
-  "GPT-5",
-  "GPT-5 Mini",
+  "openai/gpt-oss-20b",
+  "openai/gpt-oss-120b",
 ];
 
 const SAFETY = [
@@ -120,12 +117,12 @@ export const ApiSettingsPage = () => {
               <h2 className="text-sm font-semibold">Environment & Keys</h2>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              Keys are managed securely via Lovable Cloud — no client-side configuration required.
+              Configure GROQ_API_KEY as a Supabase Edge Function secret. The key is never exposed to the browser.
             </p>
             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
               {[
-                { k: "AI_GATEWAY", v: "••••••••••••  managed" },
-                { k: "PROJECT_REGION", v: "us-east-1" },
+                { k: "AI_PROVIDER", v: "Groq" },
+                { k: "MODEL_FALLBACKS", v: "GPT-OSS 20B / 120B" },
               ].map((e) => (
                 <div
                   key={e.k}

@@ -10,7 +10,7 @@ const TIERS = [
       "100 credits / month",
       "Public API access",
       "Community templates",
-      "Gemini Flash Lite",
+      "Groq GPT-OSS 20B",
     ],
     cta: "Current Plan",
     highlight: false,
@@ -37,7 +37,7 @@ const TIERS = [
     icon: Building2,
     features: [
       "20,000 credits / month",
-      "All models incl. GPT-5 & Gemini Pro",
+      "Groq GPT-OSS 20B & 120B",
       "Team workspaces",
       "SSO + RBAC",
       "Dedicated support",
@@ -62,7 +62,7 @@ export const PricingPage = () => {
         <header>
           <h1 className="font-display text-3xl font-bold tracking-tight">Pricing & Credits</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Transparent, usage-based plans powered by Lovable Cloud.
+            Transparent, usage-based plans powered by Groq.
           </p>
         </header>
 

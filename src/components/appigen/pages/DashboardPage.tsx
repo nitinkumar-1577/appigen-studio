@@ -3,15 +3,15 @@ import { Activity, Sparkles, Zap, Clock, ArrowUpRight, Plus, LayoutTemplate, App
 const stats = [
   { label: "Apps Created", value: "12", delta: "+3 this week", icon: AppWindow },
   { label: "Credits Used", value: "1,240", delta: "of 5,000", icon: Zap },
-  { label: "Active Models", value: "4", delta: "Gemini · GPT", icon: Sparkles },
+  { label: "Active Models", value: "2", delta: "Groq", icon: Sparkles },
   { label: "Avg. Build Time", value: "8.4s", delta: "−12% vs last", icon: Clock },
 ];
 
 const recent = [
-  { name: "Task Manager Pro", time: "2h ago", model: "Gemini 2.5 Flash" },
-  { name: "Portfolio Site", time: "Yesterday", model: "GPT-5 Mini" },
-  { name: "Crypto Tracker", time: "2 days ago", model: "Gemini 2.5 Pro" },
-  { name: "Recipe AI Bot", time: "5 days ago", model: "Gemini 2.5 Flash" },
+  { name: "Task Manager Pro", time: "2h ago", model: "Groq GPT-OSS 20B" },
+  { name: "Portfolio Site", time: "Yesterday", model: "Groq GPT-OSS 120B" },
+  { name: "Crypto Tracker", time: "2 days ago", model: "Groq GPT-OSS 120B" },
+  { name: "Recipe AI Bot", time: "5 days ago", model: "Groq GPT-OSS 20B" },
 ];
 
 export const DashboardPage = ({ onNavigate }: { onNavigate: (v: any) => void }) => {

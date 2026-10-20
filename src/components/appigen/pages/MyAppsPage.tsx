@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Search, ChevronDown, Play, Pencil, Plus, Loader2, Inbox, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useApp } from "../AppContext";
 import { toast } from "@/hooks/use-toast";
+import type { ViewKey } from "../Sidebar";
 
 type Sort = "newest" | "name";
 
@@ -13,10 +14,11 @@ export type ProjectRow = {
   code: string;
   thumbnail: string | null;
   created_at: string;
+  updated_at: string;
 };
 
 interface MyAppsPageProps {
-  onNavigate: (v: any) => void;
+  onNavigate: (v: ViewKey) => void;
   onOpenProject?: (p: ProjectRow) => void;
 }
 
@@ -27,39 +29,40 @@ const hueFromString = (s: string) => {
 };
 
 export const MyAppsPage = ({ onNavigate, onOpenProject }: MyAppsPageProps) => {
-  const { user } = useApp();
+  const { user, session } = useApp();
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<Sort>("newest");
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<ProjectRow[]>([]);
 
-  const load = async () => {
-    if (!user) { setRows([]); setLoading(false); return; }
+  const load = useCallback(async () => {
+    if (!user || !session?.user.id) { setRows([]); setLoading(false); return; }
     setLoading(true);
     const { data, error } = await supabase
       .from("projects")
-      .select("id, title, prompt, code, thumbnail, created_at")
-      .order("created_at", { ascending: false });
+      .select("id, title, prompt, code, thumbnail, created_at, updated_at")
+      .eq("user_id", session.user.id)
+      .order("updated_at", { ascending: false });
     if (error) {
       toast({ title: "Couldn't load projects", description: error.message, variant: "destructive" });
     }
     setRows((data ?? []) as ProjectRow[]);
     setLoading(false);
-  };
+  }, [session?.user.id, user]);
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [user?.email]);
+  useEffect(() => { void load(); }, [load]);
 
   const list = useMemo(() => {
     const f = rows.filter((a) => a.title.toLowerCase().includes(q.toLowerCase()));
     return f.sort((a, b) =>
-      sort === "name" ? a.title.localeCompare(b.title) : b.created_at.localeCompare(a.created_at)
+      sort === "name" ? a.title.localeCompare(b.title) : b.updated_at.localeCompare(a.updated_at)
     );
   }, [q, sort, rows]);
 
   const handleDelete = async (id: string) => {
     const prev = rows;
     setRows((r) => r.filter((x) => x.id !== id));
-    const { error } = await supabase.from("projects").delete().eq("id", id);
+    const { error } = await supabase.from("projects").delete().eq("id", id).eq("user_id", session?.user.id ?? "");
     if (error) {
       setRows(prev);
       toast({ title: "Delete failed", description: error.message, variant: "destructive" });
@@ -154,7 +157,7 @@ export const MyAppsPage = ({ onNavigate, onOpenProject }: MyAppsPageProps) => {
                       <div className="min-w-0">
                         <div className="truncate text-sm font-semibold">{a.title}</div>
                         <div className="mt-0.5 text-xs text-muted-foreground">
-                          Created {new Date(a.created_at).toLocaleDateString()}
+                          Updated {new Date(a.updated_at).toLocaleDateString()}
                         </div>
                       </div>
                       <button

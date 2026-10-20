@@ -6,6 +6,7 @@ export type ChatMessage = {
 
 export type LocalProjectDraft = {
   projectId: string | null;
+  ownerId?: string | null;
   title: string;
   prompt: string;
   code: string | null;
@@ -58,6 +59,10 @@ export function readLocalVersions(): Record<string, LocalProjectVersion[]> {
   return readJson<Record<string, LocalProjectVersion[]>>(VERSION_KEY, {});
 }
 
+export function readLocalVersionsForProject(projectKey: string): LocalProjectVersion[] {
+  return readLocalVersions()[projectKey] ?? [];
+}
+
 export function writeLocalVersion(projectKey: string, version: LocalProjectVersion) {
   try {
     const all = readLocalVersions();
@@ -65,6 +70,16 @@ export function writeLocalVersion(projectKey: string, version: LocalProjectVersi
     localStorage.setItem(VERSION_KEY, JSON.stringify(all));
   } catch {
     // Version history remains available in memory for the current session.
+  }
+}
+
+export function clearLocalVersions(projectKey: string) {
+  try {
+    const all = readLocalVersions();
+    delete all[projectKey];
+    localStorage.setItem(VERSION_KEY, JSON.stringify(all));
+  } catch {
+    // Version history can remain available in memory for the current session.
   }
 }
 
