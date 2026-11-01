@@ -2,7 +2,7 @@
 // Local stages: 1 Intent · 2 Requirements · 3 Architecture · 4 Blueprint
 // AI stages: 5 Generate (multi-file) · 6 Validate · 7 Auto-Repair · 8 Clean
 // Critical: never run sequential long AI calls inside the edge request.
-import { validateGeneratedCode } from "../../../src/lib/preview/validateGeneratedCode.ts";
+import { validateGeneratedCode } from "../_shared/validateGeneratedCode.ts";
 import { extractGroqCode } from "../_shared/groqResponse.ts";
 
 const corsHeaders = {
