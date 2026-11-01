@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractGroqCode } from "./groqResponse";
+import { extractGroqCode } from "./groqResponse.ts";
 
 describe("Groq code response parsing", () => {
   it("extracts plain text source from a chat completion", () => {
