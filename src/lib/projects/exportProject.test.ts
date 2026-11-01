@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import JSZip from "jszip";
-import { createRunnableProjectZip, getExportFiles } from "./exportProject";
+import { createRunnableProjectZip, getExportFiles, getRunnableProjectFiles } from "./exportProject";
 
 describe("generated project export files", () => {
   it("writes every safe FILE marker as its own file", () => {
@@ -39,5 +39,18 @@ export default function App() { return <main className="custom-shell">Ready</mai
     expect(tsconfig).toContain('"@/*": [');
     expect(vitest).toContain('environment: "jsdom"');
     expect(gitignore).toContain("node_modules");
+  });
+
+  it("provides the complete runnable project tree for direct repository publishing", async () => {
+    const files = await getRunnableProjectFiles({
+      title: "SaaS Workspace",
+      prompt: "Build a SaaS workspace",
+      code: "// FILE: src/App.tsx\nexport default function App() { return <main>Ready</main>; }",
+    });
+
+    expect(files["src/App.tsx"]).toContain("Ready");
+    expect(files["src/main.tsx"]).toContain('import App from "./App.tsx"');
+    expect(files["package.json"]).toContain('"tailwindcss"');
+    expect(files["index.html"]).toContain("/src/main.tsx");
   });
 });

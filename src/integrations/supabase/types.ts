@@ -88,6 +88,57 @@ export type Database = {
         }
         Relationships: []
       }
+      user_activity: {
+        Row: {
+          created_at: string
+          detail: string
+          duration_ms: number | null
+          id: string
+          kind: string
+          prompt_characters: number | null
+          title: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          detail: string
+          duration_ms?: number | null
+          id?: string
+          kind: string
+          prompt_characters?: number | null
+          title: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          detail?: string
+          duration_ms?: number | null
+          id?: string
+          kind?: string
+          prompt_characters?: number | null
+          title?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      anonymous_telemetry: {
+        Row: {
+          created_at: string
+          event_name: string
+          id: string
+        }
+        Insert: {
+          created_at?: string
+          event_name: string
+          id?: string
+        }
+        Update: {
+          created_at?: string
+          event_name?: string
+          id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

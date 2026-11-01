@@ -177,3 +177,52 @@
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
 }
+
+html[data-theme="light"] {
+  --background: 220 20% 98%;
+  --foreground: 222 35% 12%;
+  --text: 222 35% 12%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 35% 12%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 35% 12%;
+  --primary: 258 75% 52%;
+  --primary-foreground: 0 0% 100%;
+  --primary-glow: 270 80% 64%;
+  --secondary: 220 18% 93%;
+  --secondary-foreground: 222 35% 12%;
+  --muted: 220 18% 94%;
+  --muted-foreground: 220 12% 42%;
+  --accent: 258 75% 52%;
+  --accent-foreground: 0 0% 100%;
+  --border: 220 16% 86%;
+  --input: 220 18% 93%;
+  --ring: 258 75% 52%;
+  --surface: 220 20% 97%;
+  --surface-elevated: 0 0% 100%;
+  --glass: 0 0% 100%;
+  --overlay: 220 20% 98%;
+  --gradient-primary: linear-gradient(135deg, hsl(258 75% 52%), hsl(280 72% 59%));
+  --gradient-glow: radial-gradient(60% 60% at 50% 0%, hsl(258 75% 52% / 0.1), transparent 70%);
+  --shadow-glow: 0 0 32px hsl(258 75% 52% / 0.18);
+  --shadow-elevated: 0 20px 60px -20px hsl(222 30% 30% / 0.2);
+  --shadow-soft: 0 1px 0 hsl(220 30% 100% / 0.8) inset, 0 10px 30px -15px hsl(222 30% 30% / 0.16);
+  --sidebar-background: 220 20% 96%;
+  --sidebar-foreground: 220 16% 32%;
+  --sidebar-primary: 258 75% 52%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 220 18% 91%;
+  --sidebar-accent-foreground: 222 35% 12%;
+  --sidebar-border: 220 16% 86%;
+  --sidebar-ring: 258 75% 52%;
+}
+
+html[data-density="compact"] .glass,
+html[data-density="compact"] .glass-strong {
+  padding: 0.75rem !important;
+}
+
+html[data-density="spacious"] .glass,
+html[data-density="spacious"] .glass-strong {
+  padding: 1.5rem !important;
+}

@@ -3,7 +3,20 @@
 // AI stages: 5 Generate (multi-file) · 6 Validate · 7 Auto-Repair · 8 Clean
 // Critical: never run sequential long AI calls inside the edge request.
 import { validateGeneratedCode } from "../../../src/lib/preview/validateGeneratedCode.ts";
-import { extractGroqCode } from "../_shared/groqResponse.ts";
+import { createImplementationPlan } from "../../../src/lib/projects/implementationPlan.ts";
+import { extractChatCompletionCode } from "../_shared/groqResponse.ts";
+import { parseChatProviderResponse } from "../_shared/providerResponse.ts";
+import {
+  getDefaultModel,
+  getProvider,
+  getProviderConfig,
+  ACTIVE_PROVIDER_NAMES,
+  PROVIDER_NAMES,
+  secretNamesFor,
+  classifyProviderStatus,
+  type ProviderName,
+  type ProviderStatus,
+} from "../_shared/providerCatalog.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -11,10 +24,10 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-// Groq's OpenAI-compatible chat completions API.
-const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 const MODEL_FAST = "openai/gpt-oss-20b";
 const MODEL_SMART = "openai/gpt-oss-120b";
+const DEEPSEEK_MODEL = "deepseek-chat";
+const ALLOWED_MODELS = [MODEL_FAST, MODEL_SMART] as const;
 
 const FAST_GENERATION_TIMEOUT_MS = 45000;
 const REPAIR_TIMEOUT_MS = 35000;
@@ -96,6 +109,63 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
+type SafetyThresholds = {
+  harassment: number;
+  hate: number;
+  explicit: number;
+  dangerous: number;
+};
+
+function parseSafetyThresholds(value: unknown): SafetyThresholds {
+  const input = typeof value === "object" && value !== null ? value as Record<string, unknown> : {};
+  const threshold = (key: keyof SafetyThresholds, fallback: number) => {
+    const raw = input[key];
+    return typeof raw === "number" && Number.isFinite(raw) ? Math.min(3, Math.max(0, Math.round(raw))) : fallback;
+  };
+  return {
+    harassment: threshold("harassment", 2),
+    hate: threshold("hate", 2),
+    explicit: threshold("explicit", 3),
+    dangerous: threshold("dangerous", 2),
+  };
+}
+
+function getSafetyViolation(prompt: string, thresholds: SafetyThresholds): string | null {
+  const text = prompt.toLowerCase();
+  const mandatoryBlocks: [RegExp, string][] = [
+    [/\b(?:how to|instructions? to|steps? to|build|make|create)\b.{0,80}\b(?:bomb|explosive|poison|weapon|shoot|stab|kill|murder)\b/i, "violent or weapon-building instructions"],
+    [/\b(?:suicide|self[- ]harm)\b.{0,80}\b(?:method|how to|instructions?|ways to|plan)\b/i, "instructions for self-harm"],
+    [/\b(?:child|minor|underage)\b.{0,80}\b(?:sexual|nude|porn|explicit)\b/i, "sexual content involving minors"],
+    [/\b(?:steal|exfiltrate|dump)\b.{0,60}\b(?:passwords?|credentials?|private keys?)\b/i, "credential theft"],
+  ];
+  for (const [pattern, reason] of mandatoryBlocks) {
+    if (pattern.test(text)) return reason;
+  }
+
+  const filters: [keyof SafetyThresholds, number, RegExp, string][] = [
+    ["harassment", 1, /\b(?:dox|doxx|swat|stalk)\b/i, "targeted harassment"],
+    ["harassment", 2, /\b(?:harass|threaten|intimidate)\b.{0,60}\b(?:person|user|employee|classmate|neighbor|group)\b/i, "targeted harassment"],
+    ["harassment", 3, /\b(?:create|build|organize|launch)\b.{0,60}\b(?:harassment|intimidation|stalking|doxxing)\b/i, "targeted harassment"],
+    ["hate", 1, /\b(?:promote|encourage|organize|recruit for)\b.{0,70}\b(?:racial violence|ethnic cleansing|genocide|supremacist attack)\b/i, "hateful or extremist violence"],
+    ["hate", 2, /\b(?:dehumanize|incite violence against|attack)\b.{0,70}\b(?:race|ethnicity|religion|nationality|protected group)\b/i, "hateful or extremist violence"],
+    ["hate", 3, /\b(?:create|write|design|promote)\b.{0,70}\b(?:hate propaganda|supremacist content|dehumanizing content)\b/i, "hateful or extremist content"],
+    ["explicit", 1, /\b(?:generate|create|write|design)\b.{0,60}\b(?:pornographic|graphic sexual|explicit sexual)\b/i, "sexually explicit content"],
+    ["explicit", 2, /\b(?:generate|create|write|design)\b.{0,60}\b(?:adult porn|sexual roleplay|erotic content)\b/i, "sexually explicit content"],
+    ["explicit", 3, /\b(?:generate|create|write|design)\b.{0,60}\b(?:porn|sexual fantasy|explicit content)\b/i, "sexually explicit content"],
+    ["dangerous", 1, /\b(?:instructions?|guide|tutorial|steps?)\b.{0,70}\b(?:weapon construction|homemade explosive|poison synthesis|evade law enforcement)\b/i, "dangerous instructions"],
+    ["dangerous", 2, /\b(?:how to|instructions? for|guide to)\b.{0,60}\b(?:build a weapon|make an explosive|synthesize poison|bypass safety mechanisms)\b/i, "dangerous instructions"],
+    ["dangerous", 3, /\b(?:build|make|construct|synthesize)\b.{0,60}\b(?:weapon|explosive|poison|incendiary device)\b/i, "dangerous instructions"],
+  ];
+  for (const [category, minimumLevel, pattern, reason] of filters) {
+    if (thresholds[category] >= minimumLevel && pattern.test(text)) return reason;
+  }
+  return null;
+}
+
+function numericSetting(value: unknown, fallback: number, min: number, max: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
+}
+
 function cleanCode(raw: string): string {
   let s = (raw ?? "").trim();
   // strip fenced blocks
@@ -150,44 +220,88 @@ function isMultiFile(src: string): boolean {
 
 
 
-async function groq(
+async function completeChat(
+  provider: ProviderName,
   apiKey: string,
   body: Record<string, unknown>,
   { retries = 0, timeoutMs = 55000 } = {},
 ): Promise<any> {
-  let lastErr: any = null;
+  const config = getProviderConfig(provider);
+  const model = typeof body.model === "string" ? body.model : getDefaultModel(provider);
+  let lastErr: ProviderRequestError | undefined;
   for (let attempt = 0; attempt <= retries; attempt++) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     let res: Response;
     try {
-      res = await fetch(GROQ_URL, {
+      const isGemini = config.protocol === "gemini";
+      const url = isGemini
+        ? `${config.baseUrl}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`
+        : `${config.baseUrl}/chat/completions`;
+      const requestBody = isGemini
+        ? {
+            contents: Array.isArray(body.messages)
+              ? body.messages.filter((message: any) => message?.role !== "system").map((message: any) => ({
+                role: message.role === "assistant" ? "model" : "user",
+                parts: [{ text: String(message.content ?? "") }],
+              }))
+              : [{ role: "user", parts: [{ text: String(body.prompt ?? "") }] }],
+            systemInstruction: Array.isArray(body.messages)
+              ? { parts: [{ text: String(body.messages.find((message: any) => message?.role === "system")?.content ?? "") }] }
+              : undefined,
+            generationConfig: {
+              temperature: body.temperature,
+              topP: body.top_p,
+              maxOutputTokens: body.max_completion_tokens,
+            },
+          }
+        : body;
+      res = await fetch(url, {
         method: "POST",
         headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(requestBody),
         signal: controller.signal,
       });
     } catch (e) {
       clearTimeout(timer);
       const msg = e instanceof Error ? e.message : String(e);
       if (controller.signal.aborted) {
-        lastErr = { status: "timeout", body: msg };
+        lastErr = new ProviderRequestError(provider, undefined, "TIMEOUT", "request exceeded its timeout");
         if (attempt < retries) continue;
-        throw new Error(`Groq request timed out (${timeoutMs}ms)`);
+        throw lastErr;
       }
-      throw new Error(`Groq network request failed: ${msg}`);
+      throw new ProviderRequestError(provider, undefined, "NETWORK_ERROR", "request could not reach provider");
     } finally {
       clearTimeout(timer);
     }
     const text = await res.text();
     if (res.ok) {
-      try { return JSON.parse(text); }
-      catch { throw new Error("Groq non-JSON: " + text.slice(0, 300)); }
+      try {
+        const parsed = isGemini
+          ? JSON.parse(text.replace(/^\uFEFF/, "").trim())
+          : parseChatProviderResponse(text, res.headers.get("content-type") ?? "");
+        if (!parsed || typeof parsed !== "object") {
+          throw new ProviderRequestError(provider, res.status, "INVALID_RESPONSE", "response JSON was not an object");
+        }
+        return isGemini ? normalizeGeminiResponse(parsed) : parsed;
+      } catch (error) {
+        if (error instanceof ProviderRequestError) throw error;
+        const parserDetail = error instanceof Error && /response (?:was not valid JSON|stream contained no valid JSON chunks)/i.test(error.message)
+          ? error.message
+          : "response was not valid JSON";
+        throw new ProviderRequestError(provider, res.status, "INVALID_RESPONSE", parserDetail);
+      }
     }
-    lastErr = { status: res.status, body: text };
+    const metadata = providerErrorMetadata(text);
+    lastErr = new ProviderRequestError(
+      provider,
+      res.status,
+      providerErrorCode(res.status),
+      metadata,
+    );
     if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
       if (attempt >= retries) {
-        throw new Error(`Groq ${res.status}: ${text.slice(0, 200)}`);
+        throw lastErr;
       }
       let wait = Math.min(1200, 400 * 2 ** attempt) + Math.random() * 150;
       const m = text.match(/try again in ([\d.]+)s/i);
@@ -195,27 +309,118 @@ async function groq(
       await new Promise((r) => setTimeout(r, wait));
       continue;
     }
-    throw new Error(`Groq ${res.status}: ${text.slice(0, 400)}`);
+    throw lastErr;
   }
-  throw new Error(`Groq failed: ${JSON.stringify(lastErr).slice(0, 400)}`);
+  throw lastErr ?? new ProviderRequestError(provider, undefined, "NETWORK_ERROR", "request failed");
+}
+
+const providerLabel = (provider: ProviderName) => getProviderConfig(provider).label;
+
+type ProviderErrorCode =
+  | "INVALID_CREDENTIALS"
+  | "PERMISSION_DENIED"
+  | "QUOTA_EXCEEDED"
+  | "RATE_LIMITED"
+  | "MODEL_UNAVAILABLE"
+  | "PROVIDER_ERROR"
+  | "TIMEOUT"
+  | "NETWORK_ERROR"
+  | "INVALID_RESPONSE"
+  | "REQUEST_REJECTED";
+
+class ProviderRequestError extends Error {
+  constructor(
+    readonly provider: ProviderName,
+    readonly httpStatus: number | undefined,
+    readonly code: ProviderErrorCode,
+    detail: string,
+  ) {
+    super(`${providerLabel(provider)} ${httpStatus ?? "network"} [${code}]${detail ? `: ${detail}` : ""}`);
+    this.name = "ProviderRequestError";
+  }
+}
+
+function providerErrorCode(status: number): ProviderErrorCode {
+  if (status === 401) return "INVALID_CREDENTIALS";
+  if (status === 403) return "PERMISSION_DENIED";
+  if (status === 402) return "QUOTA_EXCEEDED";
+  if (status === 429) return "RATE_LIMITED";
+  if (status === 404) return "MODEL_UNAVAILABLE";
+  if (status >= 500) return "PROVIDER_ERROR";
+  return "REQUEST_REJECTED";
+}
+
+function providerErrorMetadata(text: string): string {
+  try {
+    const payload = JSON.parse(text) as Record<string, unknown>;
+    const nested = payload.error && typeof payload.error === "object"
+      ? payload.error as Record<string, unknown>
+      : undefined;
+    const code = typeof payload.code === "string"
+      ? payload.code
+      : typeof nested?.code === "string" ? nested.code : undefined;
+    const type = typeof payload.type === "string"
+      ? payload.type
+      : typeof nested?.type === "string" ? nested.type : undefined;
+    const keys = Object.keys(payload).slice(0, 8).join(",");
+    return [code && `provider_code=${code}`, type && `provider_type=${type}`, keys && `response_keys=${keys}`]
+      .filter(Boolean)
+      .join(" ");
+  } catch {
+    return "response was not JSON";
+  }
 }
 
 function isProviderUnavailable(err: unknown) {
   const msg = err instanceof Error ? err.message : String(err);
-  return /429|5\d\d|rate limit|timed out|temporary/i.test(msg);
+  return err instanceof ProviderRequestError
+    ? err.code === "RATE_LIMITED" || err.code === "PROVIDER_ERROR" || err.code === "TIMEOUT" || err.code === "NETWORK_ERROR"
+    : /429|5\d\d|rate limit|timed out|temporary/i.test(msg);
 }
 
 function providerFailure(provider: string, error: unknown): string {
+  if (error instanceof ProviderRequestError) {
+    return `${provider} ${error.httpStatus ?? "network"} [${error.code}]${error.message.includes(": ") ? `: ${error.message.split(": ").slice(1).join(": ")}` : ""}`;
+  }
   const message = error instanceof Error ? error.message : String(error);
-  const status = message.match(/\bGroq\s+(\d{3})\b/)?.[1];
+  const status = message.match(/\b(\d{3})\b/)?.[1];
   if (status === "401" || status === "403") return `${provider} rejected its configured credentials (HTTP ${status}).`;
   if (status === "429") return `${provider} is rate limited or out of quota (HTTP 429).`;
   if (status && Number(status) >= 500) return `${provider} is currently unavailable (HTTP ${status}).`;
-  if (status === "404") return `${provider} returned HTTP 404; the model is unavailable or not enabled for this Groq account.`;
+  if (status === "404") return `${provider} returned HTTP 404; the model is unavailable or not enabled for this provider account.`;
   if (status === "400") return `${provider} rejected the request (HTTP 400): ${message.slice(0, 240)}`;
   if (/timed out|timeout|abort/i.test(message)) return `${provider} timed out.`;
   if (/non-json/i.test(message)) return `${provider} returned an invalid response.`;
   return message.slice(0, 300);
+}
+
+function errorCodeFromMessage(message: string): ProviderErrorCode {
+  const match = message.match(/\[([A-Z_]+)\]/)?.[1];
+  if (match) return match as ProviderErrorCode;
+  if (/timed out|timeout|abort/i.test(message)) return "TIMEOUT";
+  if (/network/i.test(message)) return "NETWORK_ERROR";
+  return "PROVIDER_ERROR";
+}
+
+function httpStatusForErrorCode(code: ProviderErrorCode): number {
+  if (code === "INVALID_CREDENTIALS") return 401;
+  if (code === "PERMISSION_DENIED") return 403;
+  if (code === "QUOTA_EXCEEDED") return 402;
+  if (code === "RATE_LIMITED") return 429;
+  if (code === "MODEL_UNAVAILABLE") return 404;
+  if (code === "TIMEOUT") return 504;
+  if (code === "NETWORK_ERROR" || code === "PROVIDER_ERROR") return 502;
+  return 400;
+}
+
+function normalizeGeminiResponse(data: any): { choices: Array<{ message: { content: string } }> } {
+  const content = data?.candidates?.[0]?.content?.parts
+    ?.map((part: { text?: string }) => part.text ?? "")
+    .join("") ?? "";
+  if (!content.trim()) {
+    throw new ProviderRequestError("gemini", 200, "INVALID_RESPONSE", "response contained no candidate text");
+  }
+  return { choices: [{ message: { content } }] };
 }
 
 // ---------- pipeline ----------
@@ -228,7 +433,7 @@ function providerFailure(provider: string, error: unknown): string {
 // ============================================================
 
 async function groqJSON(apiKey: string, model: string, sys: string, user: string, maxTokens = 900) {
-  const data = await groq(apiKey, {
+  const data = await completeChat("groq", apiKey, {
     model,
     messages: [
       { role: "system", content: sys },
@@ -267,19 +472,7 @@ function inferDomain(prompt: string, appType: string) {
   return appType === "app" ? "general" : appType;
 }
 
-function localArchitecture() {
-  return {
-    pages: [],
-    components: [],
-    hooks: [],
-    contexts: [],
-    utils: [],
-    dataModel: "Only entities explicitly requested by the user",
-    stateStrategy: "Use the simplest state strategy that implements the requested interactions",
-  };
-}
-
-function enhanceAndPlan(_apiKey: string, userPrompt: string, stage?: string) {
+function enhanceAndPlan(_apiKey: string, userPrompt: string, stage?: string, existingCode?: string) {
   const appType = inferAppType(userPrompt);
   const domain = inferDomain(userPrompt, appType);
   const complexity = userPrompt.length > 900 || /multi|auth|database|payment|realtime|ai|advanced|full/.test(userPrompt.toLowerCase()) ? "complex" : "moderate";
@@ -294,16 +487,28 @@ function enhanceAndPlan(_apiKey: string, userPrompt: string, stage?: string) {
     edgeCases: ["Handle only edge cases directly relevant to the requested features"],
     uxStates: ["Include states relevant to the requested experience"],
   };
-  const arch = localArchitecture();
+  const existingFiles = existingCode
+    ? [...existingCode.matchAll(/^\s*\/\/\s*FILE:\s*([^\n]+)/gm)].map((match) => match[1].trim())
+    : [];
+  const { architecture: arch, implementationPlan } = createImplementationPlan({
+    prompt: userPrompt,
+    appType,
+    domain,
+    complexity,
+    existingFiles,
+    hasExistingProject: Boolean(existingCode),
+  });
 
-  const components = (arch.components || []).map((c: any) => `${c.path} — ${c.purpose}`);
-  const hooks = (arch.hooks || []).map((h: any) => `${h.path} — ${h.purpose}`);
-  const contexts = (arch.contexts || []).map((c: any) => `${c.path} — ${c.purpose}`);
-  const utils = (arch.utils || []).map((u: any) => `${u.path} — ${u.purpose}`);
+  const components = arch.components.map((c) => `${c.path} — ${c.purpose}`);
+  const hooks = arch.hooks.map((h) => `${h.path} — ${h.purpose}`);
+  const contexts = arch.contexts.map((c) => `${c.path} — ${c.purpose}`);
+  const utils = arch.utils.map((u) => `${u.path} — ${u.purpose}`);
 
   const enhancedPrompt = [
     `User specification (authoritative): ${userPrompt}`,
     `Generation stage (implementation guidance only): ${stage ?? "polish"}`,
+    `Implementation roadmap: ${implementationPlan.steps.join(" -> ")}`,
+    `Feature file blueprint: ${implementationPlan.fileBlueprint.map((file) => `${file.path} — ${file.purpose}`).join("; ")}`,
     "Accuracy requirement: Treat the user's original prompt as the exact product specification. Implement every explicit requirement and do not invent additional functionality, sections, or assumptions.",
   ].join("\n");
 
@@ -320,6 +525,7 @@ function enhanceAndPlan(_apiKey: string, userPrompt: string, stage?: string) {
     _intent: intent,
     _requirements: reqs,
     _architecture: arch,
+    implementationPlan,
   };
 }
 
@@ -540,19 +746,155 @@ export function createItem(title) {
 
 interface Providers {
   groqKey?: string;
+  deepseekKey?: string;
+  openrouterKey?: string;
+  geminiKey?: string;
+  openaiKey?: string;
+  nvidiaKey?: string;
+}
+
+const providerKey = (providers: Providers, provider: ProviderName) =>
+  ({
+    groq: providers.groqKey,
+    deepseek: providers.deepseekKey,
+    openrouter: providers.openrouterKey,
+    gemini: providers.geminiKey,
+    openai: providers.openaiKey,
+    nvidia: providers.nvidiaKey,
+  }[provider]);
+
+function configuredSecret(name: string, fallbackName?: string): string | undefined {
+  return Deno.env.get(name) || (fallbackName ? Deno.env.get(fallbackName) : undefined) || undefined;
 }
 
 type ConversationTurn = { role: "user" | "assistant"; content: string };
 
+function readProviderKeys(): Providers {
+  return {
+    groqKey: configuredSecret("GROQ_API_KEY"),
+    deepseekKey: configuredSecret("DEEPSEEK-API-KEY", "DEEPSEEK_API_KEY"),
+    openrouterKey: configuredSecret("OPENROUTER_API_KEY"),
+    geminiKey: configuredSecret("GEMINI_API_KEY"),
+    openaiKey: configuredSecret("OPENAI_API_KEY"),
+    nvidiaKey: configuredSecret("NVIDIA_API_KEY"),
+  };
+}
+
+function redactSecret(text: string, secret?: string): string {
+  return secret ? text.split(secret).join("[REDACTED]") : text;
+}
+
+async function fetchProviderResource(
+  provider: ProviderName,
+  apiKey: string,
+  url: string,
+  init: RequestInit,
+  timeoutMs = 12000,
+): Promise<{ response?: Response; status: ProviderStatus; detail?: string }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    return { response, status: classifyProviderStatus(response.status) };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return {
+      status: controller.signal.aborted ? "timeout" : "network_error",
+      detail: redactSecret(detail, apiKey),
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function testProvider(provider: ProviderName, apiKey?: string) {
+  const config = getProviderConfig(provider);
+  const result: {
+    provider: ProviderName;
+    label: string;
+    configured: boolean;
+    authentication: { status: ProviderStatus; detail?: string };
+    generation: { model: string; status: ProviderStatus; detail?: string };
+    models: { status: ProviderStatus; ids: string[]; detail?: string };
+  } = {
+    provider,
+    label: config.label,
+    configured: Boolean(apiKey),
+    authentication: { status: apiKey ? "request_error" : "missing" },
+    generation: { model: getDefaultModel(provider), status: apiKey ? "request_error" : "missing" },
+    models: { status: apiKey ? "request_error" : "missing", ids: [] },
+  };
+  if (!apiKey) return result;
+
+  const authUrl = config.protocol === "gemini"
+    ? `${config.baseUrl}/models?key=${encodeURIComponent(apiKey)}`
+    : `${config.baseUrl}/models`;
+  const auth = await fetchProviderResource(provider, apiKey, authUrl, {
+    headers: config.protocol === "gemini"
+      ? { "Content-Type": "application/json" }
+      : { "Authorization": `Bearer ${apiKey}` },
+  });
+  result.authentication = { status: auth.status, detail: auth.detail };
+
+  if (auth.response?.ok) {
+    try {
+      const payload = await auth.response.json();
+      const rawModels = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.models) ? payload.models : [];
+      result.models = {
+        status: "working",
+        ids: rawModels.map((model: any) => String(model.id ?? model.name ?? "")).filter(Boolean).slice(0, 100),
+      };
+    } catch (error) {
+      result.models = { status: "request_error", ids: [], detail: "Provider returned invalid model-list JSON." };
+    }
+  } else if (!config.supportsModelListing) {
+    result.models = { status: "request_error", ids: [], detail: "Provider does not support model listing." };
+  } else {
+    result.models = { status: auth.status, ids: [], detail: auth.detail };
+  }
+
+  try {
+    const data = await completeChat(provider, apiKey, {
+      model: result.generation.model,
+      messages: [{ role: "user", content: "Reply with the single word OK." }],
+      temperature: 0,
+      top_p: 1,
+      max_completion_tokens: 16,
+    }, { timeoutMs: 12000 });
+    const content = data?.choices?.[0]?.message?.content;
+    result.generation = {
+      model: result.generation.model,
+      status: typeof content === "string" && content.length > 0 ? "working" : "request_error",
+      ...(typeof content !== "string" ? { detail: "Provider returned no generated content." } : {}),
+    };
+  } catch (error) {
+    const message = redactSecret(error instanceof Error ? error.message : String(error), apiKey);
+    const statusCode = message.match(/\b(\d{3})\b/)?.[1];
+    result.generation = {
+      model: result.generation.model,
+      status: statusCode ? classifyProviderStatus(Number(statusCode)) : /timeout/i.test(message) ? "timeout" : "network_error",
+      detail: message.slice(0, 240),
+    };
+  }
+  return result;
+}
+
 async function generateCode(
   providers: Providers,
+  provider: ProviderName,
   plan: any,
   system?: string,
   stage?: string,
   existingCode?: string,
   conversation: ConversationTurn[] = [],
+  generation: { model: string; temperature: number; topP: number } = {
+    model: MODEL_SMART,
+    temperature: 0.2,
+    topP: 1,
+  },
 ) {
   const failures: string[] = [];
+  let invalidCandidate: { code: string; provider: string } | undefined;
   const existingPaths = existingCode
     ? [...existingCode.matchAll(/^\s*\/\/\s*FILE:\s*([^\n]+)/gm)].map((match) => match[1].trim())
     : [];
@@ -598,66 +940,84 @@ ${system ? "EXTRA SYSTEM HINTS:\n" + system : ""}
 IMPORTANT: Output complete valid TSX/TypeScript/CSS for every file. Do NOT truncate or use placeholders. Close every JSX tag, bracket, and CSS block. Every local import MUST resolve to a file you emit or an allowed runtime module (react, react-dom, react-dom/client, lucide-react, react-router-dom, recharts, framer-motion, date-fns, clsx). The design must be intentionally specific to the requested app, not a generic sample. Preserve exactly the user's specified requirements; do not invent additional features.${existingCode ? " For this edit, apply only the requested changes to the existing source and return the complete updated project, preserving the established file structure." : ""}`.trim();
 
   const messages = [
-    { role: "system", content: GENERATOR_SYSTEM },
+    {
+      role: "system",
+      content: `${GENERATOR_SYSTEM}${system ? `\n\nUSER CONFIGURED SYSTEM INSTRUCTIONS (follow where consistent with the strict output contract):\n${system}` : ""}`,
+    },
     { role: "user", content: blueprint },
   ];
 
-  // Try the faster Groq model first, then use the larger model if needed.
-  if (providers.groqKey) {
-    for (const model of [MODEL_FAST, MODEL_SMART]) {
+  const configuredModels = getProviderConfig(provider).models.map((model) => model.id);
+  const preferredModel = configuredModels.includes(generation.model)
+    ? generation.model
+    : getDefaultModel(provider);
+  const modelOrder = [preferredModel, ...configuredModels.filter((model) => model !== preferredModel)];
+  const apiKey = providerKey(providers, provider);
+  if (apiKey) {
+    for (const model of modelOrder) {
       try {
-        const data = await groq(providers.groqKey, {
+        const data = await completeChat(provider, apiKey, {
           model,
           messages,
-          temperature: 0.2,
+          temperature: generation.temperature,
+          top_p: generation.topP,
           max_completion_tokens: 16000,
           reasoning_effort: "low",
         }, { retries: 0, timeoutMs: FAST_GENERATION_TIMEOUT_MS });
-        const code = cleanCode(extractGroqCode(data, model));
+        const code = cleanCode(extractChatCompletionCode(data, providerLabel(provider), model));
         const validationError = validateGeneratedCode(code, !existingCode);
-        if (!validationError) return { code, provider: `groq:${model}` };
-        failures.push(`Groq ${model} returned invalid project code: ${validationError}`);
+        if (!validationError) return { code, provider: `${provider}:${model}` };
+        if (code) invalidCandidate = { code, provider: `${provider}:${model}` };
+        failures.push(`${providerLabel(provider)} ${model} returned invalid project code: ${validationError}`);
       } catch (err) {
-        const reason = providerFailure(`Groq ${model}`, err);
-        console.warn(`Groq model ${model} failed:`, reason);
+        const reason = providerFailure(`${providerLabel(provider)} ${model}`, err);
+        console.warn(`${providerLabel(provider)} model ${model} failed:`, reason);
         failures.push(reason);
       }
     }
   }
 
-  throw new Error(`AI code generation failed: all configured Groq models failed. ${failures.join(" ") || "Set GROQ_API_KEY in Supabase Edge Function secrets."}`);
+  if (invalidCandidate) return invalidCandidate;
+  throw new Error(`AI code generation failed: all configured ${providerLabel(provider)} models failed. ${failures.join(" ") || `Set ${secretNamesFor(provider)[0]} in Supabase Edge Function secrets.`}`);
 }
 
-async function repairCode(providers: Providers, brokenCode: string, errorMsg: string, requireArchitecture = false) {
+async function repairCode(providers: Providers, provider: ProviderName, brokenCode: string, errorMsg: string, requireArchitecture = false) {
   const failures: string[] = [];
   const messages = [
     { role: "system", content: REPAIR_SYSTEM },
     { role: "user", content: `ERROR:\n${errorMsg}\n\nBROKEN CODE (preserve every file):\n${brokenCode}\n\nReturn the FULL fixed multi-file source using // FILE: delimiters.` },
   ];
 
-  if (providers.groqKey) {
+  const apiKey = providerKey(providers, provider);
+  if (apiKey) {
     try {
-      const data = await groq(providers.groqKey, {
-        model: MODEL_FAST,
+      const model = getDefaultModel(provider);
+      const data = await completeChat(provider, apiKey, {
+        model,
         messages,
         temperature: 0.2,
         max_completion_tokens: 9000,
         reasoning_effort: "low",
       }, { retries: 0, timeoutMs: REPAIR_TIMEOUT_MS });
-      const fixed = cleanCode(extractGroqCode(data, MODEL_FAST));
+      const fixed = cleanCode(extractChatCompletionCode(data, providerLabel(provider), model));
       const validationError = validateGeneratedCode(fixed, requireArchitecture);
       if (!validationError) return fixed;
-      failures.push(`Groq repair returned invalid project code: ${validationError}`);
+      failures.push(`${providerLabel(provider)} repair returned invalid project code: ${validationError}`);
     } catch (err) {
-      failures.push(providerFailure("Groq repair", err));
+      failures.push(providerFailure(`${providerLabel(provider)} repair`, err));
       if (isProviderUnavailable(err)) {
-        console.warn("Groq repair unavailable:", err instanceof Error ? err.message : String(err));
+        console.warn(`${providerLabel(provider)} repair unavailable:`, err instanceof Error ? err.message : String(err));
       } else {
         throw err;
       }
     }
   }
-  throw new Error(`Groq code repair failed. ${failures.join(" ") || "Set GROQ_API_KEY in Supabase Edge Function secrets."}`);
+  throw new Error(`${providerLabel(provider)} code repair failed. ${failures.join(" ") || `Set ${secretNamesFor(provider)[0]} in Supabase Edge Function secrets.`}`);
+}
+
+function providerFallbackOrder(providers: Providers, requested: ProviderName): ProviderName[] {
+  void requested;
+  return ACTIVE_PROVIDER_NAMES.filter((candidate) => Boolean(providerKey(providers, candidate)));
 }
 
 // ---------- handler ----------
@@ -666,25 +1026,69 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
 
-  const providers: Providers = {
-    groqKey: Deno.env.get("GROQ_API_KEY") || undefined,
-  };
-  if (!providers.groqKey) {
-    return jsonResponse({ error: "Groq is not configured. Set GROQ_API_KEY in Supabase Edge Function secrets." }, 500);
-  }
+  const providers = readProviderKeys();
 
   let body: any;
   try { body = await req.json(); }
   catch { return jsonResponse({ error: "Invalid JSON body" }, 400); }
 
-  const mode: "build" | "edit" | "repair" = body?.mode === "repair" ? "repair" : body?.mode === "edit" ? "edit" : "build";
+  const mode: "build" | "edit" | "repair" | "plan" | "health" =
+    body?.mode === "health" ? "health"
+      : body?.mode === "repair" ? "repair"
+        : body?.mode === "edit" ? "edit"
+          : body?.mode === "plan" ? "plan"
+            : "build";
+  const provider = getProvider(body?.provider);
 
   try {
+    if (mode === "health") {
+      const requestedProviders = body?.provider
+        ? [provider]
+        : PROVIDER_NAMES;
+      const results = [];
+      for (const candidate of requestedProviders) {
+        results.push(await testProvider(candidate, providerKey(providers, candidate)));
+      }
+      return jsonResponse({
+        testedAt: new Date().toISOString(),
+        results,
+      });
+    }
+
+    if (mode === "plan") {
+      const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+      if (!prompt) return jsonResponse({ error: "Prompt missing" }, 400);
+      if (prompt.length > 8000) return jsonResponse({ error: "Prompt too long (max 8000 chars)" }, 400);
+      const safetyViolation = getSafetyViolation(prompt, parseSafetyThresholds(body.safety));
+      if (safetyViolation) return jsonResponse({ error: `This request was blocked by AppiGen's safety filters (${safetyViolation}). Revise the prompt to continue.` }, 400);
+      const existingCode = typeof body.code === "string" ? body.code : undefined;
+      if (body.existingProject === true && !existingCode) return jsonResponse({ error: "Existing project code missing for plan" }, 400);
+      const stage = typeof body.stage === "string" ? body.stage : undefined;
+      const plan = enhanceAndPlan("", prompt, stage, existingCode);
+      return jsonResponse({ plan: { implementationPlan: plan.implementationPlan } });
+    }
+
+    if (mode !== "plan" && providerFallbackOrder(providers, provider).length === 0) {
+      return jsonResponse({
+        error: `${providerLabel(provider)} is not configured. Set ${secretNamesFor(provider)[0]} in Supabase Edge Function secrets.`,
+      }, 500);
+    }
+
     if (mode === "repair") {
       const code = typeof body.code === "string" ? body.code : "";
       const errorMsg = typeof body.error === "string" ? body.error : "";
       if (!code || !errorMsg) return jsonResponse({ error: "Missing code or error for repair" }, 400);
-      const fixed = await repairCode(providers, code, errorMsg);
+      let fixed = "";
+      const repairFailures: string[] = [];
+      for (const candidate of providerFallbackOrder(providers, provider)) {
+        try {
+          fixed = await repairCode(providers, candidate, code, errorMsg);
+          if (fixed) break;
+        } catch (error) {
+          repairFailures.push(providerFailure(`${providerLabel(candidate)} repair`, error));
+        }
+      }
+      if (!fixed) throw new Error(repairFailures.join(" ") || "No configured provider could repair the project.");
       if (!fixed) return jsonResponse({ error: "Repair produced empty code" }, 502);
       const validationError = validateGeneratedCode(fixed);
       if (validationError) {
@@ -697,11 +1101,17 @@ Deno.serve(async (req) => {
     const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
     if (!prompt) return jsonResponse({ error: "Prompt missing" }, 400);
     if (prompt.length > 8000) return jsonResponse({ error: "Prompt too long (max 8000 chars)" }, 400);
+    const safetyViolation = getSafetyViolation(prompt, parseSafetyThresholds(body.safety));
+    if (safetyViolation) return jsonResponse({ error: `This request was blocked by AppiGen's safety filters (${safetyViolation}). Revise the prompt to continue.` }, 400);
     const existingCode = mode === "edit" && typeof body.code === "string" ? body.code : undefined;
     if (mode === "edit" && !existingCode) return jsonResponse({ error: "Existing project code missing for edit" }, 400);
 
     const stage = typeof body.stage === "string" ? body.stage : undefined;
-    const system = typeof body.system === "string" ? body.system : undefined;
+    const system = typeof body.system === "string" ? body.system.slice(0, 4000) : undefined;
+    const configuredModels = getProviderConfig(provider).models.map((entry) => entry.id);
+    const model = configuredModels.includes(body.model) ? body.model : getDefaultModel(provider);
+    const temperature = numericSetting(body.temperature, 0.2, 0, 2);
+    const topP = numericSetting(body.topP, 1, 0, 1);
     const conversation: ConversationTurn[] = [];
     let remainingContext = 12000;
     if (Array.isArray(body.conversation)) {
@@ -715,13 +1125,28 @@ Deno.serve(async (req) => {
       }
     }
 
-    const plan = enhanceAndPlan("", prompt, stage);
-    const { code: generatedCode, provider } = await generateCode(providers, plan, system, stage, existingCode, conversation);
+    const plan = enhanceAndPlan("", prompt, stage, existingCode);
+    let generatedCode = "";
+    let usedProvider = "";
+    const generationFailures: string[] = [];
+    for (const candidate of providerFallbackOrder(providers, provider)) {
+      try {
+        const generated = await generateCode(providers, candidate, plan, system, stage, existingCode, conversation, { model, temperature, topP });
+        generatedCode = generated.code;
+        usedProvider = generated.provider;
+        break;
+      } catch (error) {
+        generationFailures.push(providerFailure(providerLabel(candidate), error));
+      }
+    }
+    if (!generatedCode) {
+      throw new Error(generationFailures.join(" ") || "No configured provider could generate the project.");
+    }
     let code = generatedCode;
 
     const validationError = validateGeneratedCode(code);
     if (validationError) {
-      code = await repairCode(providers, code, `Generated project validation failed: ${validationError}`, !existingCode);
+      code = await repairCode(providers, provider, code, `Generated project validation failed: ${validationError}`, !existingCode);
       const repairedValidationError = validateGeneratedCode(code, !existingCode);
       if (repairedValidationError) {
         return jsonResponse({ error: `Generated project failed validation after automatic repair: ${repairedValidationError}` }, 502);
@@ -729,13 +1154,11 @@ Deno.serve(async (req) => {
     }
     if (!code) return jsonResponse({ error: "Generator returned empty code" }, 502);
 
-    return jsonResponse({ code, plan, provider, mode });
+    return jsonResponse({ code, plan, provider: usedProvider, mode });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("Appigen pipeline error:", msg);
-    let status = 502;
-    if (/Groq 429\b/.test(msg)) status = 429;
-    else if (/timed out/i.test(msg)) status = 504;
-    return jsonResponse({ error: msg }, status);
+    const code = errorCodeFromMessage(msg);
+    return jsonResponse({ error: msg, code }, httpStatusForErrorCode(code));
   }
 });

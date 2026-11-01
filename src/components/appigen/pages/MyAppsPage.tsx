@@ -19,6 +19,7 @@ export type ProjectRow = {
 
 interface MyAppsPageProps {
   onNavigate: (v: ViewKey) => void;
+  onOpenSignIn: () => void;
   onOpenProject?: (p: ProjectRow) => void;
 }
 
@@ -28,7 +29,7 @@ const hueFromString = (s: string) => {
   return h;
 };
 
-export const MyAppsPage = ({ onNavigate, onOpenProject }: MyAppsPageProps) => {
+export const MyAppsPage = ({ onNavigate, onOpenSignIn, onOpenProject }: MyAppsPageProps) => {
   const { user, session } = useApp();
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<Sort>("newest");
@@ -58,6 +59,19 @@ export const MyAppsPage = ({ onNavigate, onOpenProject }: MyAppsPageProps) => {
       sort === "name" ? a.title.localeCompare(b.title) : b.updated_at.localeCompare(a.updated_at)
     );
   }, [q, sort, rows]);
+
+  if (!user) {
+    return (
+      <div className="flex h-full items-center justify-center overflow-auto p-6">
+        <div className="glass flex max-w-lg flex-col items-center gap-3 rounded-2xl p-10 text-center">
+          <Inbox className="h-8 w-8 text-muted-foreground" />
+          <h1 className="font-display text-xl font-semibold">Sign in to view your projects</h1>
+          <p className="text-sm text-muted-foreground">Your saved apps are private to your account and will be restored when you sign in.</p>
+          <button onClick={onOpenSignIn} className="mt-1 rounded-xl bg-gradient-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-glow hover:brightness-110">Sign in</button>
+        </div>
+      </div>
+    );
+  }
 
   const handleDelete = async (id: string) => {
     const prev = rows;

@@ -1,46 +1,46 @@
 import { useState } from "react";
-import { KeyRound, Save, Wand2 } from "lucide-react";
+import { Save, Wand2 } from "lucide-react";
+import { toast } from "@/hooks/use-toast";
+import {
+  AI_PROVIDERS,
+  modelsForProvider,
+  readAppPreferences,
+  readGenerationSettings,
+  saveAppPreferences,
+  saveGenerationSettings,
+  type GenerationSettings,
+} from "@/lib/appPreferences";
 
-const MODELS = [
-  "openai/gpt-oss-20b",
-  "openai/gpt-oss-120b",
-];
-
-const SAFETY = [
+const SAFETY: { key: keyof GenerationSettings["safety"]; label: string }[] = [
   { key: "harassment", label: "Harassment" },
   { key: "hate", label: "Hate Speech" },
   { key: "explicit", label: "Sexually Explicit" },
   { key: "dangerous", label: "Dangerous Content" },
 ];
-
 const LEVELS = ["Block none", "Block few", "Block some", "Block most"];
 
 export const ApiSettingsPage = () => {
-  const [model, setModel] = useState(MODELS[1]);
-  const [system, setSystem] = useState(
-    "You are an expert product designer and full-stack engineer. Generate clean, accessible, production-ready React + Tailwind code."
-  );
-  const [temp, setTemp] = useState(0.7);
-  const [topK, setTopK] = useState(40);
-  const [topP, setTopP] = useState(0.95);
-  const [safety, setSafety] = useState<Record<string, number>>({
-    harassment: 2,
-    hate: 2,
-    explicit: 3,
-    dangerous: 2,
-  });
+  const [settings, setSettings] = useState<GenerationSettings>(() => readGenerationSettings());
+  const update = (values: Partial<GenerationSettings>) => setSettings((current) => ({ ...current, ...values }));
+  const save = () => {
+    try {
+      saveGenerationSettings(settings);
+      saveAppPreferences({ ...readAppPreferences(), provider: settings.provider, model: settings.model });
+      toast({ title: "API settings saved", description: "New builds will use these model, instruction, and safety settings." });
+    } catch (error) {
+      toast({ title: "API settings could not be saved", description: error instanceof Error ? error.message : "Browser storage is unavailable.", variant: "destructive" });
+    }
+  };
 
   return (
     <div className="h-full overflow-auto">
       <div className="mx-auto max-w-5xl space-y-6 p-8">
-        <header className="flex items-end justify-between">
+        <header className="flex items-end justify-between gap-3">
           <div>
             <h1 className="font-display text-3xl font-bold tracking-tight">API Settings</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Fine-tune model behavior, safety, and generation parameters.
-            </p>
+            <p className="mt-1 text-sm text-muted-foreground">Configure model behavior and generation safety.</p>
           </div>
-          <button className="inline-flex items-center gap-2 rounded-xl bg-gradient-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-glow transition-smooth hover:brightness-110">
+          <button onClick={save} className="inline-flex items-center gap-2 rounded-xl bg-gradient-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-glow transition-smooth hover:brightness-110">
             <Save className="h-4 w-4" /> Save Changes
           </button>
         </header>
@@ -48,91 +48,51 @@ export const ApiSettingsPage = () => {
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           <div className="glass space-y-5 rounded-xl p-5 shadow-soft lg:col-span-2">
             <div>
-              <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Model Selection
-              </label>
-              <select
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                className="w-full rounded-lg border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground focus:border-primary focus:outline-none"
-              >
-                {MODELS.map((m) => (
-                  <option key={m}>{m}</option>
-                ))}
+              <label htmlFor="api-provider" className="mb-2 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">Provider</label>
+              <select id="api-provider" value={settings.provider} onChange={(e) => { const provider = e.target.value as GenerationSettings["provider"]; update({ provider, model: modelsForProvider(provider)[0] }); }} className="w-full rounded-lg border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground focus:border-primary focus:outline-none">
+                {AI_PROVIDERS.map((provider) => <option key={provider} value={provider}>{provider === "nvidia" ? "NVIDIA NIM" : provider.charAt(0).toUpperCase() + provider.slice(1)}</option>)}
               </select>
+              <label htmlFor="api-model" className="mb-2 mt-4 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">Model</label>
+              <select id="api-model" value={modelsForProvider(settings.provider).includes(settings.model) ? settings.model : modelsForProvider(settings.provider)[0]} onChange={(e) => update({ model: e.target.value as GenerationSettings["model"] })} className="w-full rounded-lg border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground focus:border-primary focus:outline-none">
+                {modelsForProvider(settings.provider).map((model) => <option key={model} value={model}>{model}</option>)}
+              </select>
+              <p className="mt-1.5 text-[11px] text-muted-foreground">Provider credentials remain server-managed. Health checks never return API keys.</p>
             </div>
 
             <div>
-              <label className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <label htmlFor="system-instructions" className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 <Wand2 className="h-3.5 w-3.5 text-primary" /> System Instructions
               </label>
-              <textarea
-                value={system}
-                onChange={(e) => setSystem(e.target.value)}
-                rows={6}
-                className="w-full resize-none rounded-lg border border-border bg-background/60 px-3 py-2.5 text-sm leading-relaxed text-foreground focus:border-primary focus:outline-none"
-              />
+              <textarea id="system-instructions" value={settings.systemInstructions} onChange={(e) => update({ systemInstructions: e.target.value.slice(0, 4000) })} rows={6} maxLength={4000} className="w-full resize-y rounded-lg border border-border bg-background/60 px-3 py-2.5 text-sm leading-relaxed text-foreground focus:border-primary focus:outline-none" />
+              <div className="mt-1 text-right text-[10px] text-muted-foreground">{settings.systemInstructions.length}/4000</div>
             </div>
 
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
-              <Slider label="Temperature" value={temp} min={0} max={2} step={0.05} onChange={setTemp} />
-              <Slider label="Top-K" value={topK} min={1} max={100} step={1} onChange={setTopK} />
-              <Slider label="Top-P" value={topP} min={0} max={1} step={0.01} onChange={setTopP} />
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+              <Slider label="Temperature" value={settings.temperature} min={0} max={2} step={0.05} onChange={(temperature) => update({ temperature })} />
+              <Slider label="Top-P" value={settings.topP} min={0} max={1} step={0.01} onChange={(topP) => update({ topP })} />
             </div>
           </div>
 
           <div className="glass space-y-4 rounded-xl p-5 shadow-soft">
             <div>
               <h2 className="text-sm font-semibold">Safety Settings</h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Control content filtering thresholds.
-              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground">The backend applies these thresholds and always blocks clearly harmful requests.</p>
             </div>
             <div className="space-y-4">
-              {SAFETY.map((s) => (
-                <div key={s.key}>
+              {SAFETY.map(({ key, label }) => (
+                <div key={key}>
                   <div className="flex items-center justify-between text-xs">
-                    <span className="font-medium text-foreground">{s.label}</span>
-                    <span className="font-mono text-primary">{LEVELS[safety[s.key]]}</span>
+                    <label htmlFor={`safety-${key}`} className="font-medium text-foreground">{label}</label>
+                    <span className="font-mono text-primary">{LEVELS[settings.safety[key]]}</span>
                   </div>
-                  <input
-                    type="range"
-                    min={0}
-                    max={3}
-                    step={1}
-                    value={safety[s.key]}
-                    onChange={(e) =>
-                      setSafety({ ...safety, [s.key]: Number(e.target.value) })
-                    }
-                    className="mt-1.5 w-full accent-[hsl(var(--primary))]"
-                  />
+                  <input id={`safety-${key}`} type="range" min={0} max={3} step={1} value={settings.safety[key]} onChange={(e) => update({ safety: { ...settings.safety, [key]: Number(e.target.value) } })} className="mt-1.5 w-full accent-[hsl(var(--primary))]" />
                 </div>
               ))}
             </div>
           </div>
 
           <div className="glass rounded-xl p-5 shadow-soft lg:col-span-3">
-            <div className="flex items-center gap-2">
-              <KeyRound className="h-4 w-4 text-primary" />
-              <h2 className="text-sm font-semibold">Environment & Keys</h2>
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Configure GROQ_API_KEY as a Supabase Edge Function secret. The key is never exposed to the browser.
-            </p>
-            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {[
-                { k: "AI_PROVIDER", v: "Groq" },
-                { k: "MODEL_FALLBACKS", v: "GPT-OSS 20B / 120B" },
-              ].map((e) => (
-                <div
-                  key={e.k}
-                  className="flex items-center justify-between rounded-lg border border-border/60 bg-background/40 px-3 py-2.5 font-mono text-xs"
-                >
-                  <span className="text-muted-foreground">{e.k}</span>
-                  <span className="text-foreground">{e.v}</span>
-                </div>
-              ))}
-            </div>
+            <p className="text-xs text-muted-foreground">Provider credentials are managed securely by the server. Changes here are stored in this browser and sent with each new build; secret keys are never shown in the client.</p>
           </div>
         </div>
       </div>
@@ -140,24 +100,14 @@ export const ApiSettingsPage = () => {
   );
 };
 
-function Slider({
-  label, value, min, max, step, onChange,
-}: { label: string; value: number; min: number; max: number; step: number; onChange: (v: number) => void }) {
+function Slider({ label, value, min, max, step, onChange }: { label: string; value: number; min: number; max: number; step: number; onChange: (value: number) => void }) {
   return (
     <div>
       <div className="flex items-center justify-between text-xs">
         <span className="font-medium text-muted-foreground">{label}</span>
         <span className="font-mono text-primary">{value}</span>
       </div>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="mt-1.5 w-full accent-[hsl(var(--primary))]"
-      />
+      <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} className="mt-1.5 w-full accent-[hsl(var(--primary))]" />
     </div>
   );
 }

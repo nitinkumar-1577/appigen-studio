@@ -4,6 +4,8 @@ type GroqResponse = {
     message?: {
       content?: unknown;
       refusal?: string | null;
+      reasoning_content?: unknown;
+      reasoning?: unknown;
     };
   }>;
 };
@@ -24,21 +26,30 @@ function getText(content: unknown): string {
     .trim();
 }
 
-export function extractGroqCode(response: unknown, model: string): string {
+export function extractChatCompletionCode(response: unknown, provider: string, model: string): string {
   const result = response as GroqResponse;
   const choice = result?.choices?.[0];
-  if (choice?.finish_reason === "length") {
-    throw new Error(`Groq model ${model} reached its completion-token limit before returning complete code.`);
+  if (choice?.finish_reason === "length" || choice?.finish_reason === "max_tokens") {
+    throw new Error(`${provider} model ${model} reached its completion-token limit before returning complete code.`);
   }
 
   const code = getText(choice?.message?.content);
   if (code) return code;
 
+  const reasoning = getText(choice?.message?.reasoning_content ?? choice?.message?.reasoning);
+  if (reasoning && !choice?.message?.content) {
+    throw new Error(`${provider} model ${model} returned reasoning without assistant content.`);
+  }
+
   if (choice?.message?.refusal) {
-    throw new Error(`Groq model ${model} refused the code-generation request.`);
+    throw new Error(`${provider} model ${model} refused the code-generation request.`);
   }
   if (!choice) {
-    throw new Error(`Groq model ${model} returned no completion choices.`);
+    throw new Error(`${provider} model ${model} returned no completion choices.`);
   }
-  throw new Error(`Groq model ${model} returned no assistant text.`);
+  throw new Error(`${provider} model ${model} returned no assistant text.`);
+}
+
+export function extractGroqCode(response: unknown, model: string): string {
+  return extractChatCompletionCode(response, "Groq", model);
 }

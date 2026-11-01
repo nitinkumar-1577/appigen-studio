@@ -10,6 +10,7 @@ import {
   FolderOpen,
   FileCode2,
   Save,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
@@ -30,7 +31,6 @@ interface PreviewPanelProps {
 }
 
 type Tab = "preview" | "code" | "github";
-
 interface FileNode {
   name: string;
   path: string;
@@ -244,28 +244,30 @@ export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChan
 
         {/* Body */}
         <div className="relative flex min-h-0 flex-1 overflow-hidden bg-background/40">
-          {isBuilding && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/70 backdrop-blur-sm animate-fade-in">
-              <div className="flex flex-col items-center gap-3">
-                <div className="relative h-12 w-12">
-                  <div className="absolute inset-0 rounded-full border-2 border-primary/20" />
-                  <div className="absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-primary" />
-                </div>
-                <div className="text-sm font-medium text-foreground">Rendering preview…</div>
-                <div className="text-xs text-muted-foreground">Streaming components from AppiGen</div>
+          {tab === "preview" && (
+            <div className="flex min-h-0 w-full flex-1 flex-col gap-2 overflow-auto p-2 sm:p-3">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="flex-1" />
+                <button onClick={handleRefresh} className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-smooth hover:bg-secondary hover:text-foreground" title="Reload preview">
+                  <RefreshCw className="h-3.5 w-3.5" /> Reload
+                </button>
+              </div>
+              <div className="flex min-h-[260px] flex-1 justify-center overflow-auto rounded-xl border border-border bg-[#0b0d14] p-1.5 shadow-soft">
+                {!code && !isBuilding && <PreviewEmptyState />}
+                {code && !isBuilding && (
+                  <iframe
+                    ref={iframeRef}
+                    key={previewKey}
+                    title="AppiGen Sandbox Preview"
+                    srcDoc={srcDoc}
+                    sandbox="allow-scripts allow-forms allow-popups allow-modals allow-same-origin allow-downloads"
+                    style={{ width: "100%" }}
+                    className="h-full min-h-[260px] max-w-full shrink-0 rounded-lg border-0 bg-background animate-fade-in"
+                  />
+                )}
+                {isBuilding && <PreviewEmptyState loading />}
               </div>
             </div>
-          )}
-
-          {tab === "preview" && (
-            <iframe
-              ref={iframeRef}
-              key={previewKey}
-              title="AppiGen Sandbox Preview"
-              srcDoc={srcDoc}
-              sandbox="allow-scripts allow-forms allow-popups allow-modals allow-same-origin allow-downloads"
-              className="h-full w-full border-0 bg-background animate-fade-in"
-            />
           )}
 
           {tab === "code" && (
@@ -320,3 +322,51 @@ export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChan
     </div>
   );
 };
+
+const PreviewEmptyState = ({ loading = false }: { loading?: boolean }) => (
+  <div className="relative flex h-full min-h-[360px] w-full items-center justify-center overflow-hidden bg-[#0b0d14] p-4 sm:p-8" role={loading ? "status" : undefined} aria-label={loading ? "App preview loading" : "Empty app preview"}>
+    <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_15%,rgba(129,104,255,0.16),transparent_60%)]" />
+    <div className="absolute right-4 top-4 z-10 inline-flex items-center gap-1.5 rounded-full border border-violet-300/20 bg-violet-300/[0.08] px-2.5 py-1 text-[10px] font-medium tracking-wide text-violet-100/75 shadow-[0_0_24px_rgba(139,92,246,0.12)] backdrop-blur">
+      <Sparkles className="h-3 w-3 text-violet-300" /> AppiGen Generated
+    </div>
+    <div className="relative w-full max-w-3xl overflow-hidden rounded-2xl border border-white/[0.09] bg-[#10131c]/90 shadow-[0_28px_100px_rgba(0,0,0,0.48)]">
+      <div className="flex h-10 items-center gap-2 border-b border-white/[0.07] px-4">
+        <span className="h-2 w-2 rounded-full bg-white/15" /><span className="h-2 w-2 rounded-full bg-white/15" /><span className="h-2 w-2 rounded-full bg-white/15" />
+        <div className="mx-auto h-5 w-[42%] rounded-md border border-white/[0.06] bg-white/[0.025]" />
+      </div>
+      <div className="grid min-h-[310px] grid-cols-[68px_1fr] sm:grid-cols-[152px_1fr]">
+        <div className="space-y-5 border-r border-white/[0.06] p-3 sm:p-5">
+          <div className="h-6 w-6 rounded-lg bg-violet-300/15 sm:w-24" />
+          <div className="space-y-3">
+            {[0, 1, 2, 3, 4].map((line) => <div key={line} className={`h-2 rounded-full bg-white/[0.07] ${line === 0 ? "w-full bg-violet-300/20" : "w-4/5"}`} />)}
+          </div>
+          <div className="hidden h-16 rounded-xl border border-white/[0.05] bg-white/[0.025] sm:block" />
+        </div>
+        <div className="space-y-4 p-4 sm:space-y-5 sm:p-6">
+          <div className="flex items-center justify-between gap-4">
+            <div className="w-2/3 space-y-2"><div className="h-4 w-3/5 rounded bg-white/10" /><div className="h-2.5 w-4/5 rounded bg-white/[0.055]" /></div>
+            <div className="h-8 w-20 rounded-lg bg-violet-400/20" />
+          </div>
+          <div className="grid grid-cols-3 gap-2.5 sm:gap-3">
+            {[0, 1, 2].map((card) => <div key={card} className="space-y-2 rounded-xl border border-white/[0.06] bg-white/[0.025] p-2.5 sm:p-3.5"><div className="h-2 w-3/4 rounded bg-white/[0.07]" /><div className="h-4 w-1/2 rounded bg-white/10" /><div className="h-1.5 w-full rounded bg-emerald-300/15" /></div>)}
+          </div>
+          <div className="grid grid-cols-[1fr_0.7fr] gap-3">
+            <div className="space-y-3 rounded-xl border border-white/[0.06] bg-white/[0.025] p-3 sm:p-4">
+              <div className="h-2.5 w-1/3 rounded bg-white/10" />
+              <div className="flex h-24 items-end gap-1.5 sm:h-32 sm:gap-2">{[32, 48, 39, 67, 52, 82, 62, 92, 69, 78, 56, 86].map((height, index) => <div key={index} className="flex-1 rounded-t-sm bg-gradient-to-t from-violet-500/20 to-violet-300/40" style={{ height: `${height}%`, animationDelay: `${index * 75}ms` }} />)}</div>
+            </div>
+            <div className="space-y-3 rounded-xl border border-white/[0.06] bg-white/[0.025] p-3 sm:p-4">
+              <div className="h-2.5 w-2/3 rounded bg-white/10" />
+              <div className="mx-auto mt-2 h-16 w-16 rounded-full border-[7px] border-violet-300/30 border-r-cyan-300/20 sm:h-20 sm:w-20" />
+              <div className="mx-auto h-2 w-2/3 rounded bg-white/[0.07]" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div className="absolute bottom-7 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full border border-white/10 bg-[#171923]/95 px-4 py-2.5 shadow-xl backdrop-blur-md">
+      <span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-violet-400 opacity-70" /><span className="relative inline-flex h-2 w-2 rounded-full bg-violet-400" /></span>
+      <span className="whitespace-nowrap text-xs font-medium text-white/80">{loading ? "Building your live preview…" : "Your generated app will appear here"}</span>
+    </div>
+  </div>
+);

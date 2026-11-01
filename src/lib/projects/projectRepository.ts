@@ -1,5 +1,6 @@
 import type { Json } from "@/integrations/supabase/types";
 import { supabase } from "@/integrations/supabase/client";
+import type { ActivityEntry } from "@/lib/appPreferences";
 import { parseFileMarkers } from "@/lib/preview/parseFileMarkers";
 import {
   discardProjectDraft,
@@ -116,6 +117,39 @@ export const persistProject = async (input: {
     });
     throw error;
   }
+};
+
+export const persistActivity = async (userId: string, entry: ActivityEntry): Promise<void> => {
+  const { error } = await supabase.from("user_activity").insert({
+    id: entry.id,
+    user_id: userId,
+    kind: entry.kind,
+    title: entry.title,
+    detail: entry.detail,
+    duration_ms: entry.durationMs ?? null,
+    prompt_characters: entry.promptCharacters ?? null,
+    created_at: new Date(entry.createdAt).toISOString(),
+  });
+  if (error) throw error;
+};
+
+export const loadProjectActivity = async (userId: string): Promise<ActivityEntry[]> => {
+  const { data, error } = await supabase
+    .from("user_activity")
+    .select("id, kind, title, detail, created_at, duration_ms, prompt_characters")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(50);
+  if (error) throw error;
+  return (data ?? []).map((entry) => ({
+    id: entry.id,
+    kind: entry.kind as ActivityEntry["kind"],
+    title: entry.title,
+    detail: entry.detail,
+    createdAt: new Date(entry.created_at).getTime(),
+    ...(entry.duration_ms === null ? {} : { durationMs: entry.duration_ms }),
+    ...(entry.prompt_characters === null ? {} : { promptCharacters: entry.prompt_characters }),
+  }));
 };
 
 export const loadProjectVersions = async (projectId: string, userId: string): Promise<LocalProjectVersion[]> => {

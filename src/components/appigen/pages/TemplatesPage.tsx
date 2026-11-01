@@ -1,18 +1,19 @@
 import { useState } from "react";
 import { ShoppingBag, MessageSquare, User, BarChart3, Calendar, Music, Sparkles, ArrowRight } from "lucide-react";
+import type { ViewKey } from "../Sidebar";
 
 const CATEGORIES = ["All", "E-commerce", "AI", "Personal", "Productivity"];
 
 const TEMPLATES = [
-  { name: "E-commerce Storefront", cat: "E-commerce", desc: "Product grid, cart, and checkout flow.", icon: ShoppingBag, hue: 30 },
-  { name: "Chatbot Assistant", cat: "AI", desc: "Streaming chat UI with message history.", icon: MessageSquare, hue: 243 },
-  { name: "Portfolio", cat: "Personal", desc: "Minimal hero, projects grid, contact form.", icon: User, hue: 280 },
-  { name: "Analytics Dashboard", cat: "Productivity", desc: "Charts, KPIs, and filterable tables.", icon: BarChart3, hue: 200 },
-  { name: "Booking Calendar", cat: "Productivity", desc: "Event scheduling with time slots.", icon: Calendar, hue: 140 },
-  { name: "Music Player", cat: "Personal", desc: "Playlist UI with playback controls.", icon: Music, hue: 320 },
+  { name: "SaaS Dashboard", cat: "Productivity", desc: "A polished workspace with KPI cards, usage charts, filters, and a responsive navigation system.", icon: BarChart3, hue: 200, prompt: "Build a production-ready SaaS analytics dashboard with a responsive collapsible sidebar, workspace switcher, date-range filters, revenue and user KPI cards with trends, an interactive time-series chart, a recent activity table with search and sorting, empty states, and a polished accessible dark interface." },
+  { name: "E-commerce Store", cat: "E-commerce", desc: "A refined storefront with product discovery, cart interactions, and checkout states.", icon: ShoppingBag, hue: 30, prompt: "Build a premium responsive e-commerce storefront with an editorial hero, searchable product catalog, category and price filters, product detail view, interactive shopping cart with quantity controls, subtotal and checkout state, and thoughtful loading and empty states." },
+  { name: "AI Chat Interface", cat: "AI", desc: "A focused AI workspace with conversation history and responsive chat states.", icon: MessageSquare, hue: 243, prompt: "Build a polished AI chat workspace with a collapsible conversation history, new-chat action, message bubbles, editable prompt composer, send and stop controls, simulated streaming response, code-block styling, empty state suggestions, and responsive accessible layout." },
+  { name: "Portfolio", cat: "Personal", desc: "A distinctive personal site with selected work, case studies, and contact details.", icon: User, hue: 280, prompt: "Build a distinctive creative developer portfolio with a strong editorial hero, biography, selected project cards with case-study details, skills, responsive navigation, a working contact form with validation and success state, and refined mobile layouts." },
+  { name: "Booking Calendar", cat: "Productivity", desc: "An appointment planner with an interactive calendar and available time slots.", icon: Calendar, hue: 140, prompt: "Build a responsive appointment booking app with a monthly calendar, selectable available time slots, booking details form with validation, confirmation state, upcoming appointments list, and clear empty and loading states." },
+  { name: "Music Player", cat: "Personal", desc: "A modern listening space with playlists and functional playback controls.", icon: Music, hue: 320, prompt: "Build a polished music player interface with featured playlists, searchable track list, play and pause controls, previous and next track actions, seek and volume sliders, queue panel, and responsive artwork-led layout." },
 ];
 
-export const TemplatesPage = ({ onNavigate }: { onNavigate: (v: any) => void }) => {
+export const TemplatesPage = ({ onNavigate, onUseTemplate }: { onNavigate: (v: ViewKey) => void; onUseTemplate?: (prompt: string) => void }) => {
   const [cat, setCat] = useState("All");
   const list = TEMPLATES.filter((t) => cat === "All" || t.cat === cat);
 
@@ -65,7 +66,7 @@ export const TemplatesPage = ({ onNavigate }: { onNavigate: (v: any) => void }) 
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">{t.desc}</p>
                 <button
-                  onClick={() => onNavigate("studio")}
+                  onClick={() => onUseTemplate ? onUseTemplate(t.prompt) : onNavigate("studio")}
                   className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-primary transition-smooth hover:gap-2"
                 >
                   <Sparkles className="h-3.5 w-3.5" /> Use Template <ArrowRight className="h-3.5 w-3.5" />

@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import type { Session, User as SupaUser } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import { applyAppPreferences, readAppPreferences } from "@/lib/appPreferences";
 
 export type User = { name: string; email: string; avatarUrl?: string | null };
 
@@ -38,11 +39,6 @@ interface AppContextValue {
   markAllRead: () => void;
   clearNotifications: () => void;
 
-  githubConnected: boolean;
-  githubUser: string | null;
-  connectGithub: (username: string) => void;
-  disconnectGithub: () => void;
-
   accent: string;
   setAccent: (k: string) => void;
 }
@@ -51,19 +47,18 @@ const AppContext = createContext<AppContextValue | null>(null);
 
 const LS = {
   notif: "appigen.notifications",
-  gh: "appigen.github",
   accent: "appigen.accent",
 };
 
 const toAppUser = (u: SupaUser | undefined | null): User | null => {
   if (!u) return null;
-  const meta = (u.user_metadata || {}) as Record<string, any>;
+  const meta = u.user_metadata || {};
   const email = u.email ?? "";
   const name =
-    meta.full_name ||
-    meta.name ||
+    (typeof meta.full_name === "string" ? meta.full_name : "") ||
+    (typeof meta.name === "string" ? meta.name : "") ||
     (email ? email.split("@")[0].replace(/[._]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "User");
-  return { name, email, avatarUrl: meta.avatar_url ?? null };
+  return { name, email, avatarUrl: typeof meta.avatar_url === "string" ? meta.avatar_url : null };
 };
 
 const applyAccent = (hue: number) => {
@@ -93,18 +88,19 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [notifications, setNotifications] = useState<AppNotification[]>(() => {
     try { const v = localStorage.getItem(LS.notif); return v ? JSON.parse(v) : []; } catch { return []; }
   });
-  const [githubUser, setGithubUser] = useState<string | null>(() => {
-    try { return localStorage.getItem(LS.gh); } catch { return null; }
-  });
   const [accent, setAccentState] = useState<string>(() => {
     try { return localStorage.getItem(LS.accent) || "purple"; } catch { return "purple"; }
   });
+
+  useEffect(() => {
+    applyAppPreferences(readAppPreferences());
+  }, []);
 
   // Apply accent on mount + change
   useEffect(() => {
     const t = ACCENT_THEMES.find((a) => a.key === accent) ?? ACCENT_THEMES[0];
     applyAccent(t.hue);
-    try { localStorage.setItem(LS.accent, accent); } catch {}
+    try { localStorage.setItem(LS.accent, accent); } catch (error) { console.warn("Could not save accent preference:", error); }
   }, [accent]);
 
   // Auth listener BEFORE getSession
@@ -123,8 +119,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   useEffect(() => { localStorage.setItem(LS.notif, JSON.stringify(notifications)); }, [notifications]);
-  useEffect(() => { githubUser ? localStorage.setItem(LS.gh, githubUser) : localStorage.removeItem(LS.gh); }, [githubUser]);
-
   const addNotification = useCallback<AppContextValue["addNotification"]>((n) => {
     setNotifications((prev) => [
       { ...n, id: crypto.randomUUID(), read: false, createdAt: Date.now() },
@@ -142,10 +136,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     addNotification,
     markAllRead: () => setNotifications((prev) => prev.map((n) => ({ ...n, read: true }))),
     clearNotifications: () => setNotifications([]),
-    githubConnected: !!githubUser,
-    githubUser,
-    connectGithub: (u) => { setGithubUser(u); addNotification({ kind: "github", title: "GitHub Connected", description: `Linked account @${u}` }); },
-    disconnectGithub: () => setGithubUser(null),
     accent,
     setAccent: setAccentState,
   };

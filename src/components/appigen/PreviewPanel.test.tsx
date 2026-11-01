@@ -67,7 +67,7 @@ export default function MainView() { return <main>Ready</main>; }
       <PreviewPanel
         isBuilding={false}
         doc=""
-        code=""
+        code="export default function App() { return <main>Ready</main>; }"
         onPushToGithub={vi.fn()}
         onCodeChange={vi.fn()}
         versions={[]}
@@ -78,5 +78,44 @@ export default function MainView() { return <main>Ready</main>; }
     );
 
     expect(screen.getByTitle("AppiGen Sandbox Preview").getAttribute("sandbox")).toContain("allow-downloads");
+  });
+
+  it("shows the generated empty preview skeleton before the first build", () => {
+    render(
+      <PreviewPanel
+        isBuilding={false}
+        doc=""
+        code={null}
+        onPushToGithub={vi.fn()}
+        versions={[]}
+        onRestoreVersion={vi.fn()}
+        onManualFix={vi.fn()}
+        fixing={false}
+      />,
+    );
+
+    expect(screen.getByText("AppiGen Generated")).toBeInTheDocument();
+    expect(screen.getByText("Your generated app will appear here")).toBeInTheDocument();
+  });
+
+  it("shows a full-width preview with reload", () => {
+    render(
+      <PreviewPanel
+        isBuilding={false}
+        doc="<main>Ready</main>"
+        code="export default function App() { return <main>Ready</main>; }"
+        onPushToGithub={vi.fn()}
+        versions={[]}
+        onRestoreVersion={vi.fn()}
+        onManualFix={vi.fn()}
+        fixing={false}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Desktop" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Tablet" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Mobile" })).not.toBeInTheDocument();
+    expect(screen.getByTitle("AppiGen Sandbox Preview")).toHaveStyle({ width: "100%" });
+    expect(screen.getByRole("button", { name: "Reload" })).toBeInTheDocument();
   });
 });

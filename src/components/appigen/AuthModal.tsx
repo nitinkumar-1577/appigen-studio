@@ -1,264 +1,316 @@
-import { useEffect, useRef, useState } from "react";
-import { Mail, Sparkles, X, ArrowRight, Loader2, Lock, Github as GithubIcon } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Eye, EyeOff, Github as GithubIcon, KeyRound, Loader2, Lock, Mail, Sparkles, UserRound, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { authErrorMessage, classifyAuthError } from "@/lib/auth/authErrors";
+import { getAuthRedirectUrl } from "@/lib/auth/authRedirect";
 
 interface AuthModalProps {
   open: boolean;
   onClose: () => void;
 }
 
-type Mode = "otp" | "password";
-type PwAction = "signin" | "signup";
+type Screen = "signin" | "signup" | "forgot" | "reset";
+type AuthMode = "password" | "otp";
 
-const RESEND_SECONDS = 60;
+const validEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 
 export const AuthModal = ({ open, onClose }: AuthModalProps) => {
-  const [mode, setMode] = useState<Mode>("otp");
-  const [pwAction, setPwAction] = useState<PwAction>("signin");
-
+  const [screen, setScreen] = useState<Screen>("signin");
+  const [mode, setMode] = useState<AuthMode>("password");
   const [email, setEmail] = useState("");
+  const [fullName, setFullName] = useState("");
   const [password, setPassword] = useState("");
-
-  const [step, setStep] = useState<"email" | "otp">("email");
-  const [otp, setOtp] = useState(["", "", "", "", "", ""]);
+  const [confirmation, setConfirmation] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmation, setShowConfirmation] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [resendIn, setResendIn] = useState(0);
-  const inputs = useRef<(HTMLInputElement | null)[]>([]);
+  const [notice, setNotice] = useState("");
+  const [otpStep, setOtpStep] = useState<"email" | "code">("email");
+  const [otp, setOtp] = useState("");
+  const [recoveryPending, setRecoveryPending] = useState(false);
 
   useEffect(() => {
-    if (!open) {
-      setMode("otp"); setPwAction("signin");
-      setEmail(""); setPassword("");
-      setStep("email"); setOtp(["", "", "", "", "", ""]);
-      setResendIn(0);
+    const { data } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "PASSWORD_RECOVERY") {
+        setRecoveryPending(true);
+      }
+    });
+    return () => data.subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (open && recoveryPending) {
+      setScreen("reset");
+      setNotice("Choose a new password for your account.");
+      setRecoveryPending(false);
     }
-  }, [open]);
-
-  // Resend cooldown ticker
-  useEffect(() => {
-    if (resendIn <= 0) return;
-    const t = setInterval(() => setResendIn((s) => Math.max(0, s - 1)), 1000);
-    return () => clearInterval(t);
-  }, [resendIn]);
+    if (!open) {
+      setScreen("signin");
+      setMode("password");
+      setEmail("");
+      setFullName("");
+      setPassword("");
+      setConfirmation("");
+      setNotice("");
+      setBusy(false);
+      setOtpStep("email");
+      setOtp("");
+    }
+  }, [open, recoveryPending]);
 
   if (!open) return null;
 
-  const validEmail = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+  const showError = (title: string, error: unknown, fallback: string) => {
+    toast({ title, description: authErrorMessage(error, fallback), variant: "destructive" });
+  };
 
-  // ---- Email + Password ----
-  const handlePassword = async () => {
-    if (!validEmail(email)) { toast({ title: "Invalid email", variant: "destructive" }); return; }
-    if (password.length < 6) {
-      toast({ title: "Password too short", description: "At least 6 characters.", variant: "destructive" }); return;
+  const validatePassword = () => {
+    if (password.length < 8) {
+      toast({ title: "Password is too short", description: "Use at least 8 characters.", variant: "destructive" });
+      return false;
+    }
+    if (!/[A-Za-z]/.test(password) || !/\d/.test(password)) {
+      toast({ title: "Use a stronger password", description: "Include at least one letter and one number.", variant: "destructive" });
+      return false;
+    }
+    return true;
+  };
+
+  const handleSignIn = async () => {
+    if (!validEmail(email)) {
+      toast({ title: "Enter a valid email address", variant: "destructive" });
+      return;
+    }
+    if (!password) {
+      toast({ title: "Enter your password", variant: "destructive" });
+      return;
     }
     setBusy(true);
-    if (pwAction === "signup") {
-      const { error } = await supabase.auth.signUp({
-        email, password,
-        options: { emailRedirectTo: window.location.origin },
-      });
-      setBusy(false);
-      if (error) { toast({ title: "Sign-up failed", description: error.message, variant: "destructive" }); return; }
-      toast({ title: "🎉 Account created", description: "You can now sign in." });
-      setPwAction("signin");
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    setBusy(false);
+    if (error) {
+      const kind = classifyAuthError(error);
+      showError(kind === "email_not_confirmed" ? "Email confirmation required" : "Sign-in failed", error, "Could not sign in.");
+      return;
+    }
+    toast({ title: "Signed in", description: "Welcome back to AppiGen." });
+    onClose();
+  };
+
+  const handleSignUp = async () => {
+    if (!fullName.trim()) {
+      toast({ title: "Enter your full name", variant: "destructive" });
+      return;
+    }
+    if (!validEmail(email)) {
+      toast({ title: "Enter a valid email address", variant: "destructive" });
+      return;
+    }
+    if (!validatePassword()) return;
+    if (password !== confirmation) {
+      toast({ title: "Passwords do not match", description: "Check both password fields.", variant: "destructive" });
+      return;
+    }
+    setBusy(true);
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: {
+        data: { full_name: fullName.trim() },
+        emailRedirectTo: getAuthRedirectUrl(),
+      },
+    });
+    setBusy(false);
+    if (error) {
+      showError("Sign-up failed", error, "Could not create your account.");
+      return;
+    }
+    if (!data.user || (data.user.identities && data.user.identities.length === 0)) {
+      showError("Account already exists", new Error("User already registered"), "");
+      setScreen("signin");
+      return;
+    }
+    if (!data.session) {
+      setNotice("Account created. Check your email and confirm your address before signing in.");
     } else {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      setBusy(false);
-      if (error) { toast({ title: "Sign-in failed", description: error.message, variant: "destructive" }); return; }
-      toast({ title: "✅ Signed in", description: `Welcome back!` });
+      toast({ title: "Account created", description: "Welcome to AppiGen." });
       onClose();
     }
   };
 
-  // ---- OTP ----
-  const sendOtp = async (isResend = false) => {
-    if (!validEmail(email)) { toast({ title: "Invalid email", variant: "destructive" }); return; }
-    if (resendIn > 0) return;
-    setBusy(true);
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { shouldCreateUser: true },
-    });
-    setBusy(false);
-    if (error) { toast({ title: "Couldn't send code", description: error.message, variant: "destructive" }); return; }
-    setStep("otp");
-    setResendIn(RESEND_SECONDS);
-    toast({ title: isResend ? "📨 Code resent" : "✉️ Code sent", description: `6-digit code emailed to ${email}` });
-    setTimeout(() => inputs.current[0]?.focus(), 50);
-  };
-
-  const handleOtp = (i: number, v: string) => {
-    const digits = v.replace(/\D/g, "");
-    if (digits.length > 1) {
-      const next = digits.slice(0, 6).split("");
-      const padded = [...next, ...Array(6 - next.length).fill("")];
-      setOtp(padded);
-      const focusIdx = Math.min(next.length, 5);
-      inputs.current[focusIdx]?.focus();
-      if (next.length === 6) setTimeout(() => verifyOtp(padded.join("")), 50);
+  const sendResetEmail = async () => {
+    if (!validEmail(email)) {
+      toast({ title: "Enter a valid email address", variant: "destructive" });
       return;
     }
-    const next = [...otp]; next[i] = digits; setOtp(next);
-    if (digits && i < 5) inputs.current[i + 1]?.focus();
-    if (digits && i === 5 && next.every((d) => d !== "")) {
-      setTimeout(() => verifyOtp(next.join("")), 50);
-    }
-  };
-
-  const verifyOtp = async (codeArg?: string) => {
-    const code = codeArg ?? otp.join("");
-    if (code.length !== 6) return;
     setBusy(true);
-    const { error } = await supabase.auth.verifyOtp({ email, token: code, type: "email" });
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: getAuthRedirectUrl() });
     setBusy(false);
     if (error) {
-      toast({ title: "Invalid code", description: "Please try again.", variant: "destructive" });
-      setOtp(["", "", "", "", "", ""]);
-      setTimeout(() => inputs.current[0]?.focus(), 50);
+      showError("Could not send reset email", error, "Please try again.");
       return;
     }
-    toast({ title: "✅ Signed in", description: `Welcome, ${email}` });
+    setNotice("If an account exists for this email, a password reset link has been sent.");
+  };
+
+  const sendOtp = async () => {
+    if (!validEmail(email)) {
+      toast({ title: "Enter a valid email address", variant: "destructive" });
+      return;
+    }
+    setBusy(true);
+    const { error } = await supabase.auth.signInWithOtp({ email: email.trim(), options: { shouldCreateUser: true } });
+    setBusy(false);
+    if (error) {
+      showError("Could not send code", error, "Please try again.");
+      return;
+    }
+    setOtpStep("code");
+    setNotice(`A verification code was sent to ${email.trim()}.`);
+  };
+
+  const verifyOtp = async () => {
+    if (!/^\d{6}$/.test(otp)) {
+      toast({ title: "Enter the 6-digit code", variant: "destructive" });
+      return;
+    }
+    setBusy(true);
+    const { error } = await supabase.auth.verifyOtp({ email: email.trim(), token: otp, type: "email" });
+    setBusy(false);
+    if (error) {
+      showError("Code verification failed", error, "The code may be expired.");
+      return;
+    }
+    toast({ title: "Signed in", description: "Welcome to AppiGen." });
     onClose();
+  };
+
+  const updatePassword = async () => {
+    if (!validatePassword()) return;
+    if (password !== confirmation) {
+      toast({ title: "Passwords do not match", variant: "destructive" });
+      return;
+    }
+    setBusy(true);
+    const { error } = await supabase.auth.updateUser({ password });
+    setBusy(false);
+    if (error) {
+      showError("Could not update password", error, "The reset link may have expired.");
+      return;
+    }
+    toast({ title: "Password updated", description: "You can now sign in with your new password." });
+    setScreen("signin");
+    setPassword("");
+    setConfirmation("");
+    setNotice("");
   };
 
   const signInWithSocialProvider = async (provider: "github" | "google") => {
     setBusy(true);
-    try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider,
-        options: { redirectTo: window.location.origin },
-      });
-      if (error) throw error;
-    } catch (error) {
-      toast({
-        title: `${provider === "github" ? "GitHub" : "Google"} sign-in unavailable`,
-        description: error instanceof Error ? error.message : "Check that this provider is enabled in Supabase Auth.",
-        variant: "destructive",
-      });
-    } finally {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: { redirectTo: getAuthRedirectUrl() },
+    });
+    if (error) {
       setBusy(false);
+      showError(`${provider === "github" ? "GitHub" : "Google"} sign-in unavailable`, error, "Enable this provider in Supabase Auth.");
     }
   };
 
+  const passwordInput = (value: string, setter: (value: string) => void, confirmationField = false) => (
+    <div className="relative">
+      <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      <input
+        type={(confirmationField ? showConfirmation : showPassword) ? "text" : "password"}
+        value={value}
+        onChange={(event) => setter(event.target.value)}
+        placeholder={confirmationField ? "Confirm password" : "Password"}
+        className="w-full rounded-xl border border-border bg-background/60 py-2.5 pl-10 pr-10 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+      />
+      <button
+        type="button"
+        aria-label={((confirmationField ? showConfirmation : showPassword) ? "Hide" : "Show") + " password"}
+        onClick={() => confirmationField ? setShowConfirmation((value) => !value) : setShowPassword((value) => !value)}
+        className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-muted-foreground hover:text-foreground"
+      >
+        {(confirmationField ? showConfirmation : showPassword) ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+      </button>
+    </div>
+  );
+
+  const title = screen === "signup" ? "Create your AppiGen account" : screen === "forgot" ? "Reset your password" : screen === "reset" ? "Set a new password" : "Sign in to AppiGen";
+
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in" onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} className="glass-strong relative w-[440px] max-w-[92vw] rounded-2xl p-7 shadow-elevated">
-        <button onClick={onClose} className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground"><X className="h-4 w-4" /></button>
-
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm animate-fade-in" onClick={onClose}>
+      <div onClick={(event) => event.stopPropagation()} className="glass-strong relative w-[440px] max-w-[92vw] rounded-2xl p-7 shadow-elevated">
+        <button onClick={onClose} aria-label="Close authentication dialog" className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground"><X className="h-4 w-4" /></button>
         <div className="mb-5 flex items-center gap-2.5">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-primary shadow-glow">
-            <Sparkles className="h-5 w-5 text-primary-foreground" />
-          </div>
-          <div>
-            <div className="font-display text-lg font-bold">Sign in to AppiGen</div>
-            <div className="text-xs text-muted-foreground">One-time code or password</div>
-          </div>
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-primary shadow-glow"><Sparkles className="h-5 w-5 text-primary-foreground" /></div>
+          <div><div className="font-display text-lg font-bold">{title}</div><div className="text-xs text-muted-foreground">Secure authentication powered by Supabase</div></div>
         </div>
 
-        <div className="mb-4 grid grid-cols-2 gap-1 rounded-xl border border-border bg-secondary/40 p-1">
-          {(["otp", "password"] as Mode[]).map((m) => (
-            <button key={m} onClick={() => { setMode(m); setStep("email"); }}
-              className={cn("rounded-lg px-3 py-1.5 text-xs font-semibold transition-smooth",
-                mode === m ? "bg-background text-foreground shadow-soft" : "text-muted-foreground hover:text-foreground")}>
-              {m === "otp" ? "OTP Code" : "Email & Password"}
-            </button>
-          ))}
-        </div>
+        {notice && <div role="status" className="mb-4 rounded-xl border border-primary/30 bg-primary/10 px-3 py-2.5 text-xs text-foreground">{notice}</div>}
 
-        {mode === "password" ? (
-          <div className="space-y-3 animate-fade-in">
-            <div className="flex items-center gap-2 text-xs">
-              <button onClick={() => setPwAction("signin")} className={cn("font-semibold", pwAction === "signin" ? "text-primary" : "text-muted-foreground hover:text-foreground")}>Sign in</button>
-              <span className="text-muted-foreground/40">·</span>
-              <button onClick={() => setPwAction("signup")} className={cn("font-semibold", pwAction === "signup" ? "text-primary" : "text-muted-foreground hover:text-foreground")}>Create account</button>
-            </div>
-            <div className="relative">
-              <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <input autoFocus type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com"
-                className="w-full rounded-xl border border-border bg-background/60 py-2.5 pl-10 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" />
-            </div>
-            <div className="relative">
-              <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handlePassword()}
-                placeholder="Password (min 6 chars)"
-                className="w-full rounded-xl border border-border bg-background/60 py-2.5 pl-10 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" />
-            </div>
-            <button onClick={handlePassword} disabled={busy} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-glow transition-smooth hover:brightness-110 disabled:opacity-70">
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-              {busy ? "Please wait…" : pwAction === "signup" ? "Create account" : "Sign in"}
-            </button>
+        {screen === "forgot" ? (
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">Enter your email and we’ll send a secure password reset link.</p>
+            <div className="relative"><Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><input autoFocus type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@company.com" className="w-full rounded-xl border border-border bg-background/60 py-2.5 pl-10 pr-3 text-sm text-foreground focus:border-primary focus:outline-none" /></div>
+            <button onClick={() => void sendResetEmail()} disabled={busy} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-70">{busy && <Loader2 className="h-4 w-4 animate-spin" />}Send reset link</button>
+            <button onClick={() => setScreen("signin")} className="w-full text-xs font-semibold text-muted-foreground hover:text-foreground">Back to sign in</button>
           </div>
-        ) : step === "email" ? (
-          <div className="space-y-4 animate-fade-in">
-            <label className="block text-xs font-medium text-muted-foreground">Email address</label>
-            <div className="relative">
-              <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <input autoFocus type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && sendOtp(false)}
-                placeholder="you@company.com"
-                className="w-full rounded-xl border border-border bg-background/60 py-2.5 pl-10 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" />
-            </div>
-            <button onClick={() => sendOtp(false)} disabled={busy} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-glow transition-smooth hover:brightness-110 disabled:opacity-70">
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-              {busy ? "Sending code…" : "Send 6-digit code"}
-            </button>
+        ) : screen === "reset" ? (
+          <div className="space-y-3">
+            {passwordInput(password, setPassword)}
+            {passwordInput(confirmation, setConfirmation, true)}
+            <p className="text-[11px] text-muted-foreground">Use at least 8 characters, including a letter and a number.</p>
+            <button onClick={() => void updatePassword()} disabled={busy} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-70">{busy && <Loader2 className="h-4 w-4 animate-spin" />}Update password</button>
           </div>
         ) : (
-          <div className="space-y-4 animate-fade-in">
-            <div className="text-sm">
-              <span className="text-muted-foreground">Enter the 6-digit code sent to </span>
-              <span className="font-medium text-foreground">{email}</span>
+          <>
+            <div className="mb-4 grid grid-cols-2 gap-1 rounded-xl border border-border bg-secondary/40 p-1 text-xs">
+              <button onClick={() => { setMode("password"); setOtpStep("email"); }} className={cn("rounded-lg px-3 py-1.5 font-semibold", mode === "password" ? "bg-background text-foreground shadow-soft" : "text-muted-foreground")}>Email & Password</button>
+              <button onClick={() => { setMode("otp"); setScreen("signin"); }} className={cn("rounded-lg px-3 py-1.5 font-semibold", mode === "otp" ? "bg-background text-foreground shadow-soft" : "text-muted-foreground")}>Email Code</button>
             </div>
-            <div className="flex justify-between gap-2">
-              {otp.map((d, i) => (
-                <input key={i} ref={(el) => (inputs.current[i] = el)} value={d}
-                  onChange={(e) => handleOtp(i, e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Backspace" && !otp[i] && i > 0) inputs.current[i - 1]?.focus();
-                    if (e.key === "Enter") verifyOtp();
-                  }}
-                  inputMode="numeric" maxLength={6} pattern="[0-9]*"
-                  className="h-12 w-11 rounded-xl border border-border bg-background/60 text-center font-mono text-lg font-bold text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" />
-              ))}
+            {mode === "password" && <div className="mb-4 flex items-center gap-2 text-xs">
+              <button onClick={() => { setScreen("signin"); setNotice(""); }} className={cn("font-semibold", screen === "signin" ? "text-primary" : "text-muted-foreground")}>Sign in</button>
+              <span className="text-muted-foreground/40">·</span>
+              <button onClick={() => { setScreen("signup"); setNotice(""); }} className={cn("font-semibold", screen === "signup" ? "text-primary" : "text-muted-foreground")}>Create account</button>
+            </div>}
+            {mode === "otp" ? (
+              <div className="space-y-3">
+                {otpStep === "email" ? (
+                  <>
+                    <div className="relative"><Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><input autoFocus type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@company.com" className="w-full rounded-xl border border-border bg-background/60 py-2.5 pl-10 pr-3 text-sm text-foreground focus:border-primary focus:outline-none" /></div>
+                    <button onClick={() => void sendOtp()} disabled={busy} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-70">{busy && <Loader2 className="h-4 w-4 animate-spin" />}Send verification code</button>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-xs text-muted-foreground">Enter the 6-digit code sent to {email.trim()}.</p>
+                    <input autoFocus inputMode="numeric" maxLength={6} value={otp} onChange={(event) => setOtp(event.target.value.replace(/\D/g, "").slice(0, 6))} className="w-full rounded-xl border border-border bg-background/60 px-3 py-3 text-center font-mono text-lg tracking-[0.5em] text-foreground focus:border-primary focus:outline-none" />
+                    <button onClick={() => void verifyOtp()} disabled={busy || otp.length !== 6} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-70">{busy && <Loader2 className="h-4 w-4 animate-spin" />}Verify and continue</button>
+                    <button onClick={() => setOtpStep("email")} className="w-full text-xs text-muted-foreground hover:text-foreground">Use a different email</button>
+                  </>
+                )}
+              </div>
+            ) : <div className="space-y-3">
+              {screen === "signup" && <div className="relative"><UserRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><input autoFocus type="text" value={fullName} onChange={(event) => setFullName(event.target.value)} placeholder="Full name" className="w-full rounded-xl border border-border bg-background/60 py-2.5 pl-10 pr-3 text-sm text-foreground focus:border-primary focus:outline-none" /></div>}
+              <div className="relative"><Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><input autoFocus={screen === "signin"} type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@company.com" className="w-full rounded-xl border border-border bg-background/60 py-2.5 pl-10 pr-3 text-sm text-foreground focus:border-primary focus:outline-none" /></div>
+              {passwordInput(password, setPassword)}
+              {screen === "signup" && passwordInput(confirmation, setConfirmation, true)}
+              <button onClick={() => void (screen === "signup" ? handleSignUp() : handleSignIn())} disabled={busy} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-70">{busy && <Loader2 className="h-4 w-4 animate-spin" />}{screen === "signup" ? "Create account" : "Sign in"}</button>
+              {screen === "signin" && <button onClick={() => { setScreen("forgot"); setNotice(""); }} className="flex w-full items-center justify-center gap-1 text-xs font-semibold text-primary hover:underline"><KeyRound className="h-3.5 w-3.5" />Forgot password?</button>}
+            </div>}
+            <div className="mt-5 border-t border-border/60 pt-4">
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => void signInWithSocialProvider("google")} disabled={busy} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-border bg-secondary/40 px-3 py-2.5 text-xs font-semibold text-foreground hover:bg-secondary disabled:opacity-60"><span aria-hidden="true" className="font-bold text-base">G</span>Continue with Google</button>
+                <button onClick={() => void signInWithSocialProvider("github")} disabled={busy} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-border bg-secondary/40 px-3 py-2.5 text-xs font-semibold text-foreground hover:bg-secondary disabled:opacity-60"><GithubIcon className="h-4 w-4" />Continue with GitHub</button>
+              </div>
+              <p className="mt-2 text-center text-[10px] text-muted-foreground">GitHub login does not connect a repository. Repository access is requested separately.</p>
             </div>
-            <button onClick={() => verifyOtp()} disabled={busy || otp.join("").length !== 6} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-glow transition-smooth hover:brightness-110 disabled:opacity-50">
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-              {busy ? "Verifying…" : "Verify & Continue"}
-            </button>
-            <div className="flex items-center justify-between text-xs">
-              <button onClick={() => setStep("email")} className="text-muted-foreground hover:text-foreground">← Use a different email</button>
-              <button
-                onClick={() => sendOtp(true)}
-                disabled={resendIn > 0 || busy}
-                className={cn("font-semibold transition-smooth",
-                  resendIn > 0 ? "cursor-not-allowed text-muted-foreground/60" : "text-primary hover:underline")}
-              >
-                {resendIn > 0 ? `Resend in ${resendIn}s` : "Resend code"}
-              </button>
-            </div>
-          </div>
+          </>
         )}
-
-        <div className="mt-5 border-t border-border/60 pt-4">
-          <div className="grid grid-cols-2 gap-2">
-          <button onClick={() => void signInWithSocialProvider("github")} disabled={busy}
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-border bg-secondary/40 px-3 py-2.5 text-xs font-semibold text-foreground transition hover:bg-secondary disabled:cursor-wait disabled:opacity-60">
-            <GithubIcon className="h-4 w-4" />
-            GitHub
-          </button>
-          <button onClick={() => void signInWithSocialProvider("google")} disabled={busy}
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-border bg-secondary/40 px-3 py-2.5 text-xs font-semibold text-foreground transition hover:bg-secondary disabled:cursor-wait disabled:opacity-60">
-            <span aria-hidden="true" className="font-bold text-base">G</span>
-            Google
-          </button>
-          </div>
-          <p className="mt-2 text-center text-[10px] text-muted-foreground">Social sign-in requires the provider to be enabled in Supabase Auth.</p>
-        </div>
-
-        <p className="mt-3 text-center text-[11px] text-muted-foreground">By continuing you agree to AppiGen's Terms & Privacy.</p>
       </div>
     </div>
   );

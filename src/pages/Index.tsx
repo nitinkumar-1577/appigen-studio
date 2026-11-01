@@ -7,14 +7,13 @@ import { MyAppsPage } from "@/components/appigen/pages/MyAppsPage";
 import { TemplatesPage } from "@/components/appigen/pages/TemplatesPage";
 import { ApiSettingsPage } from "@/components/appigen/pages/ApiSettingsPage";
 import { PricingPage } from "@/components/appigen/pages/PricingPage";
-import { PlaygroundPage } from "@/components/appigen/pages/PlaygroundPage";
 import { AuthModal } from "@/components/appigen/AuthModal";
 import { PricingModal } from "@/components/appigen/PricingModal";
 import { SettingsPanel } from "@/components/appigen/SettingsPanel";
 import { NotificationsMenu } from "@/components/appigen/NotificationsMenu";
 import { GithubModal } from "@/components/appigen/GithubModal";
 import { useApp } from "@/components/appigen/AppContext";
-import { Sparkles, Pencil, Menu, MessageSquare, Eye } from "lucide-react";
+import { Sparkles, Pencil, Menu, MessageSquare, Eye, Github as GithubIcon } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
@@ -25,8 +24,11 @@ import { validateGeneratedCode } from "@/lib/preview/validateGeneratedCode";
 import { getFunctionErrorMessage } from "@/lib/supabase/functionError";
 import { createRunnableProjectZip } from "@/lib/projects/exportProject";
 import { isNewAppPrompt } from "@/lib/projects/promptIntent";
+import { formatImplementationPlan } from "@/lib/projects/implementationPlan";
 import { clearLocalVersions, discardProjectDraft, readLocalVersionsForProject, readProjectDraft, writeLocalVersion, writeProjectDraft, writeProjectMessages, type ChatMessage, type LocalProjectVersion } from "@/lib/projects/projectStorage";
-import { loadMostRecentProject, loadProject, loadProjectVersions, persistProject } from "@/lib/projects/projectRepository";
+import { loadProject, loadProjectVersions, persistActivity, persistProject } from "@/lib/projects/projectRepository";
+import { readAppPreferences, readGenerationSettings, recordActivity } from "@/lib/appPreferences";
+import { trackAnonymousUsage } from "@/lib/telemetry";
 
 const VIEW_TITLES: Record<ViewKey, string> = {
   studio: "",
@@ -35,7 +37,6 @@ const VIEW_TITLES: Record<ViewKey, string> = {
   templates: "Templates",
   api: "API Settings",
   pricing: "Pricing & Credits",
-  playground: "Playground",
 };
 
 const slugify = (s: string) =>
@@ -43,28 +44,34 @@ const slugify = (s: string) =>
 const BUILD_REQUEST_TIMEOUT_MS = 140_000;
 
 const suggestProjectTitle = (promptText: string) => {
-  if (promptText.trim().length < 12) return "Untitled Project";
-  const title = promptText
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/^(please\s+)?(build|create|make|design|generate|develop)\s+(me\s+)?(a|an|the)?\s*/i, "")
-    .replace(/^(a|an|the)\s+/i, "")
-    .split(/\s+(?:with|including|featuring|that|which|using|and|for)\s+/i)[0]
-    .replace(/[.,!?;:]+$/g, "")
-    .split(" ")
-    .filter(Boolean)
-    .slice(0, 4)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
+  const normalized = promptText.replace(/\s+/g, " ").trim();
+  if (normalized.length < 8) return "Untitled Project";
+
+  const withoutInstruction = normalized
+    .replace(/^(please\s+)?(build|create|make|design|generate|develop|มुझे|बनाओ)\s+(me\s+)?/i, "")
+    .replace(/^(a|an|the|एक|एक\s+ऐसा)\s+/i, "");
+  const core = withoutInstruction
+    .split(/\s+(?:with|including|featuring|that|which|using|for|and|जिसमें|जिसके)\s+/i)[0]
+    .replace(/[.,!?;:]+$/g, "");
+  const ignored = new Set(["app", "application", "website", "web", "project", "page", "screen", "simple", "modern", "beautiful"]);
+  const words = core.split(/\s+/).filter((word) => !ignored.has(word.toLowerCase()));
+  const detectedType = [
+    "ludo game", "game", "dashboard", "tracker", "planner", "manager",
+    "marketplace", "portfolio", "blog", "chat", "ecommerce", "shop",
+    "booking", "calendar", "quiz", "forum", "social network",
+  ].find((type) => normalized.toLowerCase().includes(type));
+  if (detectedType && !core.toLowerCase().includes(detectedType)) words.push(detectedType);
+
+  const title = words
+    .slice(0, 6)
+    .join(" ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+    .trim();
   return title || "Untitled Project";
 };
 
 const Index = () => {
-  const [initialDraft] = useState(() => {
-    const draft = readProjectDraft();
-    if (!draft?.code || !isGenericFallbackCode(draft.code)) return draft;
-    return { ...draft, projectId: null, title: "Untitled Project", prompt: "", code: null, messages: [], versions: [] };
-  });
+  const [initialDraft] = useState<ReturnType<typeof readProjectDraft>>(() => null);
   const [isBuilding, setIsBuilding] = useState(false);
   const [prompt, setPrompt] = useState(initialDraft?.prompt ?? "");
   const [doc, setDoc] = useState<string>(() => buildDocFromPrompt(initialDraft?.prompt ?? "", initialDraft?.code ?? undefined));
@@ -94,6 +101,14 @@ const Index = () => {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [mobileStudioTab, setMobileStudioTab] = useState<"chat" | "preview">(initialDraft?.code ? "preview" : "chat");
   const { user, session, authReady, addNotification } = useApp();
+  const promptActivityTimer = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    if (session?.provider_token && sessionStorage.getItem("appigen.github.connect.pending")) {
+      sessionStorage.removeItem("appigen.github.connect.pending");
+      setGithubOpen(true);
+    }
+  }, [session]);
 
   const chatKey = projectId || "local:current";
   useEffect(() => {
@@ -101,10 +116,36 @@ const Index = () => {
   }, [authReady, chatKey, messages, user]);
   useEffect(() => {
     if (!authReady || user) return;
+    if (!readAppPreferences().autoDraft) {
+      const existingDraft = readProjectDraft();
+      if (existingDraft?.code) writeProjectDraft({ ...existingDraft, prompt: "", updatedAt: Date.now() });
+      else discardProjectDraft();
+      return;
+    }
     if (readProjectDraft()?.ownerId) return;
     writeProjectDraft({ projectId, title: projectTitle, prompt, code: lastCode, messages, versions, updatedAt: Date.now() });
   }, [authReady, user, projectId, projectTitle, prompt, lastCode, messages, versions]);
   const [accountProjectLoading, setAccountProjectLoading] = useState(false);
+  useEffect(() => {
+    if (!authReady || !user || !session?.user.id || accountProjectLoading) return;
+    if (!readAppPreferences().autoDraft) {
+      const existingDraft = readProjectDraft();
+      if (existingDraft?.code) writeProjectDraft({ ...existingDraft, prompt: "", updatedAt: Date.now() });
+      else discardProjectDraft();
+      return;
+    }
+    writeProjectDraft({
+      projectId,
+      ownerId: session.user.id,
+      title: projectTitle,
+      prompt,
+      code: lastCode,
+      messages,
+      versions,
+      updatedAt: Date.now(),
+    });
+  }, [authReady, user, session?.user.id, accountProjectLoading, projectId, projectTitle, prompt, lastCode, messages, versions]);
+
   useEffect(() => {
     if (!authReady) return;
     let cancelled = false;
@@ -131,98 +172,8 @@ const Index = () => {
     setMessages([]);
     setVersions([]);
     setDoc(buildDocFromPrompt(""));
-    setAccountProjectLoading(true);
-    void (async () => {
-      try {
-        const pendingDraft = readProjectDraft();
-        const ownedPendingDraft = pendingDraft?.ownerId === session.user.id && pendingDraft.code
-          ? pendingDraft
-          : null;
-        let pendingDraftSyncFailed = false;
-        if (ownedPendingDraft) {
-          try {
-            await persistProject({
-              projectId: ownedPendingDraft.projectId,
-              userId: session.user.id,
-              title: ownedPendingDraft.title,
-              prompt: ownedPendingDraft.prompt,
-              code: ownedPendingDraft.code,
-              messages: ownedPendingDraft.messages,
-            });
-          } catch (error) {
-            pendingDraftSyncFailed = true;
-            toast({
-              title: "Restored your local recovery copy",
-              description: error instanceof Error ? error.message : "Cloud sync will retry when you save again.",
-              variant: "destructive",
-            });
-          }
-          if (cancelled) return;
-        }
-        const project = await loadMostRecentProject(session.user.id);
-        if (cancelled) return;
-        if (pendingDraftSyncFailed && ownedPendingDraft) {
-          setProjectId(ownedPendingDraft.projectId);
-          setProjectTitle(ownedPendingDraft.title);
-          setTitleManuallyEdited(true);
-          setPrompt(ownedPendingDraft.prompt);
-          setLastCode(ownedPendingDraft.code);
-          setMessages(ownedPendingDraft.messages);
-          setDoc(buildDocFromPrompt(ownedPendingDraft.prompt, ownedPendingDraft.code));
-          setVersions(ownedPendingDraft.versions);
-          setMobileStudioTab("preview");
-          previousUserRef.current = true;
-          return;
-        }
-        if (project) {
-          const projectVersions = await loadProjectVersions(project.id, session.user.id);
-          if (cancelled) return;
-          setProjectId(project.id);
-          setProjectTitle(project.title);
-          setTitleManuallyEdited(true);
-          setPrompt(project.prompt);
-          setLastCode(project.code);
-          setMessages(project.messages.length ? project.messages : [
-            { role: "user", content: project.prompt, timestamp: new Date(project.updated_at).getTime() },
-            { role: "assistant", content: "Your app is ready in Preview.", timestamp: new Date(project.updated_at).getTime() },
-          ]);
-          setDoc(buildDocFromPrompt(project.prompt, project.code));
-          setVersions(projectVersions);
-          setMobileStudioTab("preview");
-          previousUserRef.current = true;
-        } else {
-          const draft = readProjectDraft();
-          if (draft?.code && !draft.projectId && window.confirm("Save your local AppiGen draft to this account?")) {
-            const savedId = await persistProject({
-              projectId: null,
-              userId: session.user.id,
-              title: draft.title,
-              prompt: draft.prompt,
-              code: draft.code,
-              messages: draft.messages,
-            });
-            if (cancelled) return;
-            setProjectId(savedId);
-            setProjectTitle(draft.title);
-            setTitleManuallyEdited(true);
-            setPrompt(draft.prompt);
-            setLastCode(draft.code);
-            setMessages(draft.messages);
-            setVersions(draft.versions);
-            setDoc(buildDocFromPrompt(draft.prompt, draft.code));
-            discardProjectDraft();
-            previousUserRef.current = true;
-            toast({ title: "Draft saved", description: draft.title });
-          } else {
-            previousUserRef.current = true;
-          }
-        }
-      } catch (error) {
-        if (!cancelled) toast({ title: "Couldn't restore your latest project", description: error instanceof Error ? error.message : "Please retry after checking your connection.", variant: "destructive" });
-      } finally {
-        if (!cancelled) setAccountProjectLoading(false);
-      }
-    })();
+    previousUserRef.current = true;
+    setAccountProjectLoading(false);
     return () => { cancelled = true; };
   }, [authReady, session?.user.id, user]);
 
@@ -260,7 +211,7 @@ const Index = () => {
       toast({ title: "🔧 Auto-repairing", description: `Attempt ${repairAttemptsRef.current}/2 — ${String(m.message).slice(0, 80)}` });
       try {
         const { data, error } = await supabase.functions.invoke("Appigen", {
-          body: { mode: "repair", code: lastCode, error: `${m.kind}: ${m.message}\n${m.stack || ""}` },
+          body: { mode: "repair", provider: readGenerationSettings().provider, code: lastCode, error: `${m.kind}: ${m.message}\n${m.stack || ""}` },
         });
         if (error) throw error;
         if (data?.code) {
@@ -296,6 +247,14 @@ const Index = () => {
     }
   };
 
+  const saveActivity = (entry: Parameters<typeof recordActivity>[1]) => {
+    if (!session?.user.id) return;
+    const activity = recordActivity(session.user.id, entry);
+    void persistActivity(session.user.id, activity).catch((error: unknown) => {
+      toast({ title: "Activity was not synced", description: error instanceof Error ? error.message : "Your activity could not be saved to your account.", variant: "destructive" });
+    });
+  };
+
   const handleBuild = async (stage?: string) => {
     const trimmed = prompt.trim();
     if (!trimmed) {
@@ -306,9 +265,12 @@ const Index = () => {
     lastReportedRef.current = "";
     isRepairingRef.current = false;
     const editMode = Boolean(lastCode) && !isNewAppPrompt(trimmed);
+    const generationSettings = readGenerationSettings();
+    const buildStartedAt = Date.now();
     const baseMessages = editMode ? messages : [];
     const submitted: ChatMessage = { role: "user", content: trimmed, timestamp: Date.now() };
     const nextMessages = [...baseMessages, submitted];
+    let buildMessages = nextMessages;
     let versionsAfterBuild = versions;
     setMessages(nextMessages);
     if (!editMode) {
@@ -317,7 +279,7 @@ const Index = () => {
       setTitleManuallyEdited(false);
     }
     setMobileStudioTab("chat");
-    setProgressStage(editMode ? "Generating" : "Planning");
+    setProgressStage("Planning");
     setIsBuilding(true);
     const controller = new AbortController();
     abortRef.current = controller;
@@ -329,10 +291,44 @@ const Index = () => {
     let progressTimer: number | undefined;
     try {
       progressTimer = window.setInterval(() => setProgressStage((current) => ({ Planning: "Generating", Generating: "Reviewing", Reviewing: "Validating", Validating: "Validating" }[current] || "Generating")), 18000);
+      const { data: planData, error: planError } = await supabase.functions.invoke("Appigen", {
+        body: {
+          mode: "plan",
+          provider: generationSettings.provider,
+          prompt: trimmed,
+          stage,
+          model: generationSettings.model,
+          system: generationSettings.systemInstructions,
+          safety: generationSettings.safety,
+          temperature: generationSettings.temperature,
+          topP: generationSettings.topP,
+          existingProject: editMode,
+          ...(editMode ? { code: lastCode } : {}),
+          conversation: baseMessages.slice(-12),
+        },
+        signal: controller.signal,
+      });
+      if (planError) throw planError;
+      const planSummary = formatImplementationPlan(planData?.plan?.implementationPlan);
+      if (!planSummary) throw new Error("The deployed Appigen Edge Function does not support the planning route.");
+      buildMessages = [...nextMessages, { role: "assistant", content: planSummary, timestamp: Date.now() }];
+      setMessages(buildMessages);
+      setProgressStage("Generating");
+
       const { data, error } = await supabase.functions.invoke("Appigen", {
         body: editMode
-          ? { mode: "edit", prompt: trimmed, code: lastCode, conversation: messages.slice(-12) }
-          : { mode: "build", prompt: trimmed, stage },
+          ? {
+              mode: "edit", prompt: trimmed, code: lastCode, conversation: buildMessages.slice(-12),
+              provider: generationSettings.provider,
+              model: generationSettings.model, system: generationSettings.systemInstructions,
+              safety: generationSettings.safety, temperature: generationSettings.temperature, topP: generationSettings.topP,
+            }
+          : {
+              mode: "build", prompt: trimmed, stage, conversation: buildMessages.slice(-12),
+              provider: generationSettings.provider,
+              model: generationSettings.model, system: generationSettings.systemInstructions,
+              safety: generationSettings.safety, temperature: generationSettings.temperature, topP: generationSettings.topP,
+            },
         signal: controller.signal,
       });
       if (error) throw error;
@@ -364,7 +360,7 @@ const Index = () => {
       }
       setLastCode(generatedCode);
       setDoc(buildDocFromPrompt(trimmed, generatedCode));
-      const completedMessages = [...nextMessages, { role: "assistant" as const, content: editMode ? "Project updated. Your previous version is available to restore." : "Your app is ready in Preview.", timestamp: Date.now() }];
+      const completedMessages = [...buildMessages, { role: "assistant" as const, content: editMode ? "Project updated. Your previous version is available to restore." : "Your app is ready in Preview.", timestamp: Date.now() }];
       setMessages(completedMessages);
       setPrompt("");
 
@@ -404,6 +400,14 @@ const Index = () => {
       }
 
       addNotification({ kind: "build", title: "App Built Successfully", description: finalTitle });
+      void trackAnonymousUsage("build_completed").catch((error: unknown) => console.warn("Anonymous usage telemetry could not be recorded:", error));
+      saveActivity({
+        kind: editMode ? "edit" : "build",
+        title: editMode ? "App updated successfully" : "App built successfully",
+        detail: `${finalTitle} · ${data.provider || generationSettings.model}`,
+        durationMs: Date.now() - buildStartedAt,
+        promptCharacters: trimmed.length,
+      });
       toast({
         title: "✨ Build successful",
         description: user ? `Saved: "${finalTitle}"` : `Sign in to save: "${finalTitle}"`,
@@ -422,11 +426,12 @@ const Index = () => {
       console.error("Build failed:", err);
       const errorMessage = await getFunctionErrorMessage(err, "Something went wrong calling the AI.");
       const staleGenerator =
+        errorMessage.includes("does not support the planning route") ||
         errorMessage.includes("generic sample") ||
         (errorMessage.includes("generated project is invalid") &&
           /missing src\/styles\.css|missing a focused screen|missing reusable UI|must import its app-specific|must compose a page|reusable component from src\/components/i.test(errorMessage));
       const msg = staleGenerator
-        ? `The deployed Appigen Edge Function is outdated or returned a generic project. Deploy the latest function before building again. Your current preview was kept unchanged.${errorMessage.includes("generated project is invalid") ? ` Validation: ${errorMessage.replace("The generated project is invalid: ", "")}` : ""}`
+        ? `The deployed Appigen Edge Function is outdated or returned a generic project. Deploy the latest function before building again. Your prompt and current preview were kept unchanged.${errorMessage.includes("generated project is invalid") ? ` Validation: ${errorMessage.replace("The generated project is invalid: ", "")}` : ""}`
         : errorMessage;
       setMessages((current) => [...current, { role: "assistant", content: `Build failed: ${msg}`, timestamp: Date.now() }]);
       toast({ title: staleGenerator ? "Generator update required" : "Build failed", description: msg, variant: "destructive" });
@@ -440,6 +445,16 @@ const Index = () => {
   };
 
   const stopBuild = () => abortRef.current?.abort();
+  const handlePromptChange = (value: string) => {
+    setPrompt(value);
+    if (!titleManuallyEdited) setProjectTitle(suggestProjectTitle(value));
+    if (promptActivityTimer.current !== undefined) window.clearTimeout(promptActivityTimer.current);
+    if (session?.user.id && value.trim()) {
+      promptActivityTimer.current = window.setTimeout(() => {
+        saveActivity({ kind: "prompt", title: "Prompt modified", detail: "Updated a build prompt" });
+      }, 1400);
+    }
+  };
   const newProject = () => {
     if (!window.confirm("Start a new project? Your current chat and code will be cleared.")) return;
     abortRef.current?.abort();
@@ -465,6 +480,7 @@ const Index = () => {
       const { data, error } = await supabase.functions.invoke("Appigen", {
         body: {
           mode: "repair",
+          provider: readGenerationSettings().provider,
           code: lastCode,
           error: "Manual Fix requested. Inspect the full project for actual syntax, import, runtime, responsive-layout, and interaction defects. Preserve the user's requested features and visual design. Fix issues in the correct source files; do not replace working features or collapse the project into one file.",
         },
@@ -560,6 +576,11 @@ const Index = () => {
               )}
             </div>
             <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+              {view === "studio" && lastCode && (
+                <button onClick={() => setGithubOpen(true)} className="flex h-9 items-center gap-1.5 rounded-lg border border-border bg-secondary/40 px-2.5 text-xs font-semibold text-foreground transition hover:border-primary/40 hover:bg-secondary">
+                  <GithubIcon className="h-4 w-4" /><span className="hidden sm:inline">Connect to GitHub</span>
+                </button>
+              )}
               <NotificationsMenu />
               <button
                 onClick={() => setPricingOpen(true)}
@@ -611,10 +632,7 @@ const Index = () => {
                   >
                     <PromptPanel
                       prompt={prompt}
-                      onPromptChange={(value) => {
-                        setPrompt(value);
-                        if (!titleManuallyEdited) setProjectTitle(suggestProjectTitle(value));
-                      }}
+                      onPromptChange={handlePromptChange}
                       onBuild={handleBuild}
                       onDownload={handleDownload}
                       onStop={stopBuild}
@@ -665,10 +683,11 @@ const Index = () => {
                 </div>
               </>
             )}
-            {view === "dashboard" && <DashboardPage onNavigate={setView} />}
+            {view === "dashboard" && <DashboardPage userId={session?.user.id ?? null} onNavigate={setView} onOpenSignIn={() => setAuthOpen(true)} />}
             {view === "apps" && (
               <MyAppsPage
                 onNavigate={setView}
+                onOpenSignIn={() => setAuthOpen(true)}
                 onOpenProject={(p) => {
                   if (!session?.user.id) {
                     toast({ title: "Sign in required", description: "Sign in to open your saved project.", variant: "destructive" });
@@ -699,10 +718,9 @@ const Index = () => {
                 }}
               />
             )}
-            {view === "templates" && <TemplatesPage onNavigate={setView} />}
+            {view === "templates" && <TemplatesPage onNavigate={setView} onUseTemplate={(templatePrompt) => { handlePromptChange(templatePrompt); setView("studio"); }} />}
             {view === "api" && <ApiSettingsPage />}
             {view === "pricing" && <PricingPage />}
-            {view === "playground" && <PlaygroundPage />}
           </main>
         </div>
       </div>
@@ -710,7 +728,7 @@ const Index = () => {
       <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} />
       <PricingModal open={pricingOpen} onClose={() => setPricingOpen(false)} />
       <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      <GithubModal open={githubOpen} onClose={() => setGithubOpen(false)} />
+      <GithubModal open={githubOpen} onClose={() => setGithubOpen(false)} code={lastCode} projectTitle={projectTitle} />
 
       <footer className="flex h-9 shrink-0 items-center justify-between border-t border-border/60 bg-background/60 px-6 text-[11px] text-muted-foreground backdrop-blur-xl">
         <div className="flex items-center gap-3">

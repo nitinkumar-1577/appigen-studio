@@ -22,6 +22,14 @@ const CONTEXT_LIMIT = 8000;
 
 const STAGES = ["Sketch", "Wire up State", "Polish UI"] as const;
 type Stage = typeof STAGES[number];
+const PROMPT_IDEAS = [
+  "A sleek SaaS analytics dashboard with revenue charts and a collapsible sidebar",
+  "A warm, editorial online bookstore with search, genre filters, and a shopping bag",
+  "A focused AI chat workspace with conversation history and streaming message states",
+  "A bold creative portfolio with project case studies and a contact form",
+  "A calm habit tracker with weekly progress, streaks, and encouraging insights",
+  "A modern event booking experience with an interactive calendar and checkout",
+];
 
 type SpeechRecognitionResult = ArrayLike<{ transcript: string }>;
 
@@ -44,6 +52,7 @@ interface SpeechRecognitionWindow extends Window {
 export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuilding, progressStage, messages, hasCode, prompt, onPromptChange }: PromptPanelProps) => {
   const [stage, setStage] = useState<Stage>("Sketch");
   const [recording, setRecording] = useState(false);
+  const [ideaIndex, setIdeaIndex] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const recRef = useRef<SpeechRecognitionLike | null>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
@@ -53,6 +62,11 @@ export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuild
   useEffect(() => {
     if (transcriptRef.current) transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
   }, [messages, isBuilding]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setIdeaIndex((index) => (index + 1) % PROMPT_IDEAS.length), 4200);
+    return () => window.clearInterval(timer);
+  }, []);
 
   // Ctrl/Cmd + I focuses prompt
   useEffect(() => {
@@ -114,11 +128,11 @@ export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuild
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 p-5">
+    <div className="flex h-full min-h-0 flex-col gap-3 p-3 sm:p-4">
       <input ref={fileRef} type="file" hidden onChange={handleFile} accept=".txt,.md,.json,.csv,.html,.css,.js,.ts,.tsx,.jsx" />
 
       {/* Workflow stage */}
-      {!isChatActive && <div className="glass shrink-0 rounded-xl p-3 shadow-soft">
+      {!isChatActive &&       <div className="glass shrink-0 rounded-2xl p-3 shadow-soft">
         <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Choose a workflow stage</div>
         <div className="flex flex-wrap items-center gap-1.5">
           {STAGES.map((s) => (
@@ -133,8 +147,8 @@ export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuild
       </div>}
 
       {isChatActive && (
-        <div className="glass flex min-h-16 flex-1 flex-col overflow-hidden rounded-xl shadow-soft">
-          <div className="flex items-center justify-between border-b border-border/60 px-4 py-2.5">
+        <div className="glass flex min-h-16 flex-1 flex-col overflow-hidden rounded-2xl shadow-soft">
+          <div className="flex items-center justify-between border-b border-border/60 px-3 py-2.5">
             <div className="flex items-center gap-2">
               <Sparkles className="h-3.5 w-3.5 text-primary" />
               <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{hasCode ? "Project chat" : "Build progress"}</span>
@@ -144,13 +158,13 @@ export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuild
               <Button variant="ghost" size="sm" disabled={isBuilding} onClick={onNewProject}>New project</Button>
             </div>
           </div>
-          <div ref={transcriptRef} aria-live="polite" className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 text-sm">
-            {messages.map((message, index) => <article key={`${message.timestamp}-${index}`} className={cn("max-w-[92%] whitespace-pre-wrap break-words rounded-lg px-3 py-2.5", message.role === "user" ? "ml-auto bg-primary/15 text-foreground" : "mr-auto border border-border/60 bg-surface-elevated text-foreground")}>
-              <div className="mb-1 text-[10px] font-semibold uppercase text-muted-foreground">{message.role === "user" ? "You" : "AppiGen"}</div>
+          <div ref={transcriptRef} aria-live="polite" className="min-h-0 flex-1 space-y-2.5 overflow-y-auto p-3 text-sm">
+            {messages.map((message, index) => <article key={`${message.timestamp}-${index}`} className={cn("max-w-[94%] whitespace-pre-wrap break-words rounded-[14px] border px-3 py-2.5 shadow-soft", message.role === "user" ? "ml-auto border-0 bg-gradient-primary text-primary-foreground" : "mr-auto border-border/60 bg-surface-elevated text-foreground")}>
+              <div className={cn("mb-1 text-[10px] font-semibold uppercase tracking-wide", message.role === "user" ? "text-primary-foreground/75" : "text-primary")}>{message.role === "user" ? "You" : "AppiGen"}</div>
               {message.content}
             </article>)}
             {isBuilding && (
-              <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 animate-fade-in" role="status">
+              <div className="rounded-xl border border-primary/40 bg-primary/5 p-3 shadow-glow animate-fade-in" role="status">
                 <div className="flex items-center gap-2 text-xs font-medium text-primary">
                   <span className="h-1.5 w-1.5 animate-blink rounded-full bg-primary" />
                   {progressStage}…
@@ -171,7 +185,19 @@ export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuild
 
       {/* User Prompt */}
       {!isChatActive && <div className="flex-1" aria-hidden="true" />}
-      <div className="glass-strong shrink-0 rounded-2xl border border-border/70 p-3 shadow-elevated">
+      <div className="glass-strong shrink-0 rounded-2xl border border-primary/30 p-3 shadow-elevated">
+        <div className="mb-2 flex items-center gap-1.5 overflow-x-auto px-1" aria-label="Prompt ideas">
+            <span className="mr-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Try</span>
+            {[0, 1, 2].map((offset) => {
+              const idea = PROMPT_IDEAS[(ideaIndex + offset) % PROMPT_IDEAS.length];
+              const shortIdea = idea.split(" with ")[0].replace(/^A (?:sleek|warm, editorial|focused|bold|calm|modern) /i, "");
+              return (
+                <button key={idea} type="button" onClick={() => onPromptChange(idea)} className="max-w-[46%] truncate rounded-full border border-border/70 bg-secondary/40 px-2.5 py-1 text-[10px] text-muted-foreground transition hover:border-primary/50 hover:text-primary">
+                  {shortIdea}
+                </button>
+              );
+            })}
+        </div>
         <textarea
           ref={promptRef}
           id="app-prompt"
@@ -189,8 +215,8 @@ export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuild
           maxLength={CONTEXT_LIMIT}
           disabled={isBuilding}
           aria-label={hasCode ? "Describe an edit to this project" : "Describe the app to build"}
-          placeholder="Ask anything or describe a change..."
-          className="max-h-40 min-h-[76px] w-full resize-y bg-transparent px-2 py-1.5 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-60"
+          placeholder={hasCode ? "Describe a change to your app…" : PROMPT_IDEAS[ideaIndex]}
+          className="max-h-40 min-h-[82px] w-full resize-none rounded-2xl border border-primary/40 bg-background/30 px-3 py-2.5 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground shadow-[0_0_24px_hsl(var(--primary)/0.12)] focus:border-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-wait disabled:opacity-60"
         />
 
         <div className="mt-2 flex items-center justify-between border-t border-border/50 pt-2">
