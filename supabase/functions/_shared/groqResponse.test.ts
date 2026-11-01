@@ -1,29 +1,45 @@
-import { describe, expect, it } from "vitest";
+import { assert, assertThrows } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { extractGroqCode } from "./groqResponse.ts";
 
-describe("Groq code response parsing", () => {
-  it("extracts plain text source from a chat completion", () => {
-    expect(extractGroqCode({
-      choices: [{ message: { content: "  export default function App() {}  " } }],
-    }, "openai/gpt-oss-20b")).toBe("export default function App() {}");
-  });
+Deno.test("extractGroqCode extracts plain text source from a chat completion", () => {
+  const code = extractGroqCode(
+    { choices: [{ message: { content: "  export default function App() {}  " } }] },
+    "openai/gpt-oss-20b",
+  );
+  assert(code === "export default function App() {}", code);
+});
 
-  it("joins text content parts", () => {
-    expect(extractGroqCode({
-      choices: [{ message: { content: [{ type: "text", text: "export default " }, { type: "text", text: "function App() {}" }] } }],
-    }, "openai/gpt-oss-20b")).toBe("export default function App() {}");
-  });
+Deno.test("extractGroqCode joins text content parts", () => {
+  const code = extractGroqCode(
+    {
+      choices: [{
+        message: {
+          content: [{ type: "text", text: "export default " }, { type: "text", text: "function App() {}" }],
+        },
+      }],
+    },
+    "openai/gpt-oss-20b",
+  );
+  assert(code === "export default function App() {}", code);
+});
 
-  it("reports token-limit truncation distinctly", () => {
-    expect(() => extractGroqCode({
-      choices: [{ finish_reason: "length", message: { content: "partial source" } }],
-    }, "openai/gpt-oss-20b")).toThrow("complete code");
-  });
+Deno.test("extractGroqCode reports token-limit truncation distinctly", () => {
+  assertThrows(
+    () =>
+      extractGroqCode(
+        { choices: [{ finish_reason: "length", message: { content: "partial source" } }] },
+        "openai/gpt-oss-20b",
+      ),
+    Error,
+    "complete code",
+  );
+});
 
-  it("rejects empty and missing completions instead of treating them as code", () => {
-    expect(() => extractGroqCode({ choices: [{ message: { content: "" } }] }, "openai/gpt-oss-20b"))
-      .toThrow("returned no assistant text");
-    expect(() => extractGroqCode({ choices: [] }, "openai/gpt-oss-20b"))
-      .toThrow("returned no completion choices");
-  });
+Deno.test("extractGroqCode rejects empty and missing completions", () => {
+  assertThrows(
+    () => extractGroqCode({ choices: [{ message: { content: "" } }] }, "openai/gpt-oss-20b"),
+    Error,
+    "returned no assistant text",
+  );
+  assertThrows(() => extractGroqCode({ choices: [] }, "openai/gpt-oss-20b"), Error, "returned no completion choices");
 });
