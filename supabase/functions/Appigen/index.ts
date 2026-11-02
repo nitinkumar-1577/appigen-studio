@@ -246,13 +246,13 @@ async function completeChat(
 ): Promise<any> {
   const config = getProviderConfig(provider);
   const model = typeof body.model === "string" ? body.model : getDefaultModel(provider);
+  const isGemini = config.protocol === "gemini";
   let lastErr: ProviderRequestError | undefined;
   for (let attempt = 0; attempt <= retries; attempt++) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     let res: Response;
     try {
-      const isGemini = config.protocol === "gemini";
       const url = isGemini
         ? `${config.baseUrl}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`
         : `${config.baseUrl}/chat/completions`;
