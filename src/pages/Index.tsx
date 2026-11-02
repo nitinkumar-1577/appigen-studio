@@ -43,6 +43,11 @@ const slugify = (s: string) =>
   s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "untitled";
 const BUILD_REQUEST_TIMEOUT_MS = 140_000;
 
+export const getValidationSummary = (reviewSkipped: boolean, fileCount: number) =>
+  reviewSkipped
+    ? `AI review was skipped to save tokens, but local project validation passed for ${fileCount} source file${fileCount === 1 ? "" : "s"}, its app structure, and local imports.`
+    : `Review complete: the project was checked against the prompt and plan. Validation passed for ${fileCount} source file${fileCount === 1 ? "" : "s"}, its app structure, and local imports.`;
+
 const suggestProjectTitle = (promptText: string) => {
   const normalized = promptText.replace(/\s+/g, " ").trim();
   if (normalized.length < 8) return "Untitled Project";
@@ -387,7 +392,7 @@ const Index = () => {
       setLastCode(generatedCode);
       setDoc(buildDocFromPrompt(trimmed, generatedCode));
       const fileCount = [...generatedCode.matchAll(/^\s*\/\/\s*FILE:/gm)].length || 1;
-      const validationSummary = `Review complete: the project was checked against the prompt and plan. Validation passed for ${fileCount} source file${fileCount === 1 ? "" : "s"}, its app structure, and local imports.`;
+      const validationSummary = getValidationSummary(Boolean(reviewData?.reviewSkipped), fileCount);
       const completedMessages = [...buildMessages, { role: "assistant" as const, content: editMode ? `Project updated. ${validationSummary} Your previous version is available to restore.` : `Your app is ready in Preview. ${validationSummary}`, timestamp: Date.now() }];
       setMessages(completedMessages);
       setPrompt("");

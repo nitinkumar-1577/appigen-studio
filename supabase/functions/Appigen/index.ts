@@ -316,7 +316,7 @@ async function completeChat(
     lastErr = new ProviderRequestError(
       provider,
       res.status,
-      providerErrorCode(res.status),
+      providerErrorCode(res.status, metadata),
       metadata,
     );
     if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
@@ -360,15 +360,25 @@ class ProviderRequestError extends Error {
   }
 }
 
-function providerErrorCode(status: number): ProviderErrorCode {
+export function providerErrorCode(status: number, metadata = ""): ProviderErrorCode {
   if (status === 401) return "INVALID_CREDENTIALS";
   if (status === 403) return "PERMISSION_DENIED";
   if (status === 402) return "QUOTA_EXCEEDED";
   if (status === 429) return "RATE_LIMITED";
+  if (status === 413 && metadata.includes("provider_code=rate_limit_exceeded") && metadata.includes("provider_type=tokens")) {
+    return "RATE_LIMITED";
+  }
   if (status === 404) return "MODEL_UNAVAILABLE";
   if (status >= 500) return "PROVIDER_ERROR";
   return "REQUEST_REJECTED";
 }
+
+export const incrementalReviewResponse = (code: string) => ({
+  code,
+  mode: "review" as const,
+  reviewSkipped: true,
+  reviewReason: "incremental_edit_token_saving" as const,
+});
 
 function providerErrorMetadata(text: string): string {
   try {
@@ -1180,6 +1190,10 @@ Deno.serve(async (req) => {
       if (prompt.length > 8000) return jsonResponse({ error: "Prompt too long (max 8000 chars)" }, 400);
       const safetyViolation = getSafetyViolation(prompt, parseSafetyThresholds(body.safety));
       if (safetyViolation) return jsonResponse({ error: `This request was blocked by AppiGen's safety filters (${safetyViolation}). Revise the prompt to continue.` }, 400);
+      if (body.existingProject === true) {
+        return jsonResponse(incrementalReviewResponse(code));
+      }
+
       let reviewedCode = "";
       const reviewFailures: string[] = [];
       const requireArchitecture = body.existingProject !== true;
