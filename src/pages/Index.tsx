@@ -48,12 +48,8 @@ export const getValidationSummary = (reviewSkipped: boolean, fileCount: number) 
     ? `AI review was skipped to save tokens, but local project validation passed for ${fileCount} source file${fileCount === 1 ? "" : "s"}, its app structure, and local imports.`
     : `Review complete: the project was checked against the prompt and plan. Validation passed for ${fileCount} source file${fileCount === 1 ? "" : "s"}, its app structure, and local imports.`;
 
-export const removeLatestMatchingUserMessage = (messages: ChatMessage[], promptText: string) => {
-  const messageIndex = [...messages].map((message, index) => ({ message, index }))
-    .reverse()
-    .find(({ message }) => message.role === "user" && message.content === promptText)?.index;
-  return messageIndex === undefined ? messages : messages.filter((_, index) => index !== messageIndex);
-};
+export const removeMatchingUserMessages = (messages: ChatMessage[], promptText: string) =>
+  messages.filter((message) => message.role !== "user" || message.content !== promptText);
 
 const suggestProjectTitle = (promptText: string) => {
   const normalized = promptText.replace(/\s+/g, " ").trim();
@@ -513,7 +509,7 @@ const Index = () => {
   const deleteVersion = async (version: LocalProjectVersion) => {
     if (!window.confirm("Delete this version and remove its prompt from the chat?")) return;
     const nextVersions = versions.filter((current) => current.id !== version.id);
-    const nextMessages = removeLatestMatchingUserMessage(messages, version.prompt);
+    const nextMessages = removeMatchingUserMessages(messages, version.prompt);
     setVersions(nextVersions);
     setMessages(nextMessages);
     deleteLocalVersion(chatKey, version.id);
