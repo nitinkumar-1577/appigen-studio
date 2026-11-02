@@ -28,6 +28,7 @@ interface PreviewPanelProps {
   versions: LocalProjectVersion[];
   onRestoreVersion: (version: LocalProjectVersion) => void;
   onDeleteVersion: (version: LocalProjectVersion) => void;
+  onClearVersions: () => void;
   onManualFix: () => void;
   fixing: boolean;
 }
@@ -107,7 +108,7 @@ const FileTreeItem = ({
   );
 };
 
-export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChange, versions, onRestoreVersion, onDeleteVersion, onManualFix, fixing }: PreviewPanelProps) => {
+export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChange, versions, onRestoreVersion, onDeleteVersion, onClearVersions, onManualFix, fixing }: PreviewPanelProps) => {
   const [tab, setTab] = useState<Tab>("preview");
   const [versionMenuOpen, setVersionMenuOpen] = useState(false);
   const [nonce, setNonce] = useState(0);
@@ -228,10 +229,13 @@ export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChan
                 Save
               </button>
             )}
-            {versions.length > 0 && <div className="relative">
+            <div className="relative">
               <Button variant="secondary" size="sm" onClick={() => setVersionMenuOpen((open) => !open)} aria-expanded={versionMenuOpen}>Versions ({versions.length})</Button>
               {versionMenuOpen && <div className="absolute right-0 top-11 z-20 max-h-72 w-[min(20rem,calc(100vw-2rem))] overflow-auto rounded-lg border border-border bg-surface-elevated p-1 shadow-elevated">
-                {versions.map((version) => (
+                <button type="button" onClick={onClearVersions} className="mb-1 w-full rounded-md px-2 py-1 text-left text-[10px] font-semibold uppercase tracking-wider text-destructive hover:bg-destructive/10">Clear all versions</button>
+                {versions.length === 0 ? (
+                  <div className="px-2 py-3 text-xs text-muted-foreground">No saved versions</div>
+                ) : versions.map((version) => (
                   <div key={version.id} className="flex min-h-10 items-center gap-2 rounded-md px-2 py-1 hover:bg-secondary">
                     <button onClick={() => onRestoreVersion(version)} className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-md px-1 py-1 text-left text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                       <span className="truncate">{version.prompt}</span><time className="shrink-0 text-muted-foreground">{new Date(version.createdAt).toLocaleString()}</time>
@@ -247,7 +251,7 @@ export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChan
                   </div>
                 ))}
               </div>}
-            </div>}
+            </div>
             {tab === "preview" && code && <Button variant="secondary" size="sm" onClick={onManualFix} loading={fixing}>Fix with AI</Button>}
             <button
               onClick={handleRefresh}

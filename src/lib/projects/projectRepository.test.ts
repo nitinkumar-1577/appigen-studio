@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { deleteProject, loadMostRecentProject, loadProjects, loadProject, persistProject } from "./projectRepository";
+import { clearProjectVersions, deleteProject, loadMostRecentProject, loadProjects, loadProject, persistProject } from "./projectRepository";
 
 const mocks = vi.hoisted(() => ({
   from: vi.fn(),
@@ -34,6 +34,7 @@ const createQuery = (result: { data?: unknown; error: unknown }) => {
     upsert: vi.fn(),
     insert: vi.fn(),
     update: vi.fn(),
+    delete: vi.fn(),
     is: vi.fn(),
     then: (resolve: (value: typeof result) => unknown) => Promise.resolve(result).then(resolve),
   };
@@ -44,6 +45,7 @@ const createQuery = (result: { data?: unknown; error: unknown }) => {
   query.upsert.mockReturnValue(query);
   query.insert.mockReturnValue(query);
   query.update.mockReturnValue(query);
+  query.delete.mockReturnValue(query);
   query.is.mockReturnValue(query);
   query.single.mockResolvedValue(result);
   query.maybeSingle.mockResolvedValue(result);
@@ -134,5 +136,35 @@ describe("project repository account ownership", () => {
     expect(query.eq).toHaveBeenCalledWith("id", "project-a");
     expect(query.eq).toHaveBeenCalledWith("user_id", "user-a");
     expect(query.is).toHaveBeenCalledWith("deleted_at", null);
+  });
+
+  it("clears every version for the active project owner", async () => {
+    const query = createQuery({ data: null, error: null });
+    mocks.from.mockReturnValue(query);
+
+    await clearProjectVersions("project-a", "user-a");
+
+    expect(query.eq).toHaveBeenCalledWith("project_id", "project-a");
+    expect(query.eq).toHaveBeenCalledWith("user_id", "user-a");
+  });
+
+  it("treats a concurrent identical save as already successful", async () => {
+    const staleQuery = createQuery({ data: null, error: null });
+    const latestQuery = createQuery({
+      data: { id: "project-a", title: "New app", prompt: "Build an app", code: "same", messages: [], deleted_at: null },
+      error: null,
+    });
+    mocks.from.mockReturnValueOnce(staleQuery).mockReturnValueOnce(latestQuery);
+
+    await expect(persistProject({
+      projectId: "project-a",
+      userId: "user-a",
+      title: "New app",
+      prompt: "Build an app",
+      code: "same",
+      messages: [],
+      expectedUpdatedAt: "stale-revision",
+    })).resolves.toBe("project-a");
+    expect(latestQuery.maybeSingle).toHaveBeenCalled();
   });
 });

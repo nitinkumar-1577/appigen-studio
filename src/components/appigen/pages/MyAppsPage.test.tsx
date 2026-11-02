@@ -61,4 +61,15 @@ describe("MyAppsPage account visibility", () => {
     expect(mocks.loadProjects).toHaveBeenLastCalledWith("user-b");
     expect(screen.queryByText("User A app")).not.toBeInTheDocument();
   });
+
+  it("shows the original empty state for a signed-in account with no projects", async () => {
+    mocks.loadProjects.mockResolvedValue([]);
+
+    render(<MyAppsPage onNavigate={vi.fn()} onOpenSignIn={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText("No projects yet")).toBeInTheDocument());
+    expect(screen.getByText("Build")).toBeInTheDocument();
+    expect(screen.getByText(/in the studio to generate your first app/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start a project" })).toBeInTheDocument();
+  });
 });

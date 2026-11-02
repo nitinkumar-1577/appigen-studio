@@ -21,6 +21,7 @@ describe("PreviewPanel", () => {
         versions={[{ id: "version-1", code: "", prompt: "Build another app", createdAt: 0 }]}
         onRestoreVersion={vi.fn()}
         onDeleteVersion={onDeleteVersion}
+        onClearVersions={vi.fn()}
         onManualFix={vi.fn()}
         fixing={false}
       />,
@@ -59,6 +60,7 @@ export default function MainView() { return <main>Ready</main>; }
         versions={[]}
         onRestoreVersion={vi.fn()}
         onDeleteVersion={vi.fn()}
+        onClearVersions={vi.fn()}
         onManualFix={vi.fn()}
         fixing={false}
       />,
@@ -93,6 +95,7 @@ main { color: red; }`;
         versions={[]}
         onRestoreVersion={vi.fn()}
         onDeleteVersion={vi.fn()}
+        onClearVersions={vi.fn()}
         onManualFix={vi.fn()}
         fixing={false}
       />,
@@ -123,6 +126,7 @@ main { color: red; }`;
         versions={[]}
         onRestoreVersion={vi.fn()}
         onDeleteVersion={vi.fn()}
+        onClearVersions={vi.fn()}
         onManualFix={vi.fn()}
         fixing={false}
       />,
@@ -141,6 +145,7 @@ main { color: red; }`;
         versions={[]}
         onRestoreVersion={vi.fn()}
         onDeleteVersion={vi.fn()}
+        onClearVersions={vi.fn()}
         onManualFix={vi.fn()}
         fixing={false}
       />,
@@ -160,6 +165,7 @@ main { color: red; }`;
         versions={[]}
         onRestoreVersion={vi.fn()}
         onDeleteVersion={vi.fn()}
+        onClearVersions={vi.fn()}
         onManualFix={vi.fn()}
         fixing={false}
       />,

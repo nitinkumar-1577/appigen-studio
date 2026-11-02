@@ -118,7 +118,30 @@ export const persistProject = async (input: {
       if (input.expectedUpdatedAt) existingQuery = existingQuery.eq("updated_at", input.expectedUpdatedAt);
       const result = await existingQuery.maybeSingle();
       if (result.error) throw result.error;
-      if (!result.data) throw new Error("This project changed or was deleted in another session. Refresh before saving.");
+      if (!result.data) {
+        const latest = await supabase.from("projects")
+          .select("id, title, prompt, code, messages, deleted_at")
+          .eq("id", targetId)
+          .eq("user_id", input.userId)
+          .is("deleted_at", null)
+          .maybeSingle();
+        if (latest.error) throw latest.error;
+        const latestData = latest.data as {
+          id: string;
+          title: string;
+          prompt: string;
+          code: string;
+          messages: Json;
+          deleted_at: string | null;
+        } | null;
+        const sameContent = latestData &&
+          latestData.title === values.title &&
+          latestData.prompt === values.prompt &&
+          latestData.code === values.code &&
+          JSON.stringify(latestData.messages) === JSON.stringify(values.messages);
+        if (sameContent) return targetId;
+        throw new Error("This project changed or was deleted in another session. Refresh before saving.");
+      }
       const updated = await supabase.from("projects")
         .update(values)
         .eq("id", targetId)
@@ -223,6 +246,15 @@ export const deleteProjectVersion = async (versionId: string, userId: string) =>
   if (error) throw error;
 };
 
+export const clearProjectVersions = async (projectId: string, userId: string) => {
+  const { error } = await supabase
+    .from("project_versions")
+    .delete()
+    .eq("project_id", projectId)
+    .eq("user_id", userId);
+  if (error) throw error;
+};
+
 export const deleteProject = async (projectId: string, userId: string) => {
   const { error } = await supabase
     .from("projects")
@@ -242,10 +274,12 @@ export type ProjectSyncEvent = {
   onDisconnected?: () => void;
 };
 
+let projectSyncChannelCounter = 0;
+
 export const subscribeToProjectSync = (userId: string, events: ProjectSyncEvent) => {
   let disconnected = false;
-  const channel = supabase
-    .channel(`project-sync-${userId}`)
+  const channel = supabase.channel(`project-sync-${userId}-${++projectSyncChannelCounter}`);
+  channel
     .on("postgres_changes", { event: "INSERT", schema: "public", table: "projects", filter: `user_id=eq.${userId}` }, () => void events.refreshProjects())
     .on("postgres_changes", { event: "UPDATE", schema: "public", table: "projects", filter: `user_id=eq.${userId}` }, (payload) => {
       const projectId = typeof payload.new?.id === "string" ? payload.new.id : typeof payload.old?.id === "string" ? payload.old.id : "";
@@ -255,8 +289,8 @@ export const subscribeToProjectSync = (userId: string, events: ProjectSyncEvent)
     .on("postgres_changes", { event: "INSERT", schema: "public", table: "project_versions", filter: `user_id=eq.${userId}` }, (payload) => {
       const projectId = typeof payload.new?.project_id === "string" ? payload.new.project_id : "";
       if (projectId) void events.refreshVersions(projectId);
-    })
-    .subscribe((status) => {
+    });
+  channel.subscribe((status) => {
       disconnected = status !== "SUBSCRIBED";
       if (disconnected) events.onDisconnected?.();
       else void events.refreshProjects();

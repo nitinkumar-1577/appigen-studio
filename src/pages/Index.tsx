@@ -26,7 +26,7 @@ import { createRunnableProjectZip } from "@/lib/projects/exportProject";
 import { isNewAppPrompt } from "@/lib/projects/promptIntent";
 import { formatImplementationPlan } from "@/lib/projects/implementationPlan";
 import { clearLocalVersions, deleteLocalVersion, discardProjectDraft, readLocalVersionsForProject, readProjectDraft, writeLocalVersion, writeProjectDraft, writeProjectMessages, type ChatMessage, type LocalProjectVersion } from "@/lib/projects/projectStorage";
-import { deleteProject, deleteProjectVersion, loadMostRecentProject, loadProject, loadProjectVersions, persistActivity, persistProject, subscribeToProjectSync } from "@/lib/projects/projectRepository";
+import { clearProjectVersions, deleteProject, deleteProjectVersion, loadMostRecentProject, loadProject, loadProjectVersions, persistActivity, persistProject, subscribeToProjectSync } from "@/lib/projects/projectRepository";
 import { readAppPreferences, readGenerationSettings, recordActivity } from "@/lib/appPreferences";
 import { trackAnonymousUsage } from "@/lib/telemetry";
 
@@ -105,7 +105,17 @@ const Index = () => {
   const [projectId, setProjectId] = useState<string | null>(initialDraft?.projectId ?? null);
   const [projectUpdatedAt, setProjectUpdatedAt] = useState<string | null>(null);
   const [lastSyncedCode, setLastSyncedCode] = useState<string | null>(null);
+  const lastSyncedPromptRef = useRef<string | null>(null);
+  const lastSyncedTitleRef = useRef<string | null>(null);
+  const lastSyncedMessagesRef = useRef<string | null>(null);
+  const promptDirtyRef = useRef(false);
   const [messages, setMessages] = useState<ChatMessage[]>(() => initialDraft?.code ? initialDraft.messages ?? [] : []);
+  const currentPromptRef = useRef(prompt);
+  const currentTitleRef = useRef(projectTitle);
+  const currentMessagesRef = useRef(messages);
+  currentPromptRef.current = prompt;
+  currentTitleRef.current = projectTitle;
+  currentMessagesRef.current = messages;
   const [versions, setVersions] = useState<LocalProjectVersion[]>(() => {
     if (!initialDraft?.code) return initialDraft?.versions ?? [];
     const storedVersions = readLocalVersionsForProject(initialDraft.projectId ?? "local:current");
@@ -187,9 +197,25 @@ const Index = () => {
       if (cancelled || !project) return;
       const projectVersions = await loadProjectVersions(project.id, session.user.id);
       if (cancelled) return;
+      if (projectVersions.length === 0) {
+        await deleteProject(project.id, session.user.id);
+        setProjectId(null);
+        setProjectTitle("Untitled Project");
+        setTitleManuallyEdited(false);
+        setPrompt("");
+        setLastCode(null);
+        setMessages([]);
+        setVersions([]);
+        setDoc(buildDocFromPrompt(""));
+        return;
+      }
       setProjectId(project.id);
       setProjectUpdatedAt(project.updated_at);
       setLastSyncedCode(project.code);
+      promptDirtyRef.current = false;
+      lastSyncedPromptRef.current = project.prompt;
+      lastSyncedTitleRef.current = project.title;
+      lastSyncedMessagesRef.current = JSON.stringify(project.messages);
       setProjectTitle(project.title);
       setTitleManuallyEdited(true);
       setPrompt(project.prompt);
@@ -213,11 +239,24 @@ const Index = () => {
     if (!authReady || !session?.user.id) return;
     const refreshActiveProject = async (changedProjectId?: string) => {
       if (!projectId || (changedProjectId && changedProjectId !== projectId)) return;
+      if (document.activeElement?.id === "app-prompt") return;
       try {
         const remote = await loadProject(projectId, session.user.id);
         const remoteChanged = remote.code !== lastSyncedCode;
         const localAlsoChanged = lastCode !== lastSyncedCode;
-        if (remoteChanged && localAlsoChanged && remote.code !== lastCode) {
+        const remotePromptChanged = remote.prompt !== lastSyncedPromptRef.current;
+        const localPromptChanged = currentPromptRef.current !== lastSyncedPromptRef.current;
+        const remoteTitleChanged = remote.title !== lastSyncedTitleRef.current;
+        const localTitleChanged = currentTitleRef.current !== lastSyncedTitleRef.current;
+        const remoteMessagesChanged = JSON.stringify(remote.messages) !== lastSyncedMessagesRef.current;
+        const localMessagesChanged = JSON.stringify(currentMessagesRef.current) !== lastSyncedMessagesRef.current;
+        if (promptDirtyRef.current && remote.prompt !== currentPromptRef.current) return;
+        if (
+          (remoteChanged && localAlsoChanged && remote.code !== lastCode) ||
+          (remotePromptChanged && localPromptChanged && remote.prompt !== currentPromptRef.current) ||
+          (remoteTitleChanged && localTitleChanged && remote.title !== currentTitleRef.current) ||
+          (remoteMessagesChanged && localMessagesChanged && JSON.stringify(remote.messages) !== JSON.stringify(currentMessagesRef.current))
+        ) {
           toast({ title: "Project updated elsewhere", description: "Another session saved changes. Your local unsaved work was kept; reload the project to compare.", variant: "destructive" });
           return;
         }
@@ -226,6 +265,9 @@ const Index = () => {
         setLastCode(remote.code);
         setLastSyncedCode(remote.code);
         setProjectUpdatedAt(remote.updated_at);
+        lastSyncedPromptRef.current = remote.prompt;
+        lastSyncedTitleRef.current = remote.title;
+        lastSyncedMessagesRef.current = JSON.stringify(remote.messages);
         setMessages(remote.messages);
         setDoc(buildDocFromPrompt(remote.prompt, remote.code));
         const remoteVersions = await loadProjectVersions(remote.id, session.user.id);
@@ -267,13 +309,17 @@ const Index = () => {
   }, [authReady, session?.user.id, projectId, lastCode, lastSyncedCode]);
 
   useEffect(() => {
-    if (!authReady || !user || !session?.user.id || !projectId || !lastCode || !messages.length) return;
+    if (!authReady || !user || !session?.user.id || !projectId || lastCode === null) return;
     const timeout = window.setTimeout(() => {
       void persistProject({ projectId, userId: session.user.id, title: projectTitle, prompt, code: lastCode, messages, expectedUpdatedAt: projectUpdatedAt ?? undefined })
         .then(async (savedId) => {
           const authoritative = await loadProject(savedId, session.user.id);
           setProjectUpdatedAt(authoritative.updated_at);
           setLastSyncedCode(authoritative.code);
+          lastSyncedPromptRef.current = authoritative.prompt;
+          lastSyncedTitleRef.current = authoritative.title;
+          lastSyncedMessagesRef.current = JSON.stringify(authoritative.messages);
+          promptDirtyRef.current = false;
         })
         .catch((error: unknown) => toast({ title: "Project auto-save failed", description: error instanceof Error ? error.message : "Your latest changes could not be saved.", variant: "destructive" }));
     }, 650);
@@ -567,6 +613,7 @@ const Index = () => {
 
   const stopBuild = () => abortRef.current?.abort();
   const handlePromptChange = (value: string) => {
+    promptDirtyRef.current = true;
     setPrompt(value);
     if (!titleManuallyEdited) setProjectTitle(suggestProjectTitle(value));
     if (promptActivityTimer.current !== undefined) window.clearTimeout(promptActivityTimer.current);
@@ -611,6 +658,9 @@ const Index = () => {
           const authoritative = await loadProject(savedId, session.user.id);
           setProjectUpdatedAt(authoritative.updated_at);
           setLastSyncedCode(authoritative.code);
+          lastSyncedPromptRef.current = authoritative.prompt;
+          lastSyncedTitleRef.current = authoritative.title;
+          lastSyncedMessagesRef.current = JSON.stringify(authoritative.messages);
         })
         .catch((error: unknown) => toast({ title: "Version restored, save failed", description: error instanceof Error ? error.message : "Could not save the restored version.", variant: "destructive" }));
     }
@@ -634,6 +684,9 @@ const Index = () => {
           const authoritative = await loadProject(projectId, session.user.id);
           setProjectUpdatedAt(authoritative.updated_at);
           setLastSyncedCode(authoritative.code);
+          lastSyncedPromptRef.current = authoritative.prompt;
+          lastSyncedTitleRef.current = authoritative.title;
+          lastSyncedMessagesRef.current = JSON.stringify(authoritative.messages);
         }
       }
       if (nextVersions.length === 0) {
@@ -654,6 +707,37 @@ const Index = () => {
       setVersions(versions);
       setMessages(messages);
       toast({ title: "Version delete failed", description: error instanceof Error ? error.message : "Could not delete this version.", variant: "destructive" });
+    }
+  };
+
+  const clearVersions = async () => {
+    if (!versions.length || !window.confirm("Clear all saved versions and start a blank Untitled Project?")) return;
+    const previousVersions = versions;
+    setVersions([]);
+    setVersionMenuOpen(false);
+    try {
+      if (user && projectId && session?.user.id) {
+        await clearProjectVersions(projectId, session.user.id);
+        await deleteProject(projectId, session.user.id);
+      }
+      clearLocalVersions(chatKey);
+      setProjectId(null);
+      setProjectTitle("Untitled Project");
+      setTitleManuallyEdited(false);
+      setPrompt("");
+      setLastCode(null);
+      setLastSyncedCode(null);
+      setProjectUpdatedAt(null);
+      setMessages([]);
+      setVersions([]);
+      setDoc(buildDocFromPrompt(""));
+      setMobileStudioTab("chat");
+      promptDirtyRef.current = false;
+      discardProjectDraft();
+      toast({ title: "Versions cleared", description: "All versions were removed and the workspace was reset to Untitled Project." });
+    } catch (error) {
+      setVersions(previousVersions);
+      toast({ title: "Could not clear versions", description: error instanceof Error ? error.message : "Version history could not be cleared. Your project was kept.", variant: "destructive" });
     }
   };
 
@@ -689,6 +773,9 @@ const Index = () => {
           const authoritative = await loadProject(projectId, session.user.id);
           setProjectUpdatedAt(authoritative.updated_at);
           setLastSyncedCode(authoritative.code);
+          lastSyncedPromptRef.current = authoritative.prompt;
+          lastSyncedTitleRef.current = authoritative.title;
+          lastSyncedMessagesRef.current = JSON.stringify(authoritative.messages);
         } catch (saveError) {
           toast({ title: "Fix applied, cloud save failed", description: saveError instanceof Error ? saveError.message : "Could not save the repaired project.", variant: "destructive" });
           return;
@@ -843,6 +930,7 @@ const Index = () => {
                       versions={versions}
                       onRestoreVersion={restoreVersion}
                       onDeleteVersion={deleteVersion}
+                      onClearVersions={() => void clearVersions()}
                       onManualFix={manualFix}
                       fixing={manualFixing}
                       onPushToGithub={() => setGithubOpen(true)}
@@ -862,6 +950,9 @@ const Index = () => {
                               const authoritative = await loadProject(projectId, session.user.id);
                               setProjectUpdatedAt(authoritative.updated_at);
                               setLastSyncedCode(authoritative.code);
+                              lastSyncedPromptRef.current = authoritative.prompt;
+                              lastSyncedTitleRef.current = authoritative.title;
+                              lastSyncedMessagesRef.current = JSON.stringify(authoritative.messages);
                             } catch (error) {
                               toast({
                                 title: "Cloud save failed",
