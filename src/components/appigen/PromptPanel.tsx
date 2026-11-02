@@ -34,21 +34,52 @@ const PROMPT_IDEAS = [
 
 type SpeechRecognitionResult = ArrayLike<{ transcript: string }>;
 
+type SpeechRecognitionErrorCode =
+  | "aborted"
+  | "audio-capture"
+  | "bad-grammar"
+  | "language-not-supported"
+  | "network"
+  | "no-speech"
+  | "not-allowed"
+  | "service-not-allowed";
+
 interface SpeechRecognitionLike {
   lang: string;
   interimResults: boolean;
   continuous: boolean;
   onresult: ((event: { results: ArrayLike<SpeechRecognitionResult> }) => void) | null;
   onend: (() => void) | null;
-  onerror: (() => void) | null;
+  onerror: ((event: { error?: SpeechRecognitionErrorCode }) => void) | null;
   start: () => void;
   stop: () => void;
+  abort?: () => void;
 }
 
 interface SpeechRecognitionWindow extends Window {
   SpeechRecognition?: new () => SpeechRecognitionLike;
   webkitSpeechRecognition?: new () => SpeechRecognitionLike;
 }
+
+export const speechRecognitionErrorMessage = (code?: string) => {
+  switch (code) {
+    case "not-allowed":
+    case "service-not-allowed":
+      return "Allow microphone access for AppiGen in your browser, then try again.";
+    case "audio-capture":
+      return "No microphone was found. Connect a microphone and try again.";
+    case "no-speech":
+      return "No speech was detected. Speak closer to the microphone and try again.";
+    case "network":
+      return "Speech recognition could not reach the browser's voice service. Check your connection and try again.";
+    case "language-not-supported":
+      return "This browser does not support speech recognition for the selected language.";
+    case "aborted":
+      return "";
+    default:
+      return "Microphone input failed. Check browser microphone permission and try again.";
+  }
+};
 
 export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuilding, progressStage, messages, hasCode, prompt, onPromptChange }: PromptPanelProps) => {
   const [stage, setStage] = useState<Stage>("Sketch");
@@ -59,6 +90,11 @@ export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuild
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const isChatActive = hasCode || isBuilding || messages.length > 0;
+
+  useEffect(() => () => {
+    recRef.current?.abort?.();
+    recRef.current = null;
+  }, []);
 
   useEffect(() => {
     if (transcriptRef.current) transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
@@ -107,13 +143,24 @@ export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuild
     const SR = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
     if (!SR) { toast({ title: "Voice unavailable", description: "Your browser does not support speech recognition.", variant: "destructive" }); return; }
     if (recording) { recRef.current?.stop(); return; }
-    const rec = new SR(); rec.lang = "en-US"; rec.interimResults = false; rec.continuous = false;
+    const rec = new SR();
+    rec.lang = typeof navigator !== "undefined" && navigator.language ? navigator.language : "en-US";
+    rec.interimResults = false;
+    rec.continuous = false;
     rec.onresult = (ev) => {
       const text = Array.from(ev.results).map((result) => result[0]?.transcript ?? "").join(" ");
       onPromptChange(prompt ? `${prompt} ${text}` : text);
     };
-    rec.onend = () => setRecording(false);
-    rec.onerror = () => { setRecording(false); toast({ title: "Mic error", variant: "destructive" }); };
+    rec.onerror = (event) => {
+      setRecording(false);
+      recRef.current = null;
+      const description = speechRecognitionErrorMessage(event.error);
+      if (description) toast({ title: "Mic error", description, variant: "destructive" });
+    };
+    rec.onend = () => {
+      setRecording(false);
+      recRef.current = null;
+    };
     recRef.current = rec;
     try {
       rec.start();
