@@ -256,12 +256,6 @@ export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChan
         <div className="relative flex min-h-0 flex-1 overflow-hidden bg-background/40">
           {tab === "preview" && (
             <div className="flex min-h-0 w-full flex-1 flex-col gap-2 overflow-auto p-2 sm:p-3">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="flex-1" />
-                <button onClick={handleRefresh} className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-smooth hover:bg-secondary hover:text-foreground" title="Reload preview">
-                  <RefreshCw className="h-3.5 w-3.5" /> Reload
-                </button>
-              </div>
               <div className="flex min-h-[260px] flex-1 justify-center overflow-auto rounded-xl border border-border bg-[#0b0d14] p-1.5 shadow-soft">
                 {!code && !isBuilding && <PreviewEmptyState />}
                 {code && !isBuilding && (

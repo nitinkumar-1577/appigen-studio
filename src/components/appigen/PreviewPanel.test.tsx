@@ -142,7 +142,7 @@ main { color: red; }`;
     expect(screen.getByText("Your generated app will appear here")).toBeInTheDocument();
   });
 
-  it("shows a full-width preview with reload", () => {
+  it("shows one reload control for the preview", () => {
     render(
       <PreviewPanel
         isBuilding={false}
@@ -160,6 +160,6 @@ main { color: red; }`;
     expect(screen.queryByRole("button", { name: "Tablet" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Mobile" })).not.toBeInTheDocument();
     expect(screen.getByTitle("AppiGen Sandbox Preview")).toHaveStyle({ width: "100%" });
-    expect(screen.getByRole("button", { name: "Reload" })).toBeInTheDocument();
+    expect(screen.getAllByTitle("Reload preview")).toHaveLength(1);
   });
 });
