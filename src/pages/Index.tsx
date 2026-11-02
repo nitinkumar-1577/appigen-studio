@@ -215,7 +215,9 @@ const Index = () => {
       if (!projectId || (changedProjectId && changedProjectId !== projectId)) return;
       try {
         const remote = await loadProject(projectId, session.user.id);
-        if (remote.code !== lastSyncedCode && lastCode !== lastSyncedCode) {
+        const remoteChanged = remote.code !== lastSyncedCode;
+        const localAlsoChanged = lastCode !== lastSyncedCode;
+        if (remoteChanged && localAlsoChanged && remote.code !== lastCode) {
           toast({ title: "Project updated elsewhere", description: "Another session saved changes. Your local unsaved work was kept; reload the project to compare.", variant: "destructive" });
           return;
         }
