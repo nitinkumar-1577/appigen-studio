@@ -36,6 +36,7 @@ export const PROVIDER_CATALOG: Record<ProviderName, ProviderConfig> = {
     secretNames: ["GROQ_API_KEY"],
     baseUrl: "https://api.groq.com/openai/v1",
     models: [
+      { id: "qwen/qwen3.8-27b", label: "Qwen 3.8 27B" },
       { id: "openai/gpt-oss-20b", label: "GPT-OSS 20B" },
       { id: "openai/gpt-oss-120b", label: "GPT-OSS 120B", default: true },
     ],

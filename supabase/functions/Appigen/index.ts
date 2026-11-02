@@ -273,7 +273,9 @@ async function completeChat(
               maxOutputTokens: body.max_completion_tokens,
             },
           }
-        : body;
+        : provider === "groq"
+          ? { ...body, stream: false, include_reasoning: false }
+          : body;
       res = await fetch(url, {
         method: "POST",
         headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -293,11 +295,12 @@ async function completeChat(
       clearTimeout(timer);
     }
     const text = await res.text();
+    const responseContentType = res.headers.get("content-type") ?? "";
     if (res.ok) {
       try {
         const parsed = isGemini
           ? JSON.parse(text.replace(/^\uFEFF/, "").trim())
-          : parseChatProviderResponse(text, res.headers.get("content-type") ?? "");
+          : parseChatProviderResponse(text, responseContentType);
         if (!parsed || typeof parsed !== "object") {
           throw new ProviderRequestError(provider, res.status, "INVALID_RESPONSE", "response JSON was not an object");
         }
@@ -305,9 +308,8 @@ async function completeChat(
       } catch (error) {
         if (error instanceof ProviderRequestError) throw error;
         const parserDetail = error instanceof Error && /response (?:was not valid JSON|stream contained no valid JSON chunks)/i.test(error.message)
-          ? error.message
-          : "response was not valid JSON";
-        throw new ProviderRequestError(provider, res.status, "INVALID_RESPONSE", parserDetail);
+          ? error.message : "response parse failed";
+        throw new ProviderRequestError(provider, res.status, "INVALID_RESPONSE", `${parserDetail} (content-type: ${responseContentType || "missing"}; length: ${text.length}; shape: ${responseShape(text)})`);
       }
     }
     const metadata = providerErrorMetadata(text);
@@ -439,6 +441,27 @@ function normalizeGeminiResponse(data: any): { choices: Array<{ message: { conte
     throw new ProviderRequestError("gemini", 200, "INVALID_RESPONSE", "response contained no candidate text");
   }
   return { choices: [{ message: { content } }] };
+}
+
+function responseShape(text: string): string {
+  const body = text.trimStart();
+  if (!body) return "empty";
+  if (body.startsWith("<")) return "html";
+  if (/^(?:data:|event:)/m.test(body)) return "event-stream";
+  if (body.startsWith("{") || body.startsWith("[")) {
+    try {
+      const parsed: unknown = JSON.parse(body);
+      if (Array.isArray(parsed)) return `valid-json-array (${parsed.length} items)`;
+      if (parsed && typeof parsed === "object") return `valid-json-object (${Object.keys(parsed).slice(0, 8).join(",") || "no keys"})`;
+      return `valid-json-${parsed === null ? "null" : typeof parsed}`;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "parse error";
+      const position = detail.match(/position (\d+)/i)?.[1];
+      return `malformed-json${/unexpected end/i.test(detail) ? " (truncated)" : ""}${position ? ` at ${position}` : ""}`;
+    }
+  }
+  if (/^```|^\s*\/\/\s*FILE:/m.test(body)) return "code-like";
+  return "plain-text";
 }
 
 // ---------- pipeline ----------
@@ -890,9 +913,12 @@ async function testProvider(provider: ProviderName, apiKey?: string) {
   } catch (error) {
     const message = redactSecret(error instanceof Error ? error.message : String(error), apiKey);
     const statusCode = message.match(/\b(\d{3})\b/)?.[1];
+    const status: ProviderStatus = error instanceof ProviderRequestError && error.code === "INVALID_RESPONSE"
+      ? "request_error"
+      : statusCode ? classifyProviderStatus(Number(statusCode)) : /timeout/i.test(message) ? "timeout" : "network_error";
     result.generation = {
       model: result.generation.model,
-      status: statusCode ? classifyProviderStatus(Number(statusCode)) : /timeout/i.test(message) ? "timeout" : "network_error",
+      status,
       detail: message.slice(0, 240),
     };
   }
@@ -973,7 +999,9 @@ IMPORTANT: Output complete valid TSX/TypeScript/CSS for every file. Do NOT trunc
           messages,
           temperature: generation.temperature,
           top_p: generation.topP,
-          max_completion_tokens: 16000,
+          // Keep requests within Groq's per-request token budget while leaving
+          // enough room for a multi-file app and its focused domain logic.
+          max_completion_tokens: 7000,
           reasoning_effort: "low",
         }, { retries: 0, timeoutMs: FAST_GENERATION_TIMEOUT_MS });
         const code = cleanCode(extractChatCompletionCode(data, providerLabel(provider), model));

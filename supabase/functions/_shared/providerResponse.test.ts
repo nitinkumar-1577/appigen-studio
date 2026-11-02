@@ -49,6 +49,17 @@ describe("chat provider response parsing", () => {
     expect(response.choices?.[0]?.message?.content).toBe("OK");
   });
 
+  it("accepts source code returned as a JSON string", () => {
+    const source = "export default function App() { return <main>Ready</main>; }";
+    expect(parseChatProviderResponse(JSON.stringify(source))
+      .choices?.[0]?.message?.content).toBe(source);
+  });
+
+  it("accepts short text completions returned as a JSON string", () => {
+    expect(parseChatProviderResponse(JSON.stringify("OK"))
+      .choices?.[0]?.message?.content).toBe("OK");
+  });
+
   it("accepts a code-only provider response", () => {
     expect(parseChatProviderResponse("export default function App() { return null; }")
       .choices?.[0]?.message?.content).toContain("function App");

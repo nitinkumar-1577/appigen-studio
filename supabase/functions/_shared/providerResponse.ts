@@ -97,6 +97,22 @@ function extractEncodedContent(text: string): string | null {
 }
 
 export function parseChatProviderResponse(text: string, contentType = ""): ChatResponse {
+  // Some compatible gateways double-encode a completion as a JSON string.
+  // Unwrap that string before looking for an OpenAI response envelope or code.
+  try {
+    const decoded: unknown = JSON.parse(text.replace(/^\uFEFF/, "").trim());
+    if (typeof decoded === "string") {
+      const nested = parseJsonRecord(decoded);
+      if (nested) return (findResponseObject(nested) ?? nested) as ChatResponse;
+      if (looksLikeCode(decoded)) return { choices: [{ message: { content: decoded.trim() } }] };
+      const encodedContent = extractEncodedContent(decoded);
+      if (encodedContent) return { choices: [{ message: { content: encodedContent } }] };
+      if (decoded.trim()) return { choices: [{ message: { content: decoded.trim() } }] };
+    }
+  } catch {
+    // Continue with the normal tolerant response parser below.
+  }
+
   const direct = parseJsonRecord(text);
   if (direct) return (findResponseObject(direct) ?? direct) as ChatResponse;
 
