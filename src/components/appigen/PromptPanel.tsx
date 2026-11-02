@@ -22,6 +22,7 @@ const CONTEXT_LIMIT = 8000;
 
 const STAGES = ["Sketch", "Wire up State", "Polish UI"] as const;
 type Stage = typeof STAGES[number];
+const BUILD_STAGES = ["Planning", "Generating", "Reviewing", "Validating"] as const;
 const PROMPT_IDEAS = [
   "A sleek SaaS analytics dashboard with revenue charts and a collapsible sidebar",
   "A warm, editorial online bookstore with search, genre filters, and a shopping bag",
@@ -83,6 +84,7 @@ export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuild
   const used = prompt.length;
   const pct = Math.min(100, Math.round((used / CONTEXT_LIMIT) * 100));
   const barColor = pct < 60 ? "bg-gradient-primary" : pct < 85 ? "bg-warning" : "bg-danger";
+  const activeBuildStage = BUILD_STAGES.indexOf(progressStage as typeof BUILD_STAGES[number]);
 
   const handleAttach = () => fileRef.current?.click();
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -164,18 +166,23 @@ export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuild
               {message.content}
             </article>)}
             {isBuilding && (
-              <div className="rounded-xl border border-primary/40 bg-primary/5 p-3 shadow-glow animate-fade-in" role="status">
+              <div className="rounded-xl border border-primary/40 bg-primary/5 p-3 shadow-glow animate-fade-in" role="status" aria-live="polite">
                 <div className="flex items-center gap-2 text-xs font-medium text-primary">
                   <span className="h-1.5 w-1.5 animate-blink rounded-full bg-primary" />
-                  {progressStage}…
+                  {BUILD_STAGES[activeBuildStage] || "Planning"}…
                 </div>
                 <div className="mt-2 space-y-1.5">
-                  {["Planning", "Generating", "Reviewing", "Validating"].map((s, i) => (
-                    <div key={s} className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <span className="h-1 w-1 animate-blink rounded-full bg-primary" style={{ animationDelay: `${i * 0.2}s` }} />
-                      {s}
+                  {BUILD_STAGES.map((s, i) => {
+                    const complete = activeBuildStage > i;
+                    const current = activeBuildStage === i;
+                    return (
+                    <div key={s} className={cn("flex items-center gap-2 text-xs", complete || current ? "text-primary" : "text-muted-foreground")} aria-current={current ? "step" : undefined}>
+                      <span className={cn("grid h-3.5 w-3.5 place-items-center rounded-full border", complete ? "border-primary bg-primary text-primary-foreground" : current ? "border-primary" : "border-muted-foreground/40")}>
+                        {complete ? <Check className="h-2.5 w-2.5" /> : current ? <span className="h-1.5 w-1.5 animate-blink rounded-full bg-primary" /> : null}
+                      </span>
+                      <span>{s}</span>
                     </div>
-                  ))}
+                  );})}
                 </div>
               </div>
             )}

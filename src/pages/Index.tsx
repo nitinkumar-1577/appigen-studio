@@ -288,9 +288,7 @@ const Index = () => {
       buildTimedOut = true;
       controller.abort();
     }, BUILD_REQUEST_TIMEOUT_MS);
-    let progressTimer: number | undefined;
     try {
-      progressTimer = window.setInterval(() => setProgressStage((current) => ({ Planning: "Generating", Generating: "Reviewing", Reviewing: "Validating", Validating: "Validating" }[current] || "Generating")), 18000);
       const { data: planData, error: planError } = await supabase.functions.invoke("Appigen", {
         body: {
           mode: "plan",
@@ -336,9 +334,31 @@ const Index = () => {
       if (data.provider === "local-fallback" || isGenericFallbackCode(data.code)) {
         throw new Error("The AI service returned a generic sample instead of your requested app. Please try again after the AI service is available.");
       }
-      const generatedCode = normalizeFileMarkers(data.code);
+      let generatedCode = normalizeFileMarkers(data.code);
+      const generatedValidationError = validateGeneratedCode(generatedCode, !editMode);
+      if (generatedValidationError) throw new Error(`The generated project is invalid: ${generatedValidationError}`);
+
+      setProgressStage("Reviewing");
+      const { data: reviewData, error: reviewError } = await supabase.functions.invoke("Appigen", {
+        body: {
+          mode: "review",
+          prompt: trimmed,
+          code: generatedCode,
+          plan: planData?.plan?.implementationPlan,
+          existingProject: editMode,
+          provider: generationSettings.provider,
+          model: generationSettings.model,
+          safety: generationSettings.safety,
+        },
+        signal: controller.signal,
+      });
+      if (reviewError) throw reviewError;
+      if (typeof reviewData?.code !== "string" || !reviewData.code.trim()) throw new Error("The review stage returned no project source.");
+      generatedCode = normalizeFileMarkers(reviewData.code);
+
+      setProgressStage("Validating");
       const validationError = validateGeneratedCode(generatedCode, !editMode);
-      if (validationError) throw new Error(`The generated project is invalid: ${validationError}`);
+      if (validationError) throw new Error(`The reviewed project is invalid: ${validationError}`);
       if (editMode && lastCode) {
         const snapshot: LocalProjectVersion = { id: crypto.randomUUID(), code: lastCode, prompt: trimmed, createdAt: Date.now() };
         versionsAfterBuild = [snapshot, ...versions].slice(0, 50);
@@ -360,7 +380,9 @@ const Index = () => {
       }
       setLastCode(generatedCode);
       setDoc(buildDocFromPrompt(trimmed, generatedCode));
-      const completedMessages = [...buildMessages, { role: "assistant" as const, content: editMode ? "Project updated. Your previous version is available to restore." : "Your app is ready in Preview.", timestamp: Date.now() }];
+      const fileCount = [...generatedCode.matchAll(/^\s*\/\/\s*FILE:/gm)].length || 1;
+      const validationSummary = `Review complete: the project was checked against the prompt and plan. Validation passed for ${fileCount} source file${fileCount === 1 ? "" : "s"}, its app structure, and local imports.`;
+      const completedMessages = [...buildMessages, { role: "assistant" as const, content: editMode ? `Project updated. ${validationSummary} Your previous version is available to restore.` : `Your app is ready in Preview. ${validationSummary}`, timestamp: Date.now() }];
       setMessages(completedMessages);
       setPrompt("");
 
@@ -437,7 +459,6 @@ const Index = () => {
       toast({ title: staleGenerator ? "Generator update required" : "Build failed", description: msg, variant: "destructive" });
     } finally {
       window.clearTimeout(buildTimeout);
-      if (progressTimer !== undefined) window.clearInterval(progressTimer);
       abortRef.current = null;
       setIsBuilding(false);
       setProgressStage("Planning");

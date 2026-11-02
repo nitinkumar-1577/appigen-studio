@@ -17,6 +17,8 @@ export interface ImplementationPlan {
   intent: string;
   requirements: string[];
   steps: string[];
+  designDirection: string[];
+  qualityChecks: string[];
   fileBlueprint: PlannedFile[];
   existingFiles: string[];
 }
@@ -33,6 +35,7 @@ interface CreateImplementationPlanOptions {
 function gameArchitecture(prompt: string): ProjectArchitecture {
   const normalized = prompt.toLowerCase();
   const feature = normalized.includes("ludo") ? "Ludo"
+    : normalized.includes("chess") ? "Chess"
     : normalized.includes("tower defense") ? "TowerDefense"
     : normalized.includes("platformer") ? "Platformer"
     : normalized.includes("space shooter") ? "SpaceShooter"
@@ -42,10 +45,11 @@ function gameArchitecture(prompt: string): ProjectArchitecture {
   const title = feature === "TowerDefense" ? "Tower Defense" : feature === "SpaceShooter" ? "Space Shooter" : feature;
 
   return {
-    pages: [],
+    pages: [`src/pages/${feature}Page.tsx`],
     components: [
-      { path: "src/components/GameBoard.tsx", purpose: `Render the ${title} playfield and visible game state` },
-      { path: "src/components/GameControls.tsx", purpose: "Expose the requested player controls and turn/status feedback" },
+      { path: `src/components/${feature}Board.tsx`, purpose: `Render a complete, recognizable ${title} playfield with its real board geometry` },
+      { path: "src/components/GameControls.tsx", purpose: "Expose functional game controls, legal actions, and clear turn feedback" },
+      { path: "src/components/PlayerStatus.tsx", purpose: "Show each player, score, status, and current turn at a glance" },
     ],
     hooks: [{ path: `src/hooks/use${feature}.ts`, purpose: `Manage ${title} state transitions and player/computer turns` }],
     contexts: [],
@@ -66,7 +70,7 @@ export function createImplementationPlan({
   const architecture: ProjectArchitecture = appType === "game"
     ? gameArchitecture(prompt)
     : {
-      pages: [],
+      pages: ["src/pages/MainPage.tsx"],
       components: [{ path: "src/components/MainView.tsx", purpose: "Compose the requested screen and its primary interactions" }],
       hooks: [],
       contexts: [],
@@ -80,14 +84,32 @@ export function createImplementationPlan({
     .filter(Boolean)
     .slice(0, 12);
   const steps = hasExistingProject
-    ? ["Inspect the existing file tree and recent conversation", "Change only files needed for this request", "Preserve unrelated behavior and project structure", "Validate the complete project before preview and save"]
-    : ["Identify the requested user flows and edge cases", "Create the app shell, screen, reusable UI, and app-specific styles", "Separate meaningful state and domain rules into focused modules", "Validate the complete project before preview and save"];
+    ? ["Plan the requested changes against the existing file tree and recent conversation", "Generate only the focused files needed for this request", "Preserve unrelated behavior and project structure", "Review the implementation against each requirement", "Validate imports, project structure, and the rendered preview before saving"]
+    : ["Plan the user flows, visual hierarchy, app structure, and important edge cases", "Generate the complete app shell, focused screens, reusable UI, styles, and real domain logic", "Review the rendered product against the request and improve missing or weak details", "Validate imports, project structure, runtime rendering, and key interactions before saving"];
+  const designDirection = appType === "game"
+    ? [
+      "Make the primary game board or playfield the visual focus; render its complete recognizable geometry instead of a list or narrow strip of cells.",
+      "Use a deliberate game-specific palette, clear player colors, readable score/turn status, and controls placed beside or below the playfield.",
+      "Fit the complete play area into desktop and mobile layouts without cropping important controls or hiding the game state.",
+    ]
+    : [
+      "Choose a visual concept that fits the requested product domain, then define its hierarchy, palette, typography, spacing, and responsive behavior before coding.",
+      "Give the primary user task a clear focal area and make every requested result visible in the interface.",
+      "Use complete, believable sample content only where the app needs it; avoid generic dashboard shells and placeholder-looking controls.",
+    ];
+  const qualityChecks = [
+    "Map every explicit requirement to a visible interface element and a working interaction or result.",
+    "Review the complete source tree and confirm every import resolves and each module has a focused purpose.",
+    "Check the actual rendered layout at desktop and mobile widths for clipping, low contrast, empty panels, and unusable controls.",
+    appType === "game"
+      ? "Check the game's real rules, legal actions, turn changes, win/loss conditions, and visible token or object movement against the requested game."
+      : "Exercise the primary user flow, empty/error states, and relevant calculations before calling the app complete.",
+  ];
   const fileBlueprint: PlannedFile[] = [
     { path: "src/App.tsx", purpose: "Application shell and entry point" },
-    { path: "src/pages/MainPage.tsx", purpose: "Primary screen composition" },
-    { path: "src/components/MainView.tsx", purpose: "Reusable screen UI" },
+    ...architecture.pages.map((path) => ({ path, purpose: `Primary ${appType === "game" ? "game" : "app"} screen composition` })),
     { path: "src/styles.css", purpose: "Responsive app-specific design system" },
-    ...architecture.components.filter((file) => file.path !== "src/components/MainView.tsx"),
+    ...architecture.components,
     ...architecture.hooks,
     ...architecture.utils,
   ];
@@ -98,6 +120,8 @@ export function createImplementationPlan({
       intent: `${appType} for ${domain} (${complexity})`,
       requirements,
       steps,
+      designDirection,
+      qualityChecks,
       fileBlueprint,
       existingFiles,
     },
@@ -124,6 +148,14 @@ export function formatImplementationPlan(value: unknown): string {
     for (const [index, step] of plan.steps.entries()) {
       if (typeof step === "string") lines.push(`${index + 1}. ${step}`);
     }
+  }
+  if (Array.isArray(plan.designDirection) && plan.designDirection.length) {
+    lines.push("", "Design plan:");
+    for (const item of plan.designDirection) if (typeof item === "string") lines.push(`- ${item}`);
+  }
+  if (Array.isArray(plan.qualityChecks) && plan.qualityChecks.length) {
+    lines.push("", "Review and validation checklist:");
+    for (const item of plan.qualityChecks) if (typeof item === "string") lines.push(`- ${item}`);
   }
   if (Array.isArray(plan.fileBlueprint)) {
     const files = plan.fileBlueprint.filter((file): file is PlannedFile =>

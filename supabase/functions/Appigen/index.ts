@@ -76,6 +76,8 @@ CODE RULES:
 - Include loading, empty, and error states where relevant.
 - Build a distinctive, polished visual design that fits the user's app and prompt. Define app-specific design tokens and custom CSS in src/styles.css; use Tailwind for layout and utility styling where useful. Avoid generic dashboard/card boilerplate unless requested.
 - Match the visual language to the product domain: games need a deliberate board/playfield, clear player identity, readable turns/status, and controls that fit the play area; dashboards need information hierarchy and usable dense data; editorial and commerce apps need their own appropriate composition.
+- Treat the design plan as a build requirement. For board games, draw the recognizable complete board with its real geometry, colored regions, paths, safe/home areas, and visible pieces; do not replace the board with a generic row/column list. For action games, make a substantial playfield with visible actors, obstacles, and feedback.
+- Before returning, perform a requirement-by-requirement product review. Every requested control must cause a meaningful state change; game turns and legal moves must be represented by real domain rules, not decorative button states.
 - Validate the layout mentally at narrow mobile widths and wide desktop widths. Keep primary interactions visible, provide adequate contrast and focus states, and avoid overflow or tiny controls.
 - Follow the user's requested features, constraints, visual direction, and content exactly; the user prompt is the source of truth.
 - Do not invent extra user-facing features, pages, data, integrations, or business rules. When a detail is unspecified, choose the smallest neutral implementation needed to make the requested experience work.
@@ -99,6 +101,12 @@ RETURN the FULL fixed source using the SAME "// FILE: <path>" delimiter format. 
 - Return valid TSX/TypeScript with complete imports, defined identifiers, valid JSX attributes, balanced tags/braces/parentheses, and no placeholders.
 - Preserve the user's requested behavior and do not add unrelated features.
 - src/App.tsx must default-export the root component. Do NOT call ReactDOM.createRoot.`;
+
+const REVIEW_SYSTEM = `You are AppiGen's independent senior product, UI, and implementation reviewer. Compare a complete generated React project with the user's exact request and implementation plan, then improve the full project source.
+
+Review the visible product design, every requested interaction, the domain rules and edge cases, the complete file tree and imports, responsive behavior, accessibility, and runtime risks. Games must render a complete recognizable board or playfield with appropriate domain geometry; a narrow strip or generic list is a failed design. Improve missing or weak parts. Do not approve placeholders, dead controls, generic shells, incomplete boards, or visually empty screens.
+
+Return the FULL source tree using the exact // FILE: <relative/path> delimiter format. Preserve working features and planned module boundaries; add focused files if needed. No prose, markdown, code fences, TODOs, or placeholders. Even when no changes are needed, return every file unchanged.`;
 
 // ---------- helpers ----------
 
@@ -216,6 +224,16 @@ function stripModuleSyntax(src: string): string {
 
 function isMultiFile(src: string): boolean {
   return /^\s*\/\/\s*FILE:/m.test(src || "");
+}
+
+function validatePlannedFiles(source: string, implementationPlan: any): string | null {
+  const expected = Array.isArray(implementationPlan?.fileBlueprint)
+    ? implementationPlan.fileBlueprint.map((file: any) => typeof file?.path === "string" ? file.path : "").filter(Boolean)
+    : [];
+  if (!expected.length) return "The implementation plan has no project file blueprint.";
+  const actual = new Set([...source.matchAll(/^\s*\/\/\s*FILE:\s*([^\n]+)\s*$/gm)].map((match) => match[1].trim()));
+  const missing = expected.filter((path: string) => !actual.has(path));
+  return missing.length ? `The generated project is missing planned files: ${missing.join(", ")}.` : null;
 }
 
 
@@ -509,6 +527,8 @@ function enhanceAndPlan(_apiKey: string, userPrompt: string, stage?: string, exi
     `Generation stage (implementation guidance only): ${stage ?? "polish"}`,
     `Implementation roadmap: ${implementationPlan.steps.join(" -> ")}`,
     `Feature file blueprint: ${implementationPlan.fileBlueprint.map((file) => `${file.path} — ${file.purpose}`).join("; ")}`,
+    `Visual design direction: ${implementationPlan.designDirection.join(" ")}`,
+    `Acceptance checklist: ${implementationPlan.qualityChecks.join(" ")}`,
     "Accuracy requirement: Treat the user's original prompt as the exact product specification. Implement every explicit requirement and do not invent additional functionality, sections, or assumptions.",
   ].join("\n");
 
@@ -907,16 +927,8 @@ Complexity: ${plan.complexity || "moderate"}
 Pages/sections: ${(plan.pages || []).join(", ") || "(single page)"}
 Stage: ${stage || "polish"}
 
-REQUIRED FILE LAYOUT (create each file with the // FILE: delimiter):
-- src/App.tsx (small root shell; imports ./styles.css)
-- src/pages/MainPage.tsx (main screen, own page composition)
-- src/components/MainView.tsx (reusable visual UI, separate from the root shell)
-- src/styles.css (app-specific design tokens, responsive CSS, and visual polish)
-${(plan.pages || []).map((p: string) => `- src/pages/${p} (route/screen)`).join("\n") || "- (no additional pages)"}
-${(plan.components || []).map((c: string) => `- ${c}`).join("\n") || "- (infer minimal components)"}
-${(plan.hooks || []).map((h: string) => `- ${h}`).join("\n")}
-${(plan.contexts || []).map((c: string) => `- ${c}`).join("\n")}
-${(plan.utils || []).map((u: string) => `- ${u}`).join("\n")}
+REQUIRED FILE LAYOUT (create every focused file in this blueprint with the // FILE: delimiter):
+${plan.implementationPlan.fileBlueprint.map((file: { path: string; purpose: string }) => `- ${file.path} — ${file.purpose}`).join("\n")}
 
 For any app with meaningful interactions or state, also create a focused src/hooks/use<Feature>.ts module for the workflow and src/lib/<feature>.ts for reusable domain calculations/validation when applicable. Keep presentational components free of business rules. Add more screen/component/data files only to match the actual requested scope; do not create filler files.
 
@@ -965,7 +977,7 @@ IMPORTANT: Output complete valid TSX/TypeScript/CSS for every file. Do NOT trunc
           reasoning_effort: "low",
         }, { retries: 0, timeoutMs: FAST_GENERATION_TIMEOUT_MS });
         const code = cleanCode(extractChatCompletionCode(data, providerLabel(provider), model));
-        const validationError = validateGeneratedCode(code, !existingCode);
+        const validationError = validateGeneratedCode(code, !existingCode) || (!existingCode ? validatePlannedFiles(code, plan.implementationPlan) : null);
         if (!validationError) return { code, provider: `${provider}:${model}` };
         if (code) invalidCandidate = { code, provider: `${provider}:${model}` };
         failures.push(`${providerLabel(provider)} ${model} returned invalid project code: ${validationError}`);
@@ -1015,6 +1027,41 @@ async function repairCode(providers: Providers, provider: ProviderName, brokenCo
   throw new Error(`${providerLabel(provider)} code repair failed. ${failures.join(" ") || `Set ${secretNamesFor(provider)[0]} in Supabase Edge Function secrets.`}`);
 }
 
+async function reviewAndImproveCode(
+  providers: Providers,
+  provider: ProviderName,
+  prompt: string,
+  code: string,
+  plan: unknown,
+  model?: string,
+) {
+  const apiKey = providerKey(providers, provider);
+  if (!apiKey) throw new Error(`${providerLabel(provider)} is not configured for the review stage.`);
+  const modelIds = getProviderConfig(provider).models.map((entry) => entry.id);
+  const reviewModel = typeof model === "string" && modelIds.includes(model) ? model : getDefaultModel(provider);
+  const brief = [
+    "ORIGINAL USER REQUEST (authoritative):",
+    prompt,
+    "\nIMPLEMENTATION PLAN:",
+    typeof plan === "string" ? plan : JSON.stringify(plan ?? {}),
+    "\nFULL CURRENT PROJECT SOURCE:",
+    code,
+    "\nCompare the complete implementation with the requested product. Fix missing behavior, weak layout, generic styling, incomplete game boards or rules, inaccessible controls, broken imports, and mobile overflow. Return the full corrected project source, not a review summary.",
+  ].join("\n");
+  const data = await completeChat(provider, apiKey, {
+    model: reviewModel,
+    messages: [
+      { role: "system", content: `${GENERATOR_SYSTEM}\n\n${REVIEW_SYSTEM}` },
+      { role: "user", content: brief },
+    ],
+    temperature: 0.15,
+    top_p: 1,
+    max_completion_tokens: 16000,
+    reasoning_effort: "low",
+  }, { timeoutMs: 38000 });
+  return cleanCode(extractChatCompletionCode(data, providerLabel(provider), reviewModel));
+}
+
 function providerFallbackOrder(providers: Providers, requested: ProviderName): ProviderName[] {
   void requested;
   return ACTIVE_PROVIDER_NAMES.filter((candidate) => Boolean(providerKey(providers, candidate)));
@@ -1032,12 +1079,13 @@ Deno.serve(async (req) => {
   try { body = await req.json(); }
   catch { return jsonResponse({ error: "Invalid JSON body" }, 400); }
 
-  const mode: "build" | "edit" | "repair" | "plan" | "health" =
+  const mode: "build" | "edit" | "repair" | "review" | "plan" | "health" =
     body?.mode === "health" ? "health"
       : body?.mode === "repair" ? "repair"
-        : body?.mode === "edit" ? "edit"
-          : body?.mode === "plan" ? "plan"
-            : "build";
+        : body?.mode === "review" ? "review"
+          : body?.mode === "edit" ? "edit"
+            : body?.mode === "plan" ? "plan"
+              : "build";
   const provider = getProvider(body?.provider);
 
   try {
@@ -1097,6 +1145,35 @@ Deno.serve(async (req) => {
       return jsonResponse({ code: fixed, mode });
     }
 
+    if (mode === "review") {
+      const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+      const code = typeof body.code === "string" ? body.code : "";
+      if (!prompt || !code) return jsonResponse({ error: "Review requires the original prompt and complete project source" }, 400);
+      if (prompt.length > 8000) return jsonResponse({ error: "Prompt too long (max 8000 chars)" }, 400);
+      const safetyViolation = getSafetyViolation(prompt, parseSafetyThresholds(body.safety));
+      if (safetyViolation) return jsonResponse({ error: `This request was blocked by AppiGen's safety filters (${safetyViolation}). Revise the prompt to continue.` }, 400);
+      let reviewedCode = "";
+      const reviewFailures: string[] = [];
+      const requireArchitecture = body.existingProject !== true;
+      for (const candidate of providerFallbackOrder(providers, provider)) {
+        try {
+          reviewedCode = await reviewAndImproveCode(providers, candidate, prompt, code, body.plan, body.model);
+          let reviewValidation = validateGeneratedCode(reviewedCode, requireArchitecture) || (requireArchitecture ? validatePlannedFiles(reviewedCode, body.plan) : null);
+          if (reviewValidation) {
+            reviewedCode = await repairCode(providers, candidate, reviewedCode, `Reviewed project validation failed: ${reviewValidation}`, requireArchitecture);
+            reviewValidation = validateGeneratedCode(reviewedCode, requireArchitecture) || (requireArchitecture ? validatePlannedFiles(reviewedCode, body.plan) : null);
+          }
+          if (!reviewValidation) break;
+          reviewedCode = "";
+          reviewFailures.push(`${providerLabel(candidate)} review returned invalid project code: ${reviewValidation}`);
+        } catch (error) {
+          reviewFailures.push(providerFailure(`${providerLabel(candidate)} review`, error));
+        }
+      }
+      if (!reviewedCode) throw new Error(reviewFailures.join(" ") || "No configured provider could review the generated project.");
+      return jsonResponse({ code: reviewedCode, mode });
+    }
+
     // build or edit mode
     const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
     if (!prompt) return jsonResponse({ error: "Prompt missing" }, 400);
@@ -1144,10 +1221,10 @@ Deno.serve(async (req) => {
     }
     let code = generatedCode;
 
-    const validationError = validateGeneratedCode(code);
+    const validationError = validateGeneratedCode(code) || (!existingCode ? validatePlannedFiles(code, plan.implementationPlan) : null);
     if (validationError) {
       code = await repairCode(providers, provider, code, `Generated project validation failed: ${validationError}`, !existingCode);
-      const repairedValidationError = validateGeneratedCode(code, !existingCode);
+      const repairedValidationError = validateGeneratedCode(code, !existingCode) || (!existingCode ? validatePlannedFiles(code, plan.implementationPlan) : null);
       if (repairedValidationError) {
         return jsonResponse({ error: `Generated project failed validation after automatic repair: ${repairedValidationError}` }, 502);
       }
