@@ -196,3 +196,12 @@ export const deleteProjectVersion = async (versionId: string, userId: string) =>
     .eq("user_id", userId);
   if (error) throw error;
 };
+
+export const deleteProject = async (projectId: string, userId: string) => {
+  const { error } = await supabase
+    .from("projects")
+    .delete()
+    .eq("id", projectId)
+    .eq("user_id", userId);
+  if (error) throw error;
+};

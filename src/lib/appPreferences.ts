@@ -1,7 +1,8 @@
 export const GENERATION_MODELS = [
   "openai/gpt-oss-20b",
   "openai/gpt-oss-120b",
-  "deepseek-chat",
+  "deepseek-flash",
+  "deepseek-v4-pro",
   "openai/gpt-4o-mini",
   "gemini-2.5-flash",
   "gpt-4o-mini",
@@ -11,7 +12,7 @@ export const AI_PROVIDERS = ["groq", "deepseek", "openrouter", "gemini", "openai
 export type AiProvider = (typeof AI_PROVIDERS)[number];
 export const PROVIDER_MODELS: Record<AiProvider, readonly GenerationSettings["model"][]> = {
   groq: ["openai/gpt-oss-20b", "openai/gpt-oss-120b"],
-  deepseek: ["deepseek-chat"],
+  deepseek: ["deepseek-flash", "deepseek-v4-pro"],
   openrouter: ["openai/gpt-4o-mini"],
   gemini: ["gemini-2.5-flash"],
   openai: ["gpt-4o-mini"],

@@ -26,7 +26,6 @@ const corsHeaders = {
 
 const MODEL_FAST = "openai/gpt-oss-20b";
 const MODEL_SMART = "openai/gpt-oss-120b";
-const DEEPSEEK_MODEL = "deepseek-chat";
 const ALLOWED_MODELS = [MODEL_FAST, MODEL_SMART] as const;
 
 const FAST_GENERATION_TIMEOUT_MS = 45000;
@@ -238,6 +237,38 @@ function validatePlannedFiles(source: string, implementationPlan: any): string |
 
 
 
+export function providerRequestBody(provider: ProviderName, body: Record<string, unknown>) {
+  const config = getProviderConfig(provider);
+  const isGemini = config.protocol === "gemini";
+  if (isGemini) {
+    return {
+      contents: Array.isArray(body.messages)
+        ? body.messages.filter((message: any) => message?.role !== "system").map((message: any) => ({
+          role: message.role === "assistant" ? "model" : "user",
+          parts: [{ text: String(message.content ?? "") }],
+        }))
+        : [{ role: "user", parts: [{ text: String(body.prompt ?? "") }] }],
+      systemInstruction: Array.isArray(body.messages)
+        ? { parts: [{ text: String(body.messages.find((message: any) => message?.role === "system")?.content ?? "") }] }
+        : undefined,
+      generationConfig: {
+        temperature: body.temperature,
+        topP: body.top_p,
+        maxOutputTokens: body.max_completion_tokens,
+      },
+    };
+  }
+  if (provider === "deepseek" || provider === "nvidia") {
+    return {
+      ...body,
+      max_tokens: body.max_tokens ?? body.max_completion_tokens,
+      stream: false,
+      ...(provider === "nvidia" ? { chat_template: "default" } : {}),
+    };
+  }
+  return provider === "groq" ? { ...body, stream: false, include_reasoning: false } : body;
+}
+
 async function completeChat(
   provider: ProviderName,
   apiKey: string,
@@ -256,26 +287,7 @@ async function completeChat(
       const url = isGemini
         ? `${config.baseUrl}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`
         : `${config.baseUrl}/chat/completions`;
-      const requestBody = isGemini
-        ? {
-            contents: Array.isArray(body.messages)
-              ? body.messages.filter((message: any) => message?.role !== "system").map((message: any) => ({
-                role: message.role === "assistant" ? "model" : "user",
-                parts: [{ text: String(message.content ?? "") }],
-              }))
-              : [{ role: "user", parts: [{ text: String(body.prompt ?? "") }] }],
-            systemInstruction: Array.isArray(body.messages)
-              ? { parts: [{ text: String(body.messages.find((message: any) => message?.role === "system")?.content ?? "") }] }
-              : undefined,
-            generationConfig: {
-              temperature: body.temperature,
-              topP: body.top_p,
-              maxOutputTokens: body.max_completion_tokens,
-            },
-          }
-        : provider === "groq"
-          ? { ...body, stream: false, include_reasoning: false }
-          : body;
+      const requestBody = providerRequestBody(provider, body);
       res = await fetch(url, {
         method: "POST",
         headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -523,6 +535,69 @@ function inferDomain(prompt: string, appType: string) {
   return appType === "app" ? "general" : appType;
 }
 
+export function splitPromptIntoChunks(prompt: string, maxCharacters = 6000): string[] {
+  const paragraphs = prompt.split(/\n\s*\n/).map((part) => part.trim()).filter(Boolean);
+  const chunks: string[] = [];
+  let current = "";
+  for (const paragraph of paragraphs.length ? paragraphs : [prompt.trim()]) {
+    if (current && current.length + paragraph.length + 2 > maxCharacters) {
+      chunks.push(current);
+      current = "";
+    }
+    if (paragraph.length > maxCharacters) {
+      const sentences = paragraph.split(/(?<=[.!?])\s+/);
+      for (const sentence of sentences) {
+        if (current && current.length + sentence.length + 1 > maxCharacters) {
+          chunks.push(current);
+          current = "";
+        }
+        current = current ? `${current} ${sentence}` : sentence;
+      }
+    } else {
+      current = current ? `${current}\n\n${paragraph}` : paragraph;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks.length ? chunks : [""];
+}
+
+function projectFiles(source: string): Map<string, string> {
+  const matches = [...source.matchAll(/^\s*\/\/\s*FILE:\s*([^\n]+)\s*$/gm)];
+  if (!matches.length) return new Map([["src/App.tsx", source]]);
+  const files = new Map<string, string>();
+  matches.forEach((match, index) => {
+    const start = (match.index ?? 0) + match[0].length;
+    const end = matches[index + 1]?.index ?? source.length;
+    files.set(match[1].trim(), source.slice(start, end).trim());
+  });
+  return files;
+}
+
+export function mergeProjectFiles(original: string, generated: string): string {
+  const originalFiles = projectFiles(original);
+  const generatedFiles = projectFiles(generated);
+  if (!generatedFiles.size || !originalFiles.size) return generated;
+  for (const [path, content] of generatedFiles) originalFiles.set(path, content);
+  return [...originalFiles].map(([path, content]) => `// FILE: ${path}\n${content}`).join("\n\n");
+}
+
+function relevantProjectSource(source: string, prompt: string): string {
+  const files = projectFiles(source);
+  if (files.size <= 8) return source;
+  const terms = new Set((prompt.toLowerCase().match(/[a-z][a-z0-9_-]{3,}/g) ?? []).slice(0, 40));
+  const selected = [...files].filter(([path, content]) => {
+    const haystack = `${path}\n${content}`.toLowerCase();
+    return path === "src/App.tsx" || [...terms].some((term) => haystack.includes(term));
+  });
+  return selected.length ? selected.map(([path, content]) => `// FILE: ${path}\n${content}`).join("\n\n") : source;
+}
+
+function outputTokenBudget(provider: ProviderName): number {
+  if (provider === "groq") return 7000;
+  if (provider === "gemini") return 16000;
+  return 12000;
+}
+
 function enhanceAndPlan(_apiKey: string, userPrompt: string, stage?: string, existingCode?: string) {
   const appType = inferAppType(userPrompt);
   const domain = inferDomain(userPrompt, appType);
@@ -555,8 +630,10 @@ function enhanceAndPlan(_apiKey: string, userPrompt: string, stage?: string, exi
   const contexts = arch.contexts.map((c) => `${c.path} — ${c.purpose}`);
   const utils = arch.utils.map((u) => `${u.path} — ${u.purpose}`);
 
+  const promptChunks = splitPromptIntoChunks(userPrompt);
   const enhancedPrompt = [
     `User specification (authoritative): ${userPrompt}`,
+    `Coherent requirement tasks:\n${promptChunks.map((chunk, index) => `Task ${index + 1}: ${chunk}`).join("\n")}`,
     `Generation stage (implementation guidance only): ${stage ?? "polish"}`,
     `Implementation roadmap: ${implementationPlan.steps.join(" -> ")}`,
     `Feature file blueprint: ${implementationPlan.fileBlueprint.map((file) => `${file.path} — ${file.purpose}`).join("; ")}`,
@@ -797,7 +874,7 @@ export function createItem(title) {
 }`;
 }
 
-interface Providers {
+export interface Providers {
   groqKey?: string;
   deepseekKey?: string;
   openrouterKey?: string;
@@ -954,6 +1031,7 @@ async function generateCode(
   const existingPaths = existingCode
     ? [...existingCode.matchAll(/^\s*\/\/\s*FILE:\s*([^\n]+)/gm)].map((match) => match[1].trim())
     : [];
+  const contextCode = existingCode ? relevantProjectSource(existingCode, plan.enhancedPrompt || "") : undefined;
   const recentConversation = conversation.length
     ? `RECENT PROJECT CONVERSATION (use as context; the current prompt is authoritative):\n${conversation.map((turn) => `${turn.role.toUpperCase()}:\n${turn.content}`).join("\n\n")}`
     : "";
@@ -978,8 +1056,8 @@ ${existingCode ? `INCREMENTAL UPDATE ROADMAP
 4. Return complete source for every project file so the live preview can rebuild consistently.
 Existing file tree: ${existingPaths.join(", ") || "(single-file project)"}
 
-EXISTING PROJECT SOURCE (authoritative starting point; preserve all unrelated behavior):
-${existingCode}` : ""}
+EXISTING PROJECT SOURCE (focused context; untouched files will be merged back automatically):
+${contextCode}` : ""}
 
 ${recentConversation}
 
@@ -1011,10 +1089,10 @@ IMPORTANT: Output complete valid TSX/TypeScript/CSS for every file. Do NOT trunc
           top_p: generation.topP,
           // Keep requests within Groq's per-request token budget while leaving
           // enough room for a multi-file app and its focused domain logic.
-          max_completion_tokens: 7000,
+          max_completion_tokens: outputTokenBudget(provider),
           reasoning_effort: "low",
         }, { retries: 0, timeoutMs: FAST_GENERATION_TIMEOUT_MS });
-        const code = cleanCode(extractChatCompletionCode(data, providerLabel(provider), model));
+        const code = mergeProjectFiles(existingCode ?? "", cleanCode(extractChatCompletionCode(data, providerLabel(provider), model)));
         const validationError = validateGeneratedCode(code, !existingCode) || (!existingCode ? validatePlannedFiles(code, plan.implementationPlan) : null);
         if (!validationError) return { code, provider: `${provider}:${model}` };
         if (code) invalidCandidate = { code, provider: `${provider}:${model}` };
@@ -1046,7 +1124,7 @@ async function repairCode(providers: Providers, provider: ProviderName, brokenCo
         model,
         messages,
         temperature: 0.2,
-        max_completion_tokens: 9000,
+        max_completion_tokens: outputTokenBudget(provider),
         reasoning_effort: "low",
       }, { retries: 0, timeoutMs: REPAIR_TIMEOUT_MS });
       const fixed = cleanCode(extractChatCompletionCode(data, providerLabel(provider), model));
@@ -1094,15 +1172,15 @@ async function reviewAndImproveCode(
     ],
     temperature: 0.15,
     top_p: 1,
-    max_completion_tokens: 16000,
+    max_completion_tokens: outputTokenBudget(provider),
     reasoning_effort: "low",
   }, { timeoutMs: 38000 });
   return cleanCode(extractChatCompletionCode(data, providerLabel(provider), reviewModel));
 }
 
-function providerFallbackOrder(providers: Providers, requested: ProviderName): ProviderName[] {
-  void requested;
-  return ACTIVE_PROVIDER_NAMES.filter((candidate) => Boolean(providerKey(providers, candidate)));
+export function providerFallbackOrder(providers: Providers, requested: ProviderName): ProviderName[] {
+  return [requested, ...ACTIVE_PROVIDER_NAMES.filter((candidate) => candidate !== requested)]
+    .filter((candidate, index, list) => Boolean(providerKey(providers, candidate)) && list.indexOf(candidate) === index);
 }
 
 // ---------- handler ----------
@@ -1144,7 +1222,6 @@ Deno.serve(async (req) => {
     if (mode === "plan") {
       const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
       if (!prompt) return jsonResponse({ error: "Prompt missing" }, 400);
-      if (prompt.length > 8000) return jsonResponse({ error: "Prompt too long (max 8000 chars)" }, 400);
       const safetyViolation = getSafetyViolation(prompt, parseSafetyThresholds(body.safety));
       if (safetyViolation) return jsonResponse({ error: `This request was blocked by AppiGen's safety filters (${safetyViolation}). Revise the prompt to continue.` }, 400);
       const existingCode = typeof body.code === "string" ? body.code : undefined;
@@ -1187,7 +1264,6 @@ Deno.serve(async (req) => {
       const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
       const code = typeof body.code === "string" ? body.code : "";
       if (!prompt || !code) return jsonResponse({ error: "Review requires the original prompt and complete project source" }, 400);
-      if (prompt.length > 8000) return jsonResponse({ error: "Prompt too long (max 8000 chars)" }, 400);
       const safetyViolation = getSafetyViolation(prompt, parseSafetyThresholds(body.safety));
       if (safetyViolation) return jsonResponse({ error: `This request was blocked by AppiGen's safety filters (${safetyViolation}). Revise the prompt to continue.` }, 400);
       if (body.existingProject === true) {
@@ -1219,7 +1295,6 @@ Deno.serve(async (req) => {
     // build or edit mode
     const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
     if (!prompt) return jsonResponse({ error: "Prompt missing" }, 400);
-    if (prompt.length > 8000) return jsonResponse({ error: "Prompt too long (max 8000 chars)" }, 400);
     const safetyViolation = getSafetyViolation(prompt, parseSafetyThresholds(body.safety));
     if (safetyViolation) return jsonResponse({ error: `This request was blocked by AppiGen's safety filters (${safetyViolation}). Revise the prompt to continue.` }, 400);
     const existingCode = mode === "edit" && typeof body.code === "string" ? body.code : undefined;

@@ -17,6 +17,10 @@ describe("provider catalog", () => {
     expect(getDefaultModel("nvidia")).toBe("mistralai/mistral-large-4-1t-a52b");
   });
 
+  it("uses the production DeepSeek model catalog", () => {
+    expect(getProviderConfig("deepseek").models.map((model) => model.id)).toEqual(["deepseek-flash", "deepseek-v4-pro"]);
+  });
+
   it("classifies provider failures without exposing response bodies", () => {
     expect(classifyProviderStatus(401)).toBe("invalid_key");
     expect(classifyProviderStatus(402)).toBe("quota_exhausted");

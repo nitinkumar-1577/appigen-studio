@@ -3,15 +3,20 @@ import { isNewAppPrompt } from "./promptIntent";
 
 describe("prompt intent", () => {
   it.each([
-    "Build a snake game",
-    "Create a budgeting app",
-    "Make me a portfolio website",
-    "Design another app for tracking workouts",
-  ])("starts a fresh project for app request: %s", (prompt) => {
+    "start a new app",
+    "create a brand-new project",
+    "start from scratch",
+    "create a separate website",
+  ])("starts a fresh project only for explicit intent: %s", (prompt) => {
     expect(isNewAppPrompt(prompt)).toBe(true);
   });
 
   it.each([
+    "Create an admin page",
+    "Build a settings page",
+    "Make the layout responsive",
+    "Add authentication",
+    "Create a new dashboard page",
     "Add keyboard shortcuts",
     "Change the background color",
     "Make this app use a blue theme",

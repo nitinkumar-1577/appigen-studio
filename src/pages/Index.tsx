@@ -26,7 +26,7 @@ import { createRunnableProjectZip } from "@/lib/projects/exportProject";
 import { isNewAppPrompt } from "@/lib/projects/promptIntent";
 import { formatImplementationPlan } from "@/lib/projects/implementationPlan";
 import { clearLocalVersions, deleteLocalVersion, discardProjectDraft, readLocalVersionsForProject, readProjectDraft, writeLocalVersion, writeProjectDraft, writeProjectMessages, type ChatMessage, type LocalProjectVersion } from "@/lib/projects/projectStorage";
-import { deleteProjectVersion, loadMostRecentProject, loadProject, loadProjectVersions, persistActivity, persistProject } from "@/lib/projects/projectRepository";
+import { deleteProject, deleteProjectVersion, loadMostRecentProject, loadProject, loadProjectVersions, persistActivity, persistProject } from "@/lib/projects/projectRepository";
 import { readAppPreferences, readGenerationSettings, recordActivity } from "@/lib/appPreferences";
 import { trackAnonymousUsage } from "@/lib/telemetry";
 
@@ -48,8 +48,18 @@ export const getValidationSummary = (reviewSkipped: boolean, fileCount: number) 
     ? `AI review was skipped to save tokens, but local project validation passed for ${fileCount} source file${fileCount === 1 ? "" : "s"}, its app structure, and local imports.`
     : `Review complete: the project was checked against the prompt and plan. Validation passed for ${fileCount} source file${fileCount === 1 ? "" : "s"}, its app structure, and local imports.`;
 
-export const removeMatchingUserMessages = (messages: ChatMessage[], promptText: string) =>
-  messages.filter((message) => message.role !== "user" || message.content !== promptText);
+export const removePromptConversationBlocks = (messages: ChatMessage[], promptText: string) => {
+  const result: ChatMessage[] = [];
+  let removing = false;
+  for (const message of messages) {
+    if (message.role === "user") {
+      removing = message.content === promptText;
+      if (removing) continue;
+    }
+    if (!removing) result.push(message);
+  }
+  return result;
+};
 
 const suggestProjectTitle = (promptText: string) => {
   const normalized = promptText.replace(/\s+/g, " ").trim();
@@ -232,6 +242,7 @@ const Index = () => {
           const repairedCode = normalizeFileMarkers(data.code);
           const validationError = validateGeneratedCode(repairedCode);
           if (validationError) throw new Error(`Repair returned an invalid project: ${validationError}`);
+          await snapshotCode(lastCode, "Before automatic preview repair");
           lastReportedRef.current = "";
           setLastCode(repairedCode);
           setDoc(buildDocFromPrompt(prompt, repairedCode));
@@ -348,6 +359,7 @@ const Index = () => {
       if (data.provider === "local-fallback" || isGenericFallbackCode(data.code)) {
         throw new Error("The AI service returned a generic sample instead of your requested app. Please try again after the AI service is available.");
       }
+      const actualProvider = typeof data.provider === "string" ? data.provider.split(":")[0] : generationSettings.provider;
       let generatedCode = normalizeFileMarkers(data.code);
       const generatedValidationError = validateGeneratedCode(generatedCode, !editMode);
       if (generatedValidationError) throw new Error(`The generated project is invalid: ${generatedValidationError}`);
@@ -360,7 +372,7 @@ const Index = () => {
           code: generatedCode,
           plan: planData?.plan?.implementationPlan,
           existingProject: editMode,
-          provider: generationSettings.provider,
+          provider: actualProvider,
           model: generationSettings.model,
           safety: generationSettings.safety,
         },
@@ -497,7 +509,27 @@ const Index = () => {
     setProjectId(null); setProjectTitle("Untitled Project"); setTitleManuallyEdited(false); setPrompt(""); setLastCode(null); setMessages([]); setVersions([]); setDoc(buildDocFromPrompt("")); setView("studio"); setMobileStudioTab("chat"); discardProjectDraft();
   };
 
+  const snapshotCode = async (code: string | null, action: string) => {
+    if (!code || versions.some((version) => version.code === code)) return;
+    const snapshot: LocalProjectVersion = { id: crypto.randomUUID(), code, prompt: action, createdAt: Date.now() };
+    setVersions((current) => [snapshot, ...current].slice(0, 50));
+    writeLocalVersion(chatKey, snapshot);
+    if (user && projectId && session?.user.id) {
+      const { error } = await supabase.from("project_versions").insert({
+        id: snapshot.id,
+        project_id: projectId,
+        user_id: session.user.id,
+        code: snapshot.code,
+        prompt: snapshot.prompt,
+      });
+      if (error) throw error;
+    }
+  };
+
   const restoreVersion = (version: LocalProjectVersion) => {
+    void snapshotCode(lastCode, `Before restoring: ${version.prompt}`).catch((error: unknown) => {
+      toast({ title: "Version snapshot failed", description: error instanceof Error ? error.message : "Could not preserve the current version.", variant: "destructive" });
+    });
     setLastCode(version.code); setPrompt(version.prompt); setDoc(buildDocFromPrompt(version.prompt, version.code)); setVersionMenuOpen(false);
     if (projectId && session?.user.id) {
       void persistProject({ projectId, userId: session.user.id, title: projectTitle, prompt: version.prompt, code: version.code, messages })
@@ -509,15 +541,31 @@ const Index = () => {
   const deleteVersion = async (version: LocalProjectVersion) => {
     if (!window.confirm("Delete this version and remove its prompt from the chat?")) return;
     const nextVersions = versions.filter((current) => current.id !== version.id);
-    const nextMessages = removeMatchingUserMessages(messages, version.prompt);
+    const nextMessages = removePromptConversationBlocks(messages, version.prompt);
     setVersions(nextVersions);
     setMessages(nextMessages);
     deleteLocalVersion(chatKey, version.id);
     setVersionMenuOpen(false);
     try {
       if (user && projectId && session?.user.id) {
-        await deleteProjectVersion(version.id, session.user.id);
-        await persistProject({ projectId, userId: session.user.id, title: projectTitle, prompt, code: lastCode, messages: nextMessages });
+        if (nextVersions.length === 0) await deleteProject(projectId, session.user.id);
+        else {
+          await deleteProjectVersion(version.id, session.user.id);
+          await persistProject({ projectId, userId: session.user.id, title: projectTitle, prompt, code: lastCode, messages: nextMessages });
+        }
+      }
+      if (nextVersions.length === 0) {
+        setProjectId(null);
+        setProjectTitle("Untitled Project");
+        setTitleManuallyEdited(false);
+        setPrompt("");
+        setLastCode(null);
+        setMessages([]);
+        setVersions([]);
+        setDoc(buildDocFromPrompt(""));
+        setMobileStudioTab("chat");
+        clearLocalVersions(chatKey);
+        discardProjectDraft();
       }
       toast({ title: "Version deleted" });
     } catch (error) {
@@ -549,9 +597,7 @@ const Index = () => {
       const repairedCode = normalizeFileMarkers(data.code);
       const validationError = validateGeneratedCode(repairedCode);
       if (validationError) throw new Error(`The repair returned an invalid project: ${validationError}`);
-      const snapshot: LocalProjectVersion = { id: crypto.randomUUID(), code: lastCode, prompt, createdAt: Date.now() };
-      setVersions((current) => [snapshot, ...current].slice(0, 50));
-      writeLocalVersion(chatKey, snapshot);
+      await snapshotCode(lastCode, `Before AI repair: ${prompt || "manual fix"}`);
       setLastCode(repairedCode);
       setDoc(buildDocFromPrompt(prompt, repairedCode));
 
@@ -719,6 +765,9 @@ const Index = () => {
                         repairAttemptsRef.current = 0;
                         lastReportedRef.current = "";
                         isRepairingRef.current = false;
+                        void snapshotCode(lastCode, `Before code editor save: ${prompt || "manual edit"}`).catch((error: unknown) => {
+                          toast({ title: "Version snapshot failed", description: error instanceof Error ? error.message : "Could not preserve the current version.", variant: "destructive" });
+                        });
                         setLastCode(newCode);
                         setDoc(buildDocFromPrompt(prompt, newCode));
                         if (user && session?.user.id && projectId) {

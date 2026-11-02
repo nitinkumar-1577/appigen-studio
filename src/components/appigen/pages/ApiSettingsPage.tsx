@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Save, Wand2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 import {
   AI_PROVIDERS,
   modelsForProvider,
@@ -19,8 +20,31 @@ const SAFETY: { key: keyof GenerationSettings["safety"]; label: string }[] = [
 ];
 const LEVELS = ["Block none", "Block few", "Block some", "Block most"];
 
+export const healthStatusLabel = (status?: string) => {
+  switch (status) {
+    case "working": return "Working";
+    case "missing": return "Not configured";
+    case "invalid_key": return "Invalid key";
+    case "quota_exhausted": return "Quota exhausted";
+    case "rate_limited": return "Rate limited";
+    case "model_unavailable": return "Model unavailable";
+    case "timeout": return "Timed out";
+    case "network_error": return "Network error";
+    case "request_error": return "Request error";
+    default: return status || "Unknown";
+  }
+};
+
 export const ApiSettingsPage = () => {
   const [settings, setSettings] = useState<GenerationSettings>(() => readGenerationSettings());
+  const [healthLoading, setHealthLoading] = useState(false);
+  const [healthResults, setHealthResults] = useState<Array<{
+    provider: string;
+    label: string;
+    configured: boolean;
+    authentication?: { status: string; detail?: string };
+    generation?: { model: string; status: string; detail?: string };
+  }>>([]);
   const update = (values: Partial<GenerationSettings>) => setSettings((current) => ({ ...current, ...values }));
   const save = () => {
     try {
@@ -29,6 +53,19 @@ export const ApiSettingsPage = () => {
       toast({ title: "API settings saved", description: "New builds will use these model, instruction, and safety settings." });
     } catch (error) {
       toast({ title: "API settings could not be saved", description: error instanceof Error ? error.message : "Browser storage is unavailable.", variant: "destructive" });
+    }
+  };
+  const checkProviders = async () => {
+    setHealthLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("Appigen", { body: { mode: "health" } });
+      if (error) throw error;
+      if (!Array.isArray(data?.results)) throw new Error("The health route returned no provider results.");
+      setHealthResults(data.results);
+    } catch (error) {
+      toast({ title: "Provider health check failed", description: error instanceof Error ? error.message : "Could not check providers.", variant: "destructive" });
+    } finally {
+      setHealthLoading(false);
     }
   };
 
@@ -93,6 +130,35 @@ export const ApiSettingsPage = () => {
 
           <div className="glass rounded-xl p-5 shadow-soft lg:col-span-3">
             <p className="text-xs text-muted-foreground">Provider credentials are managed securely by the server. Changes here are stored in this browser and sent with each new build; secret keys are never shown in the client.</p>
+          </div>
+          <div className="glass space-y-4 rounded-xl p-5 shadow-soft lg:col-span-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold">Provider health</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">Checks configured status, authentication, and a real generation request without exposing secrets.</p>
+              </div>
+              <button onClick={() => void checkProviders()} disabled={healthLoading} className="rounded-lg border border-border px-3 py-2 text-xs font-semibold text-foreground hover:bg-secondary disabled:opacity-50">
+                {healthLoading ? "Checking..." : "Check all providers"}
+              </button>
+            </div>
+            {healthResults.length > 0 && (
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {healthResults.map((result) => (
+                  <div key={result.provider} className="rounded-lg border border-border/70 bg-background/40 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-semibold">{result.label}</span>
+                      <span className={result.configured ? "text-xs text-emerald-400" : "text-xs text-muted-foreground"}>{result.configured ? "Key configured" : "Not configured"}</span>
+                    </div>
+                    <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                      <div>Auth: <strong className="text-foreground">{healthStatusLabel(result.authentication?.status)}</strong></div>
+                      <div>Generation: <strong className="text-foreground">{healthStatusLabel(result.generation?.status)}</strong></div>
+                      <div>Model: <strong className="font-mono text-foreground">{result.generation?.model ?? "—"}</strong></div>
+                      {result.generation?.detail && <div className="break-words text-destructive">{result.generation.detail}</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

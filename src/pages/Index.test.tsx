@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getValidationSummary, removeMatchingUserMessages } from "./Index";
+import { getValidationSummary, removePromptConversationBlocks } from "./Index";
 
 describe("Index review status messaging", () => {
   it("explains that AI review was skipped while local validation passed", () => {
@@ -14,7 +14,7 @@ describe("Index review status messaging", () => {
     expect(getValidationSummary(false, 1)).toContain("Review complete");
   });
 
-  it("removes all copies of the selected version prompt and keeps other chat messages", () => {
+  it("removes complete conversation blocks for the selected prompt", () => {
     const messages = [
       { role: "user" as const, content: "Build the first app", timestamp: 1 },
       { role: "assistant" as const, content: "First app ready", timestamp: 2 },
@@ -23,10 +23,9 @@ describe("Index review status messaging", () => {
       { role: "user" as const, content: "Add a chart", timestamp: 5 },
     ];
 
-    expect(removeMatchingUserMessages(messages, "Add a chart")).toEqual([
+    expect(removePromptConversationBlocks(messages, "Add a chart")).toEqual([
       messages[0],
       messages[1],
-      messages[3],
     ]);
   });
 });

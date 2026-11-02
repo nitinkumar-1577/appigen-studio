@@ -1,5 +1,5 @@
 export const PROVIDER_NAMES = ["groq", "deepseek", "openrouter", "gemini", "openai", "nvidia"] as const;
-export const ACTIVE_PROVIDER_NAMES = ["groq"] as const;
+export const ACTIVE_PROVIDER_NAMES = PROVIDER_NAMES;
 export type ProviderName = (typeof PROVIDER_NAMES)[number];
 
 export type ProviderStatus =
@@ -48,7 +48,10 @@ export const PROVIDER_CATALOG: Record<ProviderName, ProviderConfig> = {
     label: "DeepSeek",
     secretNames: ["DEEPSEEK-API-KEY", "DEEPSEEK_API_KEY"],
     baseUrl: "https://api.deepseek.com",
-    models: [{ id: "deepseek-chat", label: "DeepSeek Chat", default: true }],
+    models: [
+      { id: "deepseek-flash", label: "DeepSeek Flash" },
+      { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro", default: true },
+    ],
     supportsModelListing: true,
     protocol: "openai",
   },

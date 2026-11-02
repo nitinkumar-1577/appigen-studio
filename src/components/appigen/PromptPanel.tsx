@@ -18,8 +18,6 @@ interface PromptPanelProps {
   onPromptChange: (v: string) => void;
 }
 
-const CONTEXT_LIMIT = 8000;
-
 const STAGES = ["Sketch", "Wire up State", "Polish UI"] as const;
 type Stage = typeof STAGES[number];
 const BUILD_STAGES = ["Planning", "Generating", "Reviewing", "Validating"] as const;
@@ -118,8 +116,6 @@ export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuild
   }, []);
 
   const used = prompt.length;
-  const pct = Math.min(100, Math.round((used / CONTEXT_LIMIT) * 100));
-  const barColor = pct < 60 ? "bg-gradient-primary" : pct < 85 ? "bg-warning" : "bg-danger";
   const activeBuildStage = BUILD_STAGES.indexOf(progressStage as typeof BUILD_STAGES[number]);
 
   const handleAttach = () => fileRef.current?.click();
@@ -127,12 +123,7 @@ export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuild
     const f = e.target.files?.[0]; if (!f) return;
     if (f.size > 200_000) { toast({ title: "File too large", description: "Attach files under 200KB.", variant: "destructive" }); return; }
     const text = await f.text();
-    const attachment = `\n\n--- Attached: ${f.name} ---\n${text.slice(0, 4000)}`;
-    if (prompt.length + attachment.length > CONTEXT_LIMIT) {
-      toast({ title: "Prompt limit reached", description: "There is not enough room to attach this file within the 8,000-character limit.", variant: "destructive" });
-      e.target.value = "";
-      return;
-    }
+    const attachment = `\n\n--- Attached: ${f.name} ---\n${text}`;
     onPromptChange(`${prompt}${attachment}`);
     toast({ title: "📎 Attached", description: f.name });
     e.target.value = "";
@@ -262,11 +253,10 @@ export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuild
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
-              if (!isBuilding && prompt.trim() && used <= CONTEXT_LIMIT) onBuild(stage);
+              if (!isBuilding && prompt.trim()) onBuild(stage);
             }
           }}
           rows={3}
-          maxLength={CONTEXT_LIMIT}
           disabled={isBuilding}
           aria-label={hasCode ? "Describe an edit to this project" : "Describe the app to build"}
           placeholder={hasCode ? "Describe a change to your app…" : PROMPT_IDEAS[ideaIndex]}
@@ -285,18 +275,15 @@ export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuild
             </button>
           </div>
           <div className="flex items-center gap-2">
-            {isBuilding ? <Button variant="danger" size="md" onClick={onStop}>Stop</Button> : <Button variant="primary" size="md" onClick={() => onBuild(stage)} disabled={!prompt.trim() || used > CONTEXT_LIMIT} className="pulse-ring relative">
+            {isBuilding ? <Button variant="danger" size="md" onClick={onStop}>Stop</Button> : <Button variant="primary" size="md" onClick={() => onBuild(stage)} disabled={!prompt.trim()} className="pulse-ring relative">
               <Send className="h-4 w-4" />{hasCode ? "Send" : "Build"}
             </Button>}
           </div>
         </div>
         <div className="mt-1 px-1">
           <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-            <span className="font-mono">Prompt credits</span>
-            <span className="font-mono"><span className={used > CONTEXT_LIMIT ? "text-destructive font-semibold" : "text-foreground"}>{used.toLocaleString()}</span> / {CONTEXT_LIMIT.toLocaleString()} credits</span>
-          </div>
-          <div className="mt-1 h-1 overflow-hidden rounded-full bg-secondary">
-            <div className={cn("h-full rounded-full transition-all", used > CONTEXT_LIMIT ? "bg-danger" : barColor)} style={{ width: `${pct}%` }} />
+            <span className="font-mono">Prompt characters</span>
+            <span className="font-mono text-foreground">{used.toLocaleString()}</span>
           </div>
         </div>
       </div>
