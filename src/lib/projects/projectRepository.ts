@@ -24,6 +24,11 @@ export interface StoredProject {
   updated_at: string;
 }
 
+export type ProjectSummary = Pick<
+  StoredProject,
+  "id" | "user_id" | "title" | "prompt" | "code" | "thumbnail" | "created_at" | "updated_at"
+>;
+
 const toJson = (value: unknown): Json => value as Json;
 
 export const extractProjectFiles = (code: string): Record<string, string> => {
@@ -65,6 +70,16 @@ export const loadMostRecentProject = async (userId: string): Promise<StoredProje
   if (error) throw error;
   if (!data) return null;
   return loadProject(data.id, userId);
+};
+
+export const loadProjects = async (userId: string): Promise<ProjectSummary[]> => {
+  const { data, error } = await supabase
+    .from("projects")
+    .select("id, user_id, title, prompt, code, thumbnail, created_at, updated_at")
+    .eq("user_id", userId)
+    .order("updated_at", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
 };
 
 export const persistProject = async (input: {

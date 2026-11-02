@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Search, ChevronDown, Play, Pencil, Plus, Loader2, Inbox, Trash2 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import { useApp } from "../AppContext";
 import { toast } from "@/hooks/use-toast";
 import type { ViewKey } from "../Sidebar";
+import { loadProjects } from "@/lib/projects/projectRepository";
+import { supabase } from "@/integrations/supabase/client";
 
 type Sort = "newest" | "name";
 
@@ -39,15 +40,12 @@ export const MyAppsPage = ({ onNavigate, onOpenSignIn, onOpenProject }: MyAppsPa
   const load = useCallback(async () => {
     if (!user || !session?.user.id) { setRows([]); setLoading(false); return; }
     setLoading(true);
-    const { data, error } = await supabase
-      .from("projects")
-      .select("id, title, prompt, code, thumbnail, created_at, updated_at")
-      .eq("user_id", session.user.id)
-      .order("updated_at", { ascending: false });
-    if (error) {
-      toast({ title: "Couldn't load projects", description: error.message, variant: "destructive" });
+    try {
+      setRows(await loadProjects(session.user.id));
+    } catch (error) {
+      toast({ title: "Couldn't load projects", description: error instanceof Error ? error.message : "Could not load your projects.", variant: "destructive" });
+      setRows([]);
     }
-    setRows((data ?? []) as ProjectRow[]);
     setLoading(false);
   }, [session?.user.id, user]);
 

@@ -26,7 +26,7 @@ import { createRunnableProjectZip } from "@/lib/projects/exportProject";
 import { isNewAppPrompt } from "@/lib/projects/promptIntent";
 import { formatImplementationPlan } from "@/lib/projects/implementationPlan";
 import { clearLocalVersions, discardProjectDraft, readLocalVersionsForProject, readProjectDraft, writeLocalVersion, writeProjectDraft, writeProjectMessages, type ChatMessage, type LocalProjectVersion } from "@/lib/projects/projectStorage";
-import { loadProject, loadProjectVersions, persistActivity, persistProject } from "@/lib/projects/projectRepository";
+import { loadMostRecentProject, loadProject, loadProjectVersions, persistActivity, persistProject } from "@/lib/projects/projectRepository";
 import { readAppPreferences, readGenerationSettings, recordActivity } from "@/lib/appPreferences";
 import { trackAnonymousUsage } from "@/lib/telemetry";
 
@@ -131,26 +131,6 @@ const Index = () => {
   }, [authReady, user, projectId, projectTitle, prompt, lastCode, messages, versions]);
   const [accountProjectLoading, setAccountProjectLoading] = useState(false);
   useEffect(() => {
-    if (!authReady || !user || !session?.user.id || accountProjectLoading) return;
-    if (!readAppPreferences().autoDraft) {
-      const existingDraft = readProjectDraft();
-      if (existingDraft?.code) writeProjectDraft({ ...existingDraft, prompt: "", updatedAt: Date.now() });
-      else discardProjectDraft();
-      return;
-    }
-    writeProjectDraft({
-      projectId,
-      ownerId: session.user.id,
-      title: projectTitle,
-      prompt,
-      code: lastCode,
-      messages,
-      versions,
-      updatedAt: Date.now(),
-    });
-  }, [authReady, user, session?.user.id, accountProjectLoading, projectId, projectTitle, prompt, lastCode, messages, versions]);
-
-  useEffect(() => {
     if (!authReady) return;
     let cancelled = false;
     if (!user || !session?.user.id) {
@@ -177,9 +157,31 @@ const Index = () => {
     setVersions([]);
     setDoc(buildDocFromPrompt(""));
     previousUserRef.current = true;
-    setAccountProjectLoading(false);
+    setAccountProjectLoading(true);
+    void loadMostRecentProject(session.user.id)
+    .then(async (project) => {
+      if (cancelled || !project) return;
+      const projectVersions = await loadProjectVersions(project.id, session.user.id);
+      if (cancelled) return;
+      setProjectId(project.id);
+      setProjectTitle(project.title);
+      setTitleManuallyEdited(true);
+      setPrompt(project.prompt);
+      setLastCode(project.code);
+      setMessages(project.messages);
+      setVersions(projectVersions);
+      setDoc(buildDocFromPrompt(project.prompt, project.code));
+    })
+    .catch((error: unknown) => {
+      if (!cancelled) {
+        toast({ title: "Couldn't restore your latest project", description: error instanceof Error ? error.message : "Your projects are still available in My Apps.", variant: "destructive" });
+      }
+    })
+    .finally(() => {
+      if (!cancelled) setAccountProjectLoading(false);
+    });
     return () => { cancelled = true; };
-  }, [authReady, session?.user.id, user]);
+  }, [authReady, session?.user.id]);
 
   useEffect(() => {
     if (!authReady || !user || !session?.user.id || !projectId || !lastCode || !messages.length) return;
