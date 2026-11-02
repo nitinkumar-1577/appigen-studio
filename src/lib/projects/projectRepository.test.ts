@@ -71,6 +71,24 @@ describe("project repository account ownership", () => {
     expect(detailQuery.eq).toHaveBeenCalledWith("user_id", "user-a");
   });
 
+  it("restores the complete stored file map when marker code is unavailable", async () => {
+    const stored = {
+      ...project,
+      code: "export default function App() { return null; }",
+      files: {
+        "src/App.tsx": "export default function App() { return <Layout />; }",
+        "src/components/Layout.tsx": "export default function Layout() { return null; }",
+      },
+    };
+    const query = createQuery({ data: stored, error: null });
+    mocks.from.mockReturnValue(query);
+
+    const loaded = await loadProject("project-a", "user-a");
+
+    expect(loaded.files["src/components/Layout.tsx"]).toContain("Layout");
+    expect(loaded.code).toContain("// FILE: src/components/Layout.tsx");
+  });
+
   it("rejects opening a project outside the active account scope", async () => {
     const query = createQuery({ data: null, error: new Error("Project not found") });
     mocks.from.mockReturnValue(query);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeFileMarkers, parseFileMarkers, updateProjectFile } from "./parseFileMarkers";
+import { formatFileMarkers, normalizeFileMarkers, parseFileMarkers, updateProjectFile } from "./parseFileMarkers";
 
 describe("project source editing", () => {
   it("normalizes markdown-style file markers returned by repair models", () => {
@@ -45,5 +45,13 @@ export default function Header() { return <h1>Old</h1>; }`;
   it("rejects updates to files that are not in the project", () => {
     expect(() => updateProjectFile("// FILE: src/App.tsx\nexport default function App() {}", "src/Missing.tsx", ""))
       .toThrow("the file is not part of the project source");
+  });
+
+  it("formats a complete nested file map into compatible markers", () => {
+    const formatted = formatFileMarkers({
+      "src/App.tsx": "export default function App() {}",
+      "src/components/Button.tsx": "export const Button = () => null;",
+    });
+    expect(parseFileMarkers(formatted)?.files["src/components/Button.tsx"]).toContain("Button");
   });
 });

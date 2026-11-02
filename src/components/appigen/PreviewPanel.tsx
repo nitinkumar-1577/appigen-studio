@@ -58,6 +58,16 @@ const buildTree = (appCode: string): FileNode => {
       } else parent = node;
     });
   });
+  const sortNodes = (nodes: FileNode[]) => {
+    nodes.sort((a, b) => {
+      const aFolder = Boolean(a.children);
+      const bFolder = Boolean(b.children);
+      if (aFolder !== bFolder) return aFolder ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+    nodes.forEach((node) => node.children && sortNodes(node.children));
+  };
+  sortNodes(root.children ?? []);
   return root;
 };
 

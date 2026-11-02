@@ -1,7 +1,7 @@
 import type { Json } from "@/integrations/supabase/types";
 import { supabase } from "@/integrations/supabase/client";
 import type { ActivityEntry } from "@/lib/appPreferences";
-import { parseFileMarkers } from "@/lib/preview/parseFileMarkers";
+import { formatFileMarkers, parseFileMarkers } from "@/lib/preview/parseFileMarkers";
 import {
   discardProjectDraft,
   readProjectDraft,
@@ -47,9 +47,12 @@ export const loadProject = async (projectId: string, userId: string): Promise<St
   const fileMap = typeof data.files === "object" && data.files !== null && !Array.isArray(data.files)
     ? Object.fromEntries(Object.entries(data.files).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
     : {};
+  const parsedCode = parseFileMarkers(data.code);
+  const files = Object.keys(fileMap).length ? fileMap : parsedCode?.files ?? extractProjectFiles(data.code);
   return {
     ...data,
-    files: Object.keys(fileMap).length ? fileMap : extractProjectFiles(data.code),
+    code: Object.keys(fileMap).length && !parsedCode ? formatFileMarkers(fileMap) : data.code,
+    files,
     messages: Array.isArray(data.messages)
       ? data.messages.filter((entry): entry is ChatMessage =>
         typeof entry === "object" && entry !== null && !Array.isArray(entry) &&

@@ -3,6 +3,12 @@ export function normalizeFileMarkers(raw: string): string {
   return raw.replace(/^\s*#\s*FILE:/gim, "// FILE:");
 }
 
+export function formatFileMarkers(files: Record<string, string>): string {
+  return Object.entries(files)
+    .map(([path, content]) => `// FILE: ${path}\n${content}`)
+    .join("\n\n");
+}
+
 export function parseFileMarkers(raw: string): { files: Record<string, string>; entry: string } | null {
   const normalized = normalizeFileMarkers(raw || "");
   if (!normalized || !/^\s*\/\/\s*FILE:/m.test(normalized)) return null;
@@ -35,7 +41,5 @@ export function updateProjectFile(raw: string, path: string, content: string): s
     throw new Error(`Cannot update ${path}: the file is not part of the project source.`);
   }
 
-  return Object.entries({ ...parsed.files, [path]: content })
-    .map(([filePath, fileContent]) => `// FILE: ${filePath}\n${fileContent}`)
-    .join("\n\n");
+  return formatFileMarkers({ ...parsed.files, [path]: content });
 }
