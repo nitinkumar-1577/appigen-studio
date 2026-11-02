@@ -59,6 +59,9 @@ export type Database = {
           title: string
           updated_at: string
           user_id: string
+          deleted_at: string | null
+          files: Json
+          messages: Json
         }
         Insert: {
           code: string
@@ -69,6 +72,9 @@ export type Database = {
           title?: string
           updated_at?: string
           user_id: string
+          deleted_at?: string | null
+          files?: Json
+          messages?: Json
         }
         Update: {
           code?: string
@@ -79,6 +85,9 @@ export type Database = {
           title?: string
           updated_at?: string
           user_id?: string
+          deleted_at?: string | null
+          files?: Json
+          messages?: Json
         }
         Relationships: []
       }

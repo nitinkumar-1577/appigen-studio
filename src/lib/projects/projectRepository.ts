@@ -22,11 +22,12 @@ export interface StoredProject {
   thumbnail: string | null;
   created_at: string;
   updated_at: string;
+  deleted_at: string | null;
 }
 
 export type ProjectSummary = Pick<
   StoredProject,
-  "id" | "user_id" | "title" | "prompt" | "code" | "thumbnail" | "created_at" | "updated_at"
+  "id" | "user_id" | "title" | "prompt" | "code" | "thumbnail" | "created_at" | "updated_at" | "deleted_at"
 >;
 
 const toJson = (value: unknown): Json => value as Json;
@@ -39,9 +40,10 @@ export const extractProjectFiles = (code: string): Record<string, string> => {
 export const loadProject = async (projectId: string, userId: string): Promise<StoredProject> => {
   const { data, error } = await supabase
     .from("projects")
-    .select("id, user_id, title, prompt, code, files, messages, thumbnail, created_at, updated_at")
+    .select("id, user_id, title, prompt, code, files, messages, thumbnail, created_at, updated_at, deleted_at")
     .eq("id", projectId)
     .eq("user_id", userId)
+    .is("deleted_at", null)
     .single();
   if (error) throw error;
   const fileMap = typeof data.files === "object" && data.files !== null && !Array.isArray(data.files)
@@ -65,8 +67,9 @@ export const loadProject = async (projectId: string, userId: string): Promise<St
 export const loadMostRecentProject = async (userId: string): Promise<StoredProject | null> => {
   const { data, error } = await supabase
     .from("projects")
-    .select("id, user_id, title, prompt, code, files, messages, thumbnail, created_at, updated_at")
+    .select("id, user_id, title, prompt, code, files, messages, thumbnail, created_at, updated_at, deleted_at")
     .eq("user_id", userId)
+    .is("deleted_at", null)
     .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -78,8 +81,9 @@ export const loadMostRecentProject = async (userId: string): Promise<StoredProje
 export const loadProjects = async (userId: string): Promise<ProjectSummary[]> => {
   const { data, error } = await supabase
     .from("projects")
-    .select("id, user_id, title, prompt, code, thumbnail, created_at, updated_at")
+    .select("id, user_id, title, prompt, code, thumbnail, created_at, updated_at, deleted_at")
     .eq("user_id", userId)
+    .is("deleted_at", null)
     .order("updated_at", { ascending: false });
   if (error) throw error;
   return data ?? [];
@@ -92,6 +96,7 @@ export const persistProject = async (input: {
   prompt: string;
   code: string;
   messages: ChatMessage[];
+  expectedUpdatedAt?: string;
 }): Promise<string> => {
   const targetId = input.projectId ?? crypto.randomUUID();
   const values = {
@@ -102,14 +107,35 @@ export const persistProject = async (input: {
     messages: toJson(input.messages),
   };
   try {
-    const { data, error } = await supabase
-      .from("projects")
-      .upsert(
-        { ...values, id: targetId, user_id: input.userId },
-        { onConflict: "id" },
-      )
-      .select("id")
-      .single();
+    let data: { id: string } | null = null;
+    let error: Error | null = null;
+    if (input.projectId) {
+      let existingQuery = supabase.from("projects")
+        .select("id, updated_at, deleted_at")
+        .eq("id", targetId)
+        .eq("user_id", input.userId)
+        .is("deleted_at", null);
+      if (input.expectedUpdatedAt) existingQuery = existingQuery.eq("updated_at", input.expectedUpdatedAt);
+      const result = await existingQuery.maybeSingle();
+      if (result.error) throw result.error;
+      if (!result.data) throw new Error("This project changed or was deleted in another session. Refresh before saving.");
+      const updated = await supabase.from("projects")
+        .update(values)
+        .eq("id", targetId)
+        .eq("user_id", input.userId)
+        .is("deleted_at", null)
+        .select("id")
+        .single();
+      data = updated.data;
+      error = updated.error;
+    } else {
+      const inserted = await supabase.from("projects")
+        .insert({ ...values, id: targetId, user_id: input.userId, deleted_at: null })
+        .select("id")
+        .single();
+      data = inserted.data;
+      error = inserted.error;
+    }
     if (error) throw error;
     const pendingDraft = readProjectDraft();
     if (
@@ -121,7 +147,7 @@ export const persistProject = async (input: {
     ) {
       discardProjectDraft();
     }
-    return data.id;
+    return data?.id ?? targetId;
   } catch (error) {
     writeProjectDraft({
       projectId: targetId,
@@ -200,8 +226,46 @@ export const deleteProjectVersion = async (versionId: string, userId: string) =>
 export const deleteProject = async (projectId: string, userId: string) => {
   const { error } = await supabase
     .from("projects")
-    .delete()
+    .update({ deleted_at: new Date().toISOString() })
     .eq("id", projectId)
-    .eq("user_id", userId);
+    .eq("user_id", userId)
+    .is("deleted_at", null);
   if (error) throw error;
+};
+
+export const softDeleteProject = deleteProject;
+
+export type ProjectSyncEvent = {
+  refreshProjects: () => Promise<void>;
+  refreshProject: (projectId: string) => Promise<void>;
+  refreshVersions: (projectId: string) => Promise<void>;
+  onDisconnected?: () => void;
+};
+
+export const subscribeToProjectSync = (userId: string, events: ProjectSyncEvent) => {
+  let disconnected = false;
+  const channel = supabase
+    .channel(`project-sync-${userId}`)
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "projects", filter: `user_id=eq.${userId}` }, () => void events.refreshProjects())
+    .on("postgres_changes", { event: "UPDATE", schema: "public", table: "projects", filter: `user_id=eq.${userId}` }, (payload) => {
+      const projectId = typeof payload.new?.id === "string" ? payload.new.id : typeof payload.old?.id === "string" ? payload.old.id : "";
+      if (projectId) void events.refreshProject(projectId);
+      void events.refreshProjects();
+    })
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "project_versions", filter: `user_id=eq.${userId}` }, (payload) => {
+      const projectId = typeof payload.new?.project_id === "string" ? payload.new.project_id : "";
+      if (projectId) void events.refreshVersions(projectId);
+    })
+    .subscribe((status) => {
+      disconnected = status !== "SUBSCRIBED";
+      if (disconnected) events.onDisconnected?.();
+      else void events.refreshProjects();
+    });
+  const interval = window.setInterval(() => {
+    if (disconnected) void events.refreshProjects();
+  }, 15000);
+  return () => {
+    window.clearInterval(interval);
+    void supabase.removeChannel(channel);
+  };
 };

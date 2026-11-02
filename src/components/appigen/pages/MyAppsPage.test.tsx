@@ -4,6 +4,8 @@ import { MyAppsPage } from "./MyAppsPage";
 
 const mocks = vi.hoisted(() => ({
   loadProjects: vi.fn(),
+  softDeleteProject: vi.fn(),
+  subscribeToProjectSync: vi.fn(() => () => {}),
   state: {
     user: { name: "User A", email: "a@example.com" },
     session: { user: { id: "user-a" } },
@@ -16,21 +18,11 @@ vi.mock("../AppContext", () => ({
 
 vi.mock("@/lib/projects/projectRepository", () => ({
   loadProjects: mocks.loadProjects,
+  softDeleteProject: mocks.softDeleteProject,
+  subscribeToProjectSync: mocks.subscribeToProjectSync,
 }));
 
 vi.mock("@/hooks/use-toast", () => ({ toast: vi.fn() }));
-
-vi.mock("@/integrations/supabase/client", () => ({
-  supabase: {
-    from: vi.fn(() => ({
-      delete: () => ({
-        eq: () => ({
-          eq: () => Promise.resolve({ error: null }),
-        }),
-      }),
-    })),
-  },
-}));
 
 const projectFor = (userId: string, title: string) => ({
   id: `${userId}-project`,
@@ -41,6 +33,7 @@ const projectFor = (userId: string, title: string) => ({
   thumbnail: null,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-02T00:00:00Z",
+  deleted_at: null,
 });
 
 describe("MyAppsPage account visibility", () => {

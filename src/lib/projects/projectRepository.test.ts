@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { loadMostRecentProject, loadProjects, loadProject, persistProject } from "./projectRepository";
+import { deleteProject, loadMostRecentProject, loadProjects, loadProject, persistProject } from "./projectRepository";
 
 const mocks = vi.hoisted(() => ({
   from: vi.fn(),
@@ -20,6 +20,7 @@ const project = {
   thumbnail: null,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-02T00:00:00Z",
+  deleted_at: null,
 };
 
 const createQuery = (result: { data?: unknown; error: unknown }) => {
@@ -31,6 +32,9 @@ const createQuery = (result: { data?: unknown; error: unknown }) => {
     single: vi.fn(),
     maybeSingle: vi.fn(),
     upsert: vi.fn(),
+    insert: vi.fn(),
+    update: vi.fn(),
+    is: vi.fn(),
     then: (resolve: (value: typeof result) => unknown) => Promise.resolve(result).then(resolve),
   };
   query.select.mockReturnValue(query);
@@ -38,6 +42,9 @@ const createQuery = (result: { data?: unknown; error: unknown }) => {
   query.order.mockReturnValue(query);
   query.limit.mockReturnValue(query);
   query.upsert.mockReturnValue(query);
+  query.insert.mockReturnValue(query);
+  query.update.mockReturnValue(query);
+  query.is.mockReturnValue(query);
   query.single.mockResolvedValue(result);
   query.maybeSingle.mockResolvedValue(result);
   return query;
@@ -112,9 +119,20 @@ describe("project repository account ownership", () => {
     });
 
     expect(id).toBe("project-new");
-    expect(query.upsert).toHaveBeenCalledWith(
+    expect(query.insert).toHaveBeenCalledWith(
       expect.objectContaining({ user_id: "user-a", title: "New app" }),
-      { onConflict: "id" },
     );
+  });
+
+  it("soft-deletes only the active account's project", async () => {
+    const query = createQuery({ data: null, error: null });
+    mocks.from.mockReturnValue(query);
+
+    await deleteProject("project-a", "user-a");
+
+    expect(query.update).toHaveBeenCalledWith(expect.objectContaining({ deleted_at: expect.any(String) }));
+    expect(query.eq).toHaveBeenCalledWith("id", "project-a");
+    expect(query.eq).toHaveBeenCalledWith("user_id", "user-a");
+    expect(query.is).toHaveBeenCalledWith("deleted_at", null);
   });
 });

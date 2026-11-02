@@ -3,8 +3,7 @@ import { Search, ChevronDown, Play, Pencil, Plus, Loader2, Inbox, Trash2 } from 
 import { useApp } from "../AppContext";
 import { toast } from "@/hooks/use-toast";
 import type { ViewKey } from "../Sidebar";
-import { loadProjects } from "@/lib/projects/projectRepository";
-import { supabase } from "@/integrations/supabase/client";
+import { loadProjects, softDeleteProject, subscribeToProjectSync } from "@/lib/projects/projectRepository";
 
 type Sort = "newest" | "name";
 
@@ -51,6 +50,24 @@ export const MyAppsPage = ({ onNavigate, onOpenSignIn, onOpenProject }: MyAppsPa
 
   useEffect(() => { void load(); }, [load]);
 
+  useEffect(() => {
+    if (!session?.user.id) return;
+    const refresh = () => void load();
+    const onVisibility = () => { if (document.visibilityState === "visible") refresh(); };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", onVisibility);
+    const unsubscribe = subscribeToProjectSync(session.user.id, {
+      refreshProjects: async () => { await load(); },
+      refreshProject: async () => { await load(); },
+      refreshVersions: async () => {},
+    });
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", onVisibility);
+      unsubscribe();
+    };
+  }, [load, session?.user.id]);
+
   const list = useMemo(() => {
     const f = rows.filter((a) => a.title.toLowerCase().includes(q.toLowerCase()));
     return f.sort((a, b) =>
@@ -74,12 +91,12 @@ export const MyAppsPage = ({ onNavigate, onOpenSignIn, onOpenProject }: MyAppsPa
   const handleDelete = async (id: string) => {
     const prev = rows;
     setRows((r) => r.filter((x) => x.id !== id));
-    const { error } = await supabase.from("projects").delete().eq("id", id).eq("user_id", session?.user.id ?? "");
-    if (error) {
-      setRows(prev);
-      toast({ title: "Delete failed", description: error.message, variant: "destructive" });
-    } else {
+    try {
+      await softDeleteProject(id, session?.user.id ?? "");
       toast({ title: "🗑️ Project deleted" });
+    } catch (error) {
+      setRows(prev);
+      toast({ title: "Delete failed", description: error instanceof Error ? error.message : "The project could not be deleted.", variant: "destructive" });
     }
   };
 
