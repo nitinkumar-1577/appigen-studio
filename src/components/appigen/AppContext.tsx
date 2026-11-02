@@ -31,6 +31,8 @@ interface AppContextValue {
   user: User | null;
   session: Session | null;
   authReady: boolean;
+  recoveryPending: boolean;
+  clearRecoveryPending: () => void;
   signOut: () => Promise<void>;
 
   notifications: AppNotification[];
@@ -84,6 +86,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
+  const [recoveryPending, setRecoveryPending] = useState(false);
 
   const [notifications, setNotifications] = useState<AppNotification[]>(() => {
     try { const v = localStorage.getItem(LS.notif); return v ? JSON.parse(v) : []; } catch { return []; }
@@ -105,10 +108,11 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
   // Auth listener BEFORE getSession
   useEffect(() => {
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, newSession) => {
       setSession(newSession);
       setUser(toAppUser(newSession?.user));
       setAuthReady(true);
+      if (event === "PASSWORD_RECOVERY") setRecoveryPending(true);
     });
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
@@ -130,6 +134,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     user,
     session,
     authReady,
+    recoveryPending,
+    clearRecoveryPending: () => setRecoveryPending(false),
     signOut: async () => { await supabase.auth.signOut(); },
     notifications,
     unreadCount: notifications.filter((n) => !n.read).length,

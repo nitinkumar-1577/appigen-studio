@@ -8,15 +8,17 @@ import { getAuthRedirectUrl } from "@/lib/auth/authRedirect";
 
 interface AuthModalProps {
   open: boolean;
+  recoveryPending?: boolean;
+  onRecoveryHandled?: () => void;
   onClose: () => void;
 }
 
 type Screen = "signin" | "signup" | "forgot" | "reset";
 type AuthMode = "password" | "otp";
 
-const validEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+export const validEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 
-export const AuthModal = ({ open, onClose }: AuthModalProps) => {
+export const AuthModal = ({ open, recoveryPending = false, onRecoveryHandled, onClose }: AuthModalProps) => {
   const [screen, setScreen] = useState<Screen>("signin");
   const [mode, setMode] = useState<AuthMode>("password");
   const [email, setEmail] = useState("");
@@ -29,22 +31,11 @@ export const AuthModal = ({ open, onClose }: AuthModalProps) => {
   const [notice, setNotice] = useState("");
   const [otpStep, setOtpStep] = useState<"email" | "code">("email");
   const [otp, setOtp] = useState("");
-  const [recoveryPending, setRecoveryPending] = useState(false);
-
-  useEffect(() => {
-    const { data } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY") {
-        setRecoveryPending(true);
-      }
-    });
-    return () => data.subscription.unsubscribe();
-  }, []);
-
   useEffect(() => {
     if (open && recoveryPending) {
       setScreen("reset");
       setNotice("Choose a new password for your account.");
-      setRecoveryPending(false);
+      onRecoveryHandled?.();
     }
     if (!open) {
       setScreen("signin");
@@ -58,7 +49,7 @@ export const AuthModal = ({ open, onClose }: AuthModalProps) => {
       setOtpStep("email");
       setOtp("");
     }
-  }, [open, recoveryPending]);
+  }, [open, recoveryPending, onRecoveryHandled]);
 
   if (!open) return null;
 
@@ -132,7 +123,7 @@ export const AuthModal = ({ open, onClose }: AuthModalProps) => {
       setScreen("signin");
       return;
     }
-    if (!data.session) {
+    if (!data.session || !data.user.email_confirmed_at) {
       setNotice("Account created. Check your email and confirm your address before signing in.");
     } else {
       toast({ title: "Account created", description: "Welcome to AppiGen." });
@@ -211,7 +202,10 @@ export const AuthModal = ({ open, onClose }: AuthModalProps) => {
     setBusy(true);
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
-      options: { redirectTo: getAuthRedirectUrl() },
+      options: {
+        redirectTo: getAuthRedirectUrl(),
+        ...(provider === "google" ? { queryParams: { prompt: "select_account" } } : {}),
+      },
     });
     if (error) {
       setBusy(false);

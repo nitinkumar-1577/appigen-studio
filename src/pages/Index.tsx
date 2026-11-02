@@ -100,7 +100,7 @@ const Index = () => {
   const previousUserRef = useRef(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [mobileStudioTab, setMobileStudioTab] = useState<"chat" | "preview">(initialDraft?.code ? "preview" : "chat");
-  const { user, session, authReady, addNotification } = useApp();
+  const { user, session, authReady, recoveryPending, clearRecoveryPending, addNotification } = useApp();
   const promptActivityTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
@@ -109,6 +109,10 @@ const Index = () => {
       setGithubOpen(true);
     }
   }, [session]);
+
+  useEffect(() => {
+    if (recoveryPending) setAuthOpen(true);
+  }, [recoveryPending]);
 
   const chatKey = projectId || "local:current";
   useEffect(() => {
@@ -746,7 +750,12 @@ const Index = () => {
         </div>
       </div>
 
-      <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} />
+      <AuthModal
+        open={authOpen}
+        recoveryPending={recoveryPending}
+        onRecoveryHandled={clearRecoveryPending}
+        onClose={() => setAuthOpen(false)}
+      />
       <PricingModal open={pricingOpen} onClose={() => setPricingOpen(false)} />
       <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <GithubModal open={githubOpen} onClose={() => setGithubOpen(false)} code={lastCode} projectTitle={projectTitle} />
