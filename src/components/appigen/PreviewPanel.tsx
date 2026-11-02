@@ -11,6 +11,7 @@ import {
   FileCode2,
   Save,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
@@ -26,6 +27,7 @@ interface PreviewPanelProps {
   onCodeChange?: (code: string) => void;
   versions: LocalProjectVersion[];
   onRestoreVersion: (version: LocalProjectVersion) => void;
+  onDeleteVersion: (version: LocalProjectVersion) => void;
   onManualFix: () => void;
   fixing: boolean;
 }
@@ -105,7 +107,7 @@ const FileTreeItem = ({
   );
 };
 
-export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChange, versions, onRestoreVersion, onManualFix, fixing }: PreviewPanelProps) => {
+export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChange, versions, onRestoreVersion, onDeleteVersion, onManualFix, fixing }: PreviewPanelProps) => {
   const [tab, setTab] = useState<Tab>("preview");
   const [versionMenuOpen, setVersionMenuOpen] = useState(false);
   const [nonce, setNonce] = useState(0);
@@ -229,9 +231,21 @@ export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChan
             {versions.length > 0 && <div className="relative">
               <Button variant="secondary" size="sm" onClick={() => setVersionMenuOpen((open) => !open)} aria-expanded={versionMenuOpen}>Versions ({versions.length})</Button>
               {versionMenuOpen && <div className="absolute right-0 top-11 z-20 max-h-72 w-[min(20rem,calc(100vw-2rem))] overflow-auto rounded-lg border border-border bg-surface-elevated p-1 shadow-elevated">
-                {versions.map((version) => <button key={version.id} onClick={() => onRestoreVersion(version)} className="flex min-h-10 w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-xs text-foreground hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  <span className="truncate">{version.prompt}</span><time className="shrink-0 text-muted-foreground">{new Date(version.createdAt).toLocaleString()}</time>
-                </button>)}
+                {versions.map((version) => (
+                  <div key={version.id} className="flex min-h-10 items-center gap-2 rounded-md px-2 py-1 hover:bg-secondary">
+                    <button onClick={() => onRestoreVersion(version)} className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-md px-1 py-1 text-left text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                      <span className="truncate">{version.prompt}</span><time className="shrink-0 text-muted-foreground">{new Date(version.createdAt).toLocaleString()}</time>
+                    </button>
+                    <button
+                      onClick={() => onDeleteVersion(version)}
+                      aria-label={`Delete version ${version.prompt}`}
+                      title="Delete version"
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/15 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
               </div>}
             </div>}
             {tab === "preview" && code && <Button variant="secondary" size="sm" onClick={onManualFix} loading={fixing}>Fix with AI</Button>}

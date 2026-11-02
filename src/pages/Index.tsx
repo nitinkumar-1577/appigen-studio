@@ -25,8 +25,8 @@ import { getFunctionErrorMessage } from "@/lib/supabase/functionError";
 import { createRunnableProjectZip } from "@/lib/projects/exportProject";
 import { isNewAppPrompt } from "@/lib/projects/promptIntent";
 import { formatImplementationPlan } from "@/lib/projects/implementationPlan";
-import { clearLocalVersions, discardProjectDraft, readLocalVersionsForProject, readProjectDraft, writeLocalVersion, writeProjectDraft, writeProjectMessages, type ChatMessage, type LocalProjectVersion } from "@/lib/projects/projectStorage";
-import { loadMostRecentProject, loadProject, loadProjectVersions, persistActivity, persistProject } from "@/lib/projects/projectRepository";
+import { clearLocalVersions, deleteLocalVersion, discardProjectDraft, readLocalVersionsForProject, readProjectDraft, writeLocalVersion, writeProjectDraft, writeProjectMessages, type ChatMessage, type LocalProjectVersion } from "@/lib/projects/projectStorage";
+import { deleteProjectVersion, loadMostRecentProject, loadProject, loadProjectVersions, persistActivity, persistProject } from "@/lib/projects/projectRepository";
 import { readAppPreferences, readGenerationSettings, recordActivity } from "@/lib/appPreferences";
 import { trackAnonymousUsage } from "@/lib/telemetry";
 
@@ -503,6 +503,30 @@ const Index = () => {
     toast({ title: "Version restored" });
   };
 
+  const deleteVersion = async (version: LocalProjectVersion) => {
+    if (!window.confirm("Delete this version and remove its prompt from the chat?")) return;
+    const nextVersions = versions.filter((current) => current.id !== version.id);
+    const messageIndex = [...messages].map((message, index) => ({ message, index }))
+      .reverse()
+      .find(({ message }) => message.role === "user" && message.content === version.prompt)?.index;
+    const nextMessages = messageIndex === undefined ? messages : messages.filter((_, index) => index !== messageIndex);
+    setVersions(nextVersions);
+    setMessages(nextMessages);
+    deleteLocalVersion(chatKey, version.id);
+    setVersionMenuOpen(false);
+    try {
+      if (user && projectId && session?.user.id) {
+        await deleteProjectVersion(version.id, session.user.id);
+        await persistProject({ projectId, userId: session.user.id, title: projectTitle, prompt, code: lastCode, messages: nextMessages });
+      }
+      toast({ title: "Version deleted" });
+    } catch (error) {
+      setVersions(versions);
+      setMessages(messages);
+      toast({ title: "Version delete failed", description: error instanceof Error ? error.message : "Could not delete this version.", variant: "destructive" });
+    }
+  };
+
   const manualFix = async () => {
     if (!lastCode || manualFixing) return;
     setManualFixing(true);
@@ -687,6 +711,7 @@ const Index = () => {
                       code={lastCode}
                       versions={versions}
                       onRestoreVersion={restoreVersion}
+                      onDeleteVersion={deleteVersion}
                       onManualFix={manualFix}
                       fixing={manualFixing}
                       onPushToGithub={() => setGithubOpen(true)}

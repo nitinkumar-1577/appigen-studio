@@ -73,6 +73,16 @@ export function writeLocalVersion(projectKey: string, version: LocalProjectVersi
   }
 }
 
+export function deleteLocalVersion(projectKey: string, versionId: string) {
+  try {
+    const all = readLocalVersions();
+    all[projectKey] = (all[projectKey] ?? []).filter((version) => version.id !== versionId);
+    localStorage.setItem(VERSION_KEY, JSON.stringify(all));
+  } catch {
+    // Version history remains available in memory for the current session.
+  }
+}
+
 export function clearLocalVersions(projectKey: string) {
   try {
     const all = readLocalVersions();

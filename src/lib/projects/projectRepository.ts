@@ -187,3 +187,12 @@ export const loadProjectVersions = async (projectId: string, userId: string): Pr
   }));
   return cloudVersions.length ? cloudVersions : readLocalVersionsForProject(projectId);
 };
+
+export const deleteProjectVersion = async (versionId: string, userId: string) => {
+  const { error } = await supabase
+    .from("project_versions")
+    .delete()
+    .eq("id", versionId)
+    .eq("user_id", userId);
+  if (error) throw error;
+};

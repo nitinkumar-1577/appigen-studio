@@ -10,6 +10,7 @@ vi.mock("@monaco-editor/react", () => ({
 
 describe("PreviewPanel", () => {
   it("opens the version list without crashing", () => {
+    const onDeleteVersion = vi.fn();
     render(
       <PreviewPanel
         isBuilding={false}
@@ -19,6 +20,7 @@ describe("PreviewPanel", () => {
         onCodeChange={vi.fn()}
         versions={[{ id: "version-1", code: "", prompt: "Build another app", createdAt: 0 }]}
         onRestoreVersion={vi.fn()}
+        onDeleteVersion={onDeleteVersion}
         onManualFix={vi.fn()}
         fixing={false}
       />,
@@ -27,6 +29,8 @@ describe("PreviewPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Versions (1)" }));
 
     expect(screen.getByText("Build another app")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Delete version Build another app" }));
+    expect(onDeleteVersion).toHaveBeenCalledWith(expect.objectContaining({ id: "version-1" }));
   });
 
   it("shows generated app layers, including the app stylesheet, in Code view", () => {
@@ -54,6 +58,7 @@ export default function MainView() { return <main>Ready</main>; }
         onCodeChange={vi.fn()}
         versions={[]}
         onRestoreVersion={vi.fn()}
+        onDeleteVersion={vi.fn()}
         onManualFix={vi.fn()}
         fixing={false}
       />,
@@ -87,6 +92,7 @@ main { color: red; }`;
         onCodeChange={onCodeChange}
         versions={[]}
         onRestoreVersion={vi.fn()}
+        onDeleteVersion={vi.fn()}
         onManualFix={vi.fn()}
         fixing={false}
       />,
@@ -116,6 +122,7 @@ main { color: red; }`;
         onCodeChange={vi.fn()}
         versions={[]}
         onRestoreVersion={vi.fn()}
+        onDeleteVersion={vi.fn()}
         onManualFix={vi.fn()}
         fixing={false}
       />,
@@ -133,6 +140,7 @@ main { color: red; }`;
         onPushToGithub={vi.fn()}
         versions={[]}
         onRestoreVersion={vi.fn()}
+        onDeleteVersion={vi.fn()}
         onManualFix={vi.fn()}
         fixing={false}
       />,
@@ -151,6 +159,7 @@ main { color: red; }`;
         onPushToGithub={vi.fn()}
         versions={[]}
         onRestoreVersion={vi.fn()}
+        onDeleteVersion={vi.fn()}
         onManualFix={vi.fn()}
         fixing={false}
       />,

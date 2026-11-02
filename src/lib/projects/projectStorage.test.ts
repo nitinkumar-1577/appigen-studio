@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   clearLocalVersions,
+  deleteLocalVersion,
   discardProjectDraft,
   readLocalVersionsForProject,
   readProjectDraft,
@@ -54,5 +55,16 @@ describe("project draft persistence", () => {
     expect(readLocalVersionsForProject("local:current")).toEqual([version]);
     clearLocalVersions("local:current");
     expect(readLocalVersionsForProject("local:current")).toEqual([]);
+  });
+
+  it("deletes only the selected local version", () => {
+    const first = { id: "version-1", code: "one", prompt: "First", createdAt: 1 };
+    const second = { id: "version-2", code: "two", prompt: "Second", createdAt: 2 };
+    writeLocalVersion("local:current", first);
+    writeLocalVersion("local:current", second);
+
+    deleteLocalVersion("local:current", first.id);
+
+    expect(readLocalVersionsForProject("local:current")).toEqual([second]);
   });
 });
