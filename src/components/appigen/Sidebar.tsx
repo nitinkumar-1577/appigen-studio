@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   Settings,
   Palette,
+  LoaderCircle,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -36,11 +37,13 @@ interface SidebarProps {
   onOpenSettings: () => void;
   onOpenSignIn: () => void;
   onOpenPricing: () => void;
+  isBuilding: boolean;
+  progressStage: string;
   mobileOpen?: boolean;
   onMobileClose?: () => void;
 }
 
-export const Sidebar = ({ active, onChange, onOpenSettings, onOpenSignIn, onOpenPricing, mobileOpen = false, onMobileClose }: SidebarProps) => {
+export const Sidebar = ({ active, onChange, onOpenSettings, onOpenSignIn, onOpenPricing, isBuilding, progressStage, mobileOpen = false, onMobileClose }: SidebarProps) => {
   const [collapsed, setCollapsed] = useState(false);
   const { accent, setAccent } = useApp();
 
@@ -113,6 +116,24 @@ export const Sidebar = ({ active, onChange, onOpenSettings, onOpenSignIn, onOpen
             );
           })}
         </ul>
+        {isBuilding && (
+          <div
+            role="status"
+            aria-live="polite"
+            aria-label={`Build progress: ${progressStage}`}
+            title={`Build progress: ${progressStage}`}
+            className={cn(
+              "mt-4 rounded-xl border border-primary/20 bg-primary/[0.07] text-sidebar-foreground shadow-soft",
+              collapsed ? "flex justify-center p-2.5" : "p-3"
+            )}
+          >
+            <div className={cn("flex items-center gap-2", collapsed && "justify-center")}>
+              <LoaderCircle className="h-4 w-4 shrink-0 animate-spin text-primary" />
+              {!collapsed && <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Building your app</span>}
+            </div>
+            {!collapsed && <p className="mt-2 truncate text-xs font-semibold text-foreground">{progressStage}</p>}
+          </div>
+        )}
       </nav>
 
       {/* Theme accent picker */}

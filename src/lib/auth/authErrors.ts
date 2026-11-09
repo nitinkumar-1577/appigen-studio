@@ -30,7 +30,7 @@ export const authErrorMessage = (error: unknown, fallback: string) => {
     case "invalid_credentials": return "The email or password is incorrect.";
     case "email_exists": return "An account already exists for this email. Sign in or reset your password.";
     case "email_not_confirmed": return "Confirm your email address before signing in.";
-    case "provider_disabled": return "This sign-in provider is not enabled in Supabase yet.";
+    case "provider_disabled": return "Google sign-in is disabled for this Supabase project. Enable Google in Supabase Dashboard → Authentication → Sign In / Providers, add the OAuth client ID and secret, and use the callback URL shown there in Google Cloud Console.";
     case "invalid_recovery_link": return "This password reset link is invalid or has expired.";
     case "rate_limited": return "Too many attempts. Please wait a moment and try again.";
     default: return error instanceof Error && error.message ? error.message : fallback;

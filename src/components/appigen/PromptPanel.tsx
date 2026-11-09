@@ -80,6 +80,7 @@ export const speechRecognitionErrorMessage = (code?: string) => {
 export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuilding, progressStage, messages, hasCode, prompt, onPromptChange }: PromptPanelProps) => {
   const [recording, setRecording] = useState(false);
   const [ideaIndex, setIdeaIndex] = useState(0);
+  const [animatedIdea, setAnimatedIdea] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const recRef = useRef<SpeechRecognitionLike | null>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
@@ -96,9 +97,38 @@ export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuild
   }, [messages, isBuilding]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setIdeaIndex((index) => (index + 1) % PROMPT_IDEAS.length), 4200);
-    return () => window.clearInterval(timer);
-  }, []);
+    if (prompt) return;
+    let character = 0;
+    let deleting = false;
+    let timer: number;
+    const tick = () => {
+      const rawIdea = PROMPT_IDEAS[ideaIndex];
+      const idea = hasCode ? rawIdea.replace(/^A |^An /, "").replace(/^[^,]+, /, "") : rawIdea;
+      if (!deleting) {
+        character += 1;
+        setAnimatedIdea(idea.slice(0, character));
+        if (character >= idea.length) {
+          deleting = true;
+          timer = window.setTimeout(tick, 900);
+          return;
+        }
+        timer = window.setTimeout(tick, 34);
+        return;
+      }
+
+      character -= 1;
+      setAnimatedIdea(idea.slice(0, character));
+      if (character <= 0) {
+        setIdeaIndex((index) => (index + 1) % PROMPT_IDEAS.length);
+        return;
+      }
+      timer = window.setTimeout(tick, 18);
+    };
+
+    setAnimatedIdea("");
+    timer = window.setTimeout(tick, 300);
+    return () => window.clearTimeout(timer);
+  }, [hasCode, ideaIndex, prompt]);
 
   // Ctrl/Cmd + I focuses prompt
   useEffect(() => {
@@ -186,7 +216,7 @@ export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuild
               {message.content}
             </article>)}
             {isBuilding && (
-              <div className="rounded-xl border border-primary/40 bg-primary/5 p-3 shadow-glow animate-fade-in" role="status" aria-live="polite">
+              <div className="rounded-xl border border-primary/40 bg-primary/5 p-3 shadow-glow animate-fade-in md:hidden" role="status" aria-live="polite">
                 <div className="flex items-center gap-2 text-xs font-medium text-primary">
                   <span className="h-1.5 w-1.5 animate-blink rounded-full bg-primary" />
                   {BUILD_STAGES[activeBuildStage] || "Planning"}…
@@ -214,8 +244,8 @@ export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuild
         </div>
         <div className="relative">
           {!prompt && (
-            <div key={ideaIndex} className="pointer-events-none absolute left-3 top-2.5 z-10 max-w-[calc(100%-1.5rem)] truncate text-sm text-muted-foreground animate-in fade-in slide-in-from-bottom-1 duration-500">
-              {hasCode ? PROMPT_IDEAS[ideaIndex].replace(/^A |^An /, "").replace(/^[^,]+, /, "") : PROMPT_IDEAS[ideaIndex]}
+            <div aria-hidden="true" className="pointer-events-none absolute left-3 top-2.5 z-10 max-w-[calc(100%-1.5rem)] truncate text-sm text-muted-foreground">
+              {animatedIdea}<span className="ml-0.5 inline-block h-4 w-px animate-pulse bg-primary align-middle" />
             </div>
           )}
           <textarea
@@ -239,13 +269,13 @@ export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuild
 
         <div className="mt-2 flex items-center justify-between border-t border-border/50 pt-2">
           <div className="flex items-center gap-1">
-            <button onClick={handleAttach} disabled={isBuilding} aria-label="Attach file" title="Attach file" className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-smooth hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:scale-95 disabled:opacity-50"><Paperclip className="h-4 w-4" /></button>
+            <button onClick={handleAttach} disabled={isBuilding} aria-label="Attach file" title="Attach file" className="flex h-10 items-center gap-2 rounded-lg px-2.5 text-muted-foreground transition-smooth hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:scale-95 disabled:opacity-50"><Paperclip className="h-4 w-4" /><span className="text-xs font-medium">Attach</span></button>
             <button onClick={toggleMic} title={recording ? "Stop recording" : "Voice to prompt"}
               disabled={isBuilding}
               aria-label={recording ? "Stop voice recording" : "Add voice prompt"}
-              className={cn("flex h-10 w-10 items-center justify-center rounded-lg transition-smooth focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:scale-95 disabled:opacity-50",
+              className={cn("flex h-10 items-center gap-2 rounded-lg px-2.5 transition-smooth focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:scale-95 disabled:opacity-50",
                 recording ? "bg-destructive/20 text-destructive animate-pulse" : "text-muted-foreground hover:bg-secondary hover:text-foreground")}>
-              <Mic className="h-4 w-4" />
+              <Mic className="h-4 w-4" /><span className="text-xs font-medium">{recording ? "Stop" : "Voice"}</span>
             </button>
           </div>
           <div className="flex items-center gap-2">
@@ -256,8 +286,8 @@ export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuild
         </div>
         <div className="mt-1 px-1">
           <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-            <span className="font-mono">Prompt characters</span>
-            <span className="font-mono text-foreground">{used.toLocaleString()}</span>
+            <span className="font-mono">Characters</span>
+            <span className="font-mono text-foreground" aria-label={`Prompt character count: ${used.toLocaleString()}`}>{used.toLocaleString()}</span>
           </div>
         </div>
       </div>

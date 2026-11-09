@@ -243,24 +243,35 @@ export const createProjectVersion = async (input: {
   userId: string;
   code: string;
   prompt: string;
-}): Promise<void> => {
-  const { error } = await supabase.from("project_versions").insert({
-    id: crypto.randomUUID(),
-    project_id: input.projectId,
-    user_id: input.userId,
+  id?: string;
+}): Promise<LocalProjectVersion> => {
+  const version = {
+    id: input.id ?? crypto.randomUUID(),
     code: input.code,
     prompt: input.prompt,
+    createdAt: Date.now(),
+  } satisfies LocalProjectVersion;
+  const { error } = await supabase.from("project_versions").insert({
+    id: version.id,
+    project_id: input.projectId,
+    user_id: input.userId,
+    code: version.code,
+    prompt: version.prompt,
   });
   if (error) throw error;
+  return version;
 };
 
 export const deleteProjectVersion = async (versionId: string, userId: string) => {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("project_versions")
     .delete()
     .eq("id", versionId)
-    .eq("user_id", userId);
+    .eq("user_id", userId)
+    .select("id")
+    .maybeSingle();
   if (error) throw error;
+  if (!data) throw new Error("This version no longer exists in your account. Refresh the project and try again.");
 };
 
 export const clearProjectVersions = async (projectId: string, userId: string) => {
@@ -270,16 +281,21 @@ export const clearProjectVersions = async (projectId: string, userId: string) =>
     .eq("project_id", projectId)
     .eq("user_id", userId);
   if (error) throw error;
+  const remaining = await loadProjectVersions(projectId, userId);
+  if (remaining.length) throw new Error("Some saved versions could not be deleted. Check your connection and try again.");
 };
 
 export const deleteProject = async (projectId: string, userId: string) => {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("projects")
     .update({ deleted_at: new Date().toISOString() })
     .eq("id", projectId)
     .eq("user_id", userId)
-    .is("deleted_at", null);
+    .is("deleted_at", null)
+    .select("id")
+    .maybeSingle();
   if (error) throw error;
+  if (!data) throw new Error("This project was already deleted or is no longer available.");
 };
 
 export const softDeleteProject = deleteProject;

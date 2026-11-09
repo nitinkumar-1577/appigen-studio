@@ -26,7 +26,7 @@ import { createRunnableProjectZip } from "@/lib/projects/exportProject";
 import { isNewAppPrompt, isProjectConversation } from "@/lib/projects/promptIntent";
 import { formatImplementationPlan } from "@/lib/projects/implementationPlan";
 import { clearLocalVersions, deleteLocalVersion, discardProjectDraft, readLocalVersionsForProject, readProjectDraft, writeLocalVersion, writeProjectDraft, writeProjectMessages, type ChatMessage, type LocalProjectVersion } from "@/lib/projects/projectStorage";
-import { clearProjectVersions, createProjectVersion, deleteProject, deleteProjectVersion, loadMostRecentProject, loadProject, loadProjectVersions, persistActivity, persistProject, subscribeToProjectSync } from "@/lib/projects/projectRepository";
+import { clearProjectVersions, createProjectVersion, deleteProject, deleteProjectVersion, loadProject, loadProjectVersions, persistActivity, persistProject, subscribeToProjectSync } from "@/lib/projects/projectRepository";
 import { readAppPreferences, readGenerationSettings, recordActivity } from "@/lib/appPreferences";
 import { trackAnonymousUsage } from "@/lib/telemetry";
 
@@ -98,6 +98,7 @@ const Index = () => {
     return draft;
   });
   const [isBuilding, setIsBuilding] = useState(false);
+  const [isGeneratingApp, setIsGeneratingApp] = useState(false);
   const [prompt, setPrompt] = useState(initialDraft?.prompt ?? "");
   const [doc, setDoc] = useState<string>(() => buildDocFromPrompt(initialDraft?.prompt ?? "", initialDraft?.code ?? undefined));
   const [view, setView] = useState<ViewKey>("studio");
@@ -137,6 +138,7 @@ const Index = () => {
   const previousUserRef = useRef(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [mobileStudioTab, setMobileStudioTab] = useState<"chat" | "preview">(initialDraft?.code ? "preview" : "chat");
+  const showPreview = Boolean(lastCode) || isGeneratingApp;
   const { user, session, authReady, recoveryPending, clearRecoveryPending, addNotification } = useApp();
   const promptActivityTimer = useRef<number | undefined>(undefined);
 
@@ -169,7 +171,6 @@ const Index = () => {
   const [accountProjectLoading, setAccountProjectLoading] = useState(false);
   useEffect(() => {
     if (!authReady) return;
-    let cancelled = false;
     if (!user || !session?.user.id) {
       if (previousUserRef.current) {
         setProjectId(null);
@@ -198,43 +199,8 @@ const Index = () => {
     setVersions([]);
     setDoc(buildDocFromPrompt(""));
     previousUserRef.current = true;
-    setAccountProjectLoading(true);
-    void loadMostRecentProject(session.user.id)
-    .then(async (project) => {
-      if (cancelled || !project) return;
-      if (/\bpdf\s+converter\b/i.test(`${project.title} ${project.prompt}`)) return;
-      const projectVersions = await loadProjectVersions(project.id, session.user.id);
-      if (cancelled) return;
-      setProjectId(project.id);
-      setProjectUpdatedAt(project.updated_at);
-      setLastSyncedCode(project.code);
-      promptDirtyRef.current = false;
-      lastSyncedPromptRef.current = project.prompt;
-      lastSyncedTitleRef.current = project.title;
-      lastSyncedMessagesRef.current = JSON.stringify(project.messages);
-      setProjectTitle(project.title);
-      setTitleManuallyEdited(true);
-      setPrompt(project.prompt);
-      setLastCode(project.code);
-      setMessages(project.messages);
-      setVersions(projectVersions);
-      setProjectUpdatedAt(project.updated_at);
-      setLastSyncedCode(project.code);
-      lastSyncedPromptRef.current = project.prompt;
-      lastSyncedTitleRef.current = project.title;
-      lastSyncedMessagesRef.current = JSON.stringify(project.messages);
-      promptDirtyRef.current = false;
-      setDoc(buildDocFromPrompt(project.prompt, project.code));
-    })
-    .catch((error: unknown) => {
-      if (!cancelled) {
-        toast({ title: "Couldn't restore your latest project", description: error instanceof Error ? error.message : "Your projects are still available in My Apps.", variant: "destructive" });
-      }
-    })
-    .finally(() => {
-      if (!cancelled) setAccountProjectLoading(false);
-    });
-    return () => { cancelled = true; };
+    // Start signed-in users with a clean Studio. Saved projects are opened explicitly from My Apps.
+    setAccountProjectLoading(false);
   }, [authReady, session?.user.id]);
 
   useEffect(() => {
@@ -275,7 +241,10 @@ const Index = () => {
         const remoteVersions = await loadProjectVersions(remote.id, session.user.id);
         setVersions(remoteVersions);
       } catch (error) {
-        if (error instanceof Error && /not found|deleted|changed/i.test(error.message)) {
+        if (
+          (typeof error === "object" && error !== null && "code" in error && error.code === "PGRST116") ||
+          (error instanceof Error && /not found|deleted|changed|json object requested|0 rows/i.test(error.message))
+        ) {
           setProjectId(null);
           setProjectTitle("Untitled Project");
           setPrompt("");
@@ -418,13 +387,16 @@ const Index = () => {
     let versionsAfterBuild = versions;
     setMessages(nextMessages);
     if (!editMode) {
+      versionsAfterBuild = [];
       setVersions([]);
       setProjectTitle(suggestProjectTitle(trimmed));
       setTitleManuallyEdited(false);
     }
-    setMobileStudioTab("chat");
+    setMobileStudioTab(questionMode ? "chat" : "preview");
     setProgressStage("Understanding request");
     setIsBuilding(true);
+    setIsGeneratingApp(!questionMode);
+    let generatedPreview = false;
     const controller = new AbortController();
     abortRef.current = controller;
     let buildTimedOut = false;
@@ -562,11 +534,12 @@ const Index = () => {
         if (user && projectId) {
           const { data: auth } = await supabase.auth.getUser();
           if (auth.user) {
-            const { error: versionError } = await supabase.from("project_versions").insert({ project_id: projectId, user_id: auth.user.id, code: lastCode, prompt: trimmed });
-            if (versionError) {
+            try {
+              await createProjectVersion({ projectId, userId: auth.user.id, code: lastCode, prompt: trimmed, id: snapshot.id });
+            } catch (versionError) {
               toast({
                 title: "Version saved locally",
-                description: `Cloud version history could not be updated: ${versionError.message}`,
+                description: `Cloud version history could not be updated: ${versionError instanceof Error ? versionError.message : "Unknown error"}`,
                 variant: "destructive",
               });
             }
@@ -574,6 +547,7 @@ const Index = () => {
         }
       }
       setProgressStage("Updating preview");
+      generatedPreview = true;
       setLastCode(generatedCode);
       setDoc(buildDocFromPrompt(trimmed, generatedCode));
       const fileCount = [...generatedCode.matchAll(/^\s*\/\/\s*FILE:/gm)].length || 1;
@@ -606,7 +580,9 @@ const Index = () => {
             const authoritative = await loadProject(savedId, uid);
             setProjectUpdatedAt(authoritative.updated_at);
             if (!editMode) {
-              await createProjectVersion({ projectId: savedId, userId: uid, code: generatedCode, prompt: trimmed });
+              const initialVersion = await createProjectVersion({ projectId: savedId, userId: uid, code: generatedCode, prompt: trimmed });
+              setVersions([initialVersion]);
+              writeLocalVersion(savedId, initialVersion);
             }
             discardProjectDraft();
           } catch (saveError) {
@@ -666,7 +642,9 @@ const Index = () => {
       window.clearTimeout(buildTimeout);
       abortRef.current = null;
       setIsBuilding(false);
+      setIsGeneratingApp(false);
       setProgressStage("Understanding request");
+      if (!generatedPreview && !lastCode) setMobileStudioTab("chat");
     }
   };
 
@@ -686,7 +664,7 @@ const Index = () => {
     if (!window.confirm("Start a new project? Your current chat and code will be cleared.")) return;
     abortRef.current?.abort();
     if (chatKey === "local:current") clearLocalVersions(chatKey);
-    setProjectId(null); setProjectTitle("Untitled Project"); setTitleManuallyEdited(false); setPrompt(""); setLastCode(null); setMessages([]); setVersions([]); setDoc(buildDocFromPrompt("")); setView("studio"); setMobileStudioTab("chat"); discardProjectDraft();
+    setProjectId(null); setProjectTitle("Untitled Project"); setTitleManuallyEdited(false); setPrompt(""); setLastCode(null); setMessages([]); setVersions([]); setDoc(buildDocFromPrompt("")); setView("studio"); setMobileStudioTab("chat"); setIsGeneratingApp(false); discardProjectDraft();
   };
 
   const snapshotCode = async (code: string | null, action: string) => {
@@ -707,37 +685,64 @@ const Index = () => {
   };
 
   const restoreVersion = (version: LocalProjectVersion) => {
-    void snapshotCode(lastCode, `Before restoring: ${version.prompt}`).catch((error: unknown) => {
-      toast({ title: "Version snapshot failed", description: error instanceof Error ? error.message : "Could not preserve the current version.", variant: "destructive" });
-    });
+    if (!(projectId && session?.user.id)) {
+      void snapshotCode(lastCode, `Before restoring: ${version.prompt}`).catch((error: unknown) => {
+        toast({ title: "Version snapshot failed", description: error instanceof Error ? error.message : "Could not preserve the current version.", variant: "destructive" });
+      });
+    }
     setLastCode(version.code); setPrompt(version.prompt); setDoc(buildDocFromPrompt(version.prompt, version.code)); setVersionMenuOpen(false);
     if (projectId && session?.user.id) {
       void persistProject({ projectId, userId: session.user.id, title: projectTitle, prompt: version.prompt, code: version.code, messages, expectedUpdatedAt: projectUpdatedAt ?? undefined })
         .then(async (savedId) => {
-          await createProjectVersion({ projectId: savedId, userId: session.user.id, code: version.code, prompt: version.prompt });
           const authoritative = await loadProject(savedId, session.user.id);
           setProjectUpdatedAt(authoritative.updated_at);
           setLastSyncedCode(authoritative.code);
           lastSyncedPromptRef.current = authoritative.prompt;
           lastSyncedTitleRef.current = authoritative.title;
           lastSyncedMessagesRef.current = JSON.stringify(authoritative.messages);
+          setVersions(await loadProjectVersions(savedId, session.user.id));
         })
         .catch((error: unknown) => toast({ title: "Version restored, save failed", description: error instanceof Error ? error.message : "Could not save the restored version.", variant: "destructive" }));
     }
     toast({ title: "Version restored" });
   };
 
+  const resetDeletedProject = () => {
+    clearLocalVersions(chatKey);
+    writeProjectMessages(chatKey, []);
+    discardProjectDraft();
+    setProjectId(null);
+    setProjectUpdatedAt(null);
+    setLastSyncedCode(null);
+    lastSyncedPromptRef.current = null;
+    lastSyncedTitleRef.current = null;
+    lastSyncedMessagesRef.current = null;
+    promptDirtyRef.current = false;
+    setProjectTitle("Untitled Project");
+    setTitleManuallyEdited(false);
+    setPrompt("");
+    setLastCode(null);
+    setMessages([]);
+    setVersions([]);
+    setDoc(buildDocFromPrompt(""));
+    setView("studio");
+    setMobileStudioTab("chat");
+    setIsGeneratingApp(false);
+  };
+
   const deleteVersion = async (version: LocalProjectVersion) => {
-    if (!window.confirm("Delete this version and remove its prompt from the chat?")) return;
+    const deletesLastVersion = versions.length === 1;
+    if (!window.confirm(deletesLastVersion
+      ? "Delete the last version? This will remove the app and reset Studio to Untitled Project."
+      : "Delete this version and remove its prompt from the chat?")) return;
     const nextVersions = versions.filter((current) => current.id !== version.id);
     const nextMessages = removePromptConversationBlocks(messages, version.prompt);
-    setVersions(nextVersions);
-    setMessages(nextMessages);
-    deleteLocalVersion(chatKey, version.id);
     setVersionMenuOpen(false);
+    let versionDeleted = false;
     try {
       if (user && projectId && session?.user.id) {
         await deleteProjectVersion(version.id, session.user.id);
+        versionDeleted = true;
         if (nextVersions.length > 0) {
           await persistProject({ projectId, userId: session.user.id, title: projectTitle, prompt, code: lastCode, messages: nextMessages, expectedUpdatedAt: projectUpdatedAt ?? undefined });
           const authoritative = await loadProject(projectId, session.user.id);
@@ -746,32 +751,54 @@ const Index = () => {
           lastSyncedPromptRef.current = authoritative.prompt;
           lastSyncedTitleRef.current = authoritative.title;
           lastSyncedMessagesRef.current = JSON.stringify(authoritative.messages);
+        } else {
+          await deleteProject(projectId, session.user.id);
         }
+      }
+      deleteLocalVersion(chatKey, version.id);
+      if (nextVersions.length === 0) resetDeletedProject();
+      else {
+        setVersions(nextVersions);
+        setMessages(nextMessages);
       }
       toast({ title: "Version deleted" });
     } catch (error) {
-      setVersions(versions);
-      setMessages(messages);
-      toast({ title: "Version delete failed", description: error instanceof Error ? error.message : "Could not delete this version.", variant: "destructive" });
+      if (versionDeleted) {
+        deleteLocalVersion(chatKey, version.id);
+        setVersions(nextVersions);
+        setMessages(nextMessages);
+        toast({ title: "Version deleted; project cleanup failed", description: error instanceof Error ? error.message : "The version is gone, but the app could not be archived.", variant: "destructive" });
+      } else {
+        writeLocalVersion(chatKey, version);
+        setVersions(versions);
+        setMessages(messages);
+        toast({ title: "Version delete failed", description: error instanceof Error ? error.message : "Could not delete this version.", variant: "destructive" });
+      }
     }
   };
 
   const clearVersions = async () => {
-    if (!versions.length || !window.confirm("Clear all saved versions? The current project will be kept.")) return;
+    if (!versions.length || !window.confirm("Delete all versions and remove this app? Studio will reset to Untitled Project.")) return;
     const previousVersions = versions;
-    setVersions([]);
     setVersionMenuOpen(false);
+    let historyDeleted = false;
     try {
       if (user && projectId && session?.user.id) {
         await clearProjectVersions(projectId, session.user.id);
+        historyDeleted = true;
+        await deleteProject(projectId, session.user.id);
       }
-      clearLocalVersions(chatKey);
-      setVersions([]);
-      promptDirtyRef.current = false;
-      toast({ title: "Versions cleared", description: "The current project was kept." });
+      resetDeletedProject();
+      toast({ title: "App and versions deleted", description: "Studio is ready for a new Untitled Project." });
     } catch (error) {
-      setVersions(previousVersions);
-      toast({ title: "Could not clear versions", description: error instanceof Error ? error.message : "Version history could not be cleared. Your project was kept.", variant: "destructive" });
+      if (historyDeleted) {
+        clearLocalVersions(chatKey);
+        setVersions([]);
+        toast({ title: "Versions deleted; app cleanup failed", description: error instanceof Error ? error.message : "The versions are gone, but the app could not be archived.", variant: "destructive" });
+      } else {
+        setVersions(previousVersions);
+        toast({ title: "Could not delete app versions", description: error instanceof Error ? error.message : "The app and its version history could not be deleted.", variant: "destructive" });
+      }
     }
   };
 
@@ -844,6 +871,8 @@ const Index = () => {
           onOpenSettings={() => setSettingsOpen(true)}
           onOpenSignIn={() => setAuthOpen(true)}
           onOpenPricing={() => setPricingOpen(true)}
+          isBuilding={isBuilding}
+          progressStage={progressStage}
           mobileOpen={mobileNavOpen}
           onMobileClose={() => setMobileNavOpen(false)}
         />
@@ -904,7 +933,7 @@ const Index = () => {
             {view === "studio" && (
               <>
                 {/* Mobile tab switcher */}
-                <div className="flex shrink-0 items-center gap-1 border-b border-border/60 bg-background/60 p-1.5 lg:hidden">
+                {showPreview && <div className="flex shrink-0 items-center gap-1 border-b border-border/60 bg-background/60 p-1.5 lg:hidden">
                   <button
                     onClick={() => setMobileStudioTab("chat")}
                     className={cn(
@@ -929,12 +958,13 @@ const Index = () => {
                     <Eye className="h-3.5 w-3.5" />
                     Preview
                   </button>
-                </div>
+                </div>}
 
-                <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+                <div className={cn("flex min-h-0 flex-1 flex-col lg:flex-row", !showPreview && "justify-center")}>
                   <section
                     className={cn(
-                      "min-h-0 min-w-0 overflow-y-auto border-b border-border/60 lg:w-[42%] lg:border-b-0 lg:border-r lg:flex",
+                      "min-h-0 min-w-0 overflow-y-auto border-b border-border/60 lg:border-b-0 lg:border-r lg:flex",
+                      showPreview ? "lg:w-[42%]" : "lg:w-full lg:border-r-0",
                       mobileStudioTab === "chat" ? "flex flex-1 flex-col" : "hidden lg:flex"
                     )}
                   >
@@ -951,7 +981,7 @@ const Index = () => {
                       hasCode={Boolean(lastCode)}
                     />
                   </section>
-                  <section
+                  {showPreview && <section
                     className={cn(
                       "min-h-0 min-w-0 flex-1 lg:flex",
                       mobileStudioTab === "preview" ? "flex" : "hidden lg:flex"
@@ -972,13 +1002,15 @@ const Index = () => {
                         repairAttemptsRef.current = 0;
                         lastReportedRef.current = "";
                         isRepairingRef.current = false;
-                        void snapshotCode(lastCode, `Before code editor save: ${prompt || "manual edit"}`).catch((error: unknown) => {
-                          toast({ title: "Version snapshot failed", description: error instanceof Error ? error.message : "Could not preserve the current version.", variant: "destructive" });
-                        });
-                        setLastCode(newCode);
-                        setDoc(buildDocFromPrompt(prompt, newCode));
-                        if (user && session?.user.id && projectId) {
-                          void (async () => {
+                        void (async () => {
+                          try {
+                            await snapshotCode(lastCode, `Before code editor save: ${prompt || "manual edit"}`);
+                          } catch (error) {
+                            toast({ title: "Version snapshot failed", description: error instanceof Error ? error.message : "Could not preserve the current version.", variant: "destructive" });
+                          }
+                          setLastCode(newCode);
+                          setDoc(buildDocFromPrompt(prompt, newCode));
+                          if (user && session?.user.id && projectId) {
                             try {
                               await persistProject({ projectId, userId: session.user.id, title: projectTitle, prompt, code: newCode, messages, expectedUpdatedAt: projectUpdatedAt ?? undefined });
                               const authoritative = await loadProject(projectId, session.user.id);
@@ -994,11 +1026,11 @@ const Index = () => {
                                 variant: "destructive",
                               });
                             }
-                          })();
-                        }
+                          }
+                        })();
                       }}
                     />
-                  </section>
+                  </section>}
                 </div>
               </>
             )}
@@ -1017,6 +1049,12 @@ const Index = () => {
                       const project = await loadProject(p.id, session.user.id);
                       const projectVersions = await loadProjectVersions(p.id, session.user.id);
                       setProjectId(project.id);
+                      setProjectUpdatedAt(project.updated_at);
+                      setLastSyncedCode(project.code);
+                      lastSyncedPromptRef.current = project.prompt;
+                      lastSyncedTitleRef.current = project.title;
+                      lastSyncedMessagesRef.current = JSON.stringify(project.messages);
+                      promptDirtyRef.current = false;
                       setProjectTitle(project.title);
                       setTitleManuallyEdited(true);
                       setPrompt(project.prompt);
