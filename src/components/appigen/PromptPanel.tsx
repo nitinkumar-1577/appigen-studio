@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Sparkles, Paperclip, Mic, Download, Check, Send } from "lucide-react";
+import { Sparkles, Paperclip, Mic, Download, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -18,9 +18,7 @@ interface PromptPanelProps {
   onPromptChange: (v: string) => void;
 }
 
-const STAGES = ["Sketch", "Wire up State", "Polish UI"] as const;
-type Stage = typeof STAGES[number];
-const BUILD_STAGES = ["Planning", "Generating", "Reviewing", "Validating"] as const;
+const BUILD_STAGES = ["Understanding request", "Planning", "Generating", "Reviewing", "Validating", "Updating preview", "Saving"] as const;
 const PROMPT_IDEAS = [
   "A sleek SaaS analytics dashboard with revenue charts and a collapsible sidebar",
   "A warm, editorial online bookstore with search, genre filters, and a shopping bag",
@@ -80,7 +78,6 @@ export const speechRecognitionErrorMessage = (code?: string) => {
 };
 
 export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuilding, progressStage, messages, hasCode, prompt, onPromptChange }: PromptPanelProps) => {
-  const [stage, setStage] = useState<Stage>("Sketch");
   const [recording, setRecording] = useState(false);
   const [ideaIndex, setIdeaIndex] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -171,21 +168,6 @@ export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuild
     <div className="flex h-full min-h-0 flex-col gap-3 p-3 sm:p-4">
       <input ref={fileRef} type="file" hidden onChange={handleFile} accept=".txt,.md,.json,.csv,.html,.css,.js,.ts,.tsx,.jsx" />
 
-      {/* Workflow stage */}
-      {!isChatActive &&       <div className="glass shrink-0 rounded-2xl p-3 shadow-soft">
-        <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Choose a workflow stage</div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          {STAGES.map((s) => (
-            <button key={s} type="button" onClick={() => setStage(s)}
-              className={cn("flex min-h-9 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-smooth",
-                stage === s ? "border-primary bg-primary/10 text-primary" : "border-border bg-secondary/40 text-muted-foreground hover:text-foreground")}>
-              {stage === s && <Check className="h-3 w-3" />}
-              {s}
-            </button>
-          ))}
-        </div>
-      </div>}
-
       {isChatActive && (
         <div className="glass flex min-h-16 flex-1 flex-col overflow-hidden rounded-2xl shadow-soft">
           <div className="flex items-center justify-between border-b border-border/60 px-3 py-2.5">
@@ -209,19 +191,6 @@ export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuild
                   <span className="h-1.5 w-1.5 animate-blink rounded-full bg-primary" />
                   {BUILD_STAGES[activeBuildStage] || "Planning"}…
                 </div>
-                <div className="mt-2 space-y-1.5">
-                  {BUILD_STAGES.map((s, i) => {
-                    const complete = activeBuildStage > i;
-                    const current = activeBuildStage === i;
-                    return (
-                    <div key={s} className={cn("flex items-center gap-2 text-xs", complete || current ? "text-primary" : "text-muted-foreground")} aria-current={current ? "step" : undefined}>
-                      <span className={cn("grid h-3.5 w-3.5 place-items-center rounded-full border", complete ? "border-primary bg-primary text-primary-foreground" : current ? "border-primary" : "border-muted-foreground/40")}>
-                        {complete ? <Check className="h-2.5 w-2.5" /> : current ? <span className="h-1.5 w-1.5 animate-blink rounded-full bg-primary" /> : null}
-                      </span>
-                      <span>{s}</span>
-                    </div>
-                  );})}
-                </div>
               </div>
             )}
           </div>
@@ -243,25 +212,30 @@ export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuild
               );
             })}
         </div>
-        <textarea
-          ref={promptRef}
-          id="app-prompt"
-          value={prompt}
-          onChange={(e) => {
-            onPromptChange(e.target.value);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              if (!isBuilding && prompt.trim()) onBuild(stage);
-            }
-          }}
-          rows={3}
-          disabled={isBuilding}
-          aria-label={hasCode ? "Describe an edit to this project" : "Describe the app to build"}
-          placeholder={hasCode ? "Describe a change to your app…" : PROMPT_IDEAS[ideaIndex]}
-          className="max-h-40 min-h-[82px] w-full resize-none rounded-2xl border border-primary/40 bg-background/30 px-3 py-2.5 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground shadow-[0_0_24px_hsl(var(--primary)/0.12)] focus:border-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-wait disabled:opacity-60"
-        />
+        <div className="relative">
+          {!prompt && (
+            <div key={ideaIndex} className="pointer-events-none absolute left-3 top-2.5 z-10 max-w-[calc(100%-1.5rem)] truncate text-sm text-muted-foreground animate-in fade-in slide-in-from-bottom-1 duration-500">
+              {hasCode ? PROMPT_IDEAS[ideaIndex].replace(/^A |^An /, "").replace(/^[^,]+, /, "") : PROMPT_IDEAS[ideaIndex]}
+            </div>
+          )}
+          <textarea
+            ref={promptRef}
+            id="app-prompt"
+            value={prompt}
+            onChange={(e) => onPromptChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                if (!isBuilding && prompt.trim()) onBuild();
+              }
+            }}
+            rows={3}
+            disabled={isBuilding}
+            aria-label={hasCode ? "Describe a change to this project" : "Describe the app to build"}
+            placeholder=""
+            className="max-h-40 min-h-[82px] w-full resize-none rounded-2xl border border-primary/40 bg-background/30 px-3 py-2.5 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground shadow-[0_0_24px_hsl(var(--primary)/0.12)] focus:border-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-wait disabled:opacity-60"
+          />
+        </div>
 
         <div className="mt-2 flex items-center justify-between border-t border-border/50 pt-2">
           <div className="flex items-center gap-1">
@@ -275,7 +249,7 @@ export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuild
             </button>
           </div>
           <div className="flex items-center gap-2">
-            {isBuilding ? <Button variant="danger" size="md" onClick={onStop}>Stop</Button> : <Button variant="primary" size="md" onClick={() => onBuild(stage)} disabled={!prompt.trim()} className="pulse-ring relative">
+            {isBuilding ? <Button variant="danger" size="md" onClick={onStop}>Stop</Button> : <Button variant="primary" size="md" onClick={() => onBuild()} disabled={!prompt.trim()} className="pulse-ring relative">
               <Send className="h-4 w-4" />{hasCode ? "Send" : "Build"}
             </Button>}
           </div>

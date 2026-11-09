@@ -413,7 +413,7 @@ function providerErrorMetadata(text: string): string {
   }
 }
 
-function isProviderUnavailable(err: unknown) {
+export function isProviderUnavailable(err: unknown) {
   const msg = err instanceof Error ? err.message : String(err);
   return err instanceof ProviderRequestError
     ? err.code === "RATE_LIMITED" || err.code === "PROVIDER_ERROR" || err.code === "TIMEOUT" || err.code === "NETWORK_ERROR"
@@ -581,15 +581,45 @@ export function mergeProjectFiles(original: string, generated: string): string {
   return [...originalFiles].map(([path, content]) => `// FILE: ${path}\n${content}`).join("\n\n");
 }
 
-function relevantProjectSource(source: string, prompt: string): string {
+export function relevantProjectSource(source: string, prompt: string): string {
   const files = projectFiles(source);
   if (files.size <= 8) return source;
   const terms = new Set((prompt.toLowerCase().match(/[a-z][a-z0-9_-]{3,}/g) ?? []).slice(0, 40));
-  const selected = [...files].filter(([path, content]) => {
+  const selected = new Map([...files].filter(([path, content]) => {
     const haystack = `${path}\n${content}`.toLowerCase();
     return path === "src/App.tsx" || [...terms].some((term) => haystack.includes(term));
-  });
-  return selected.length ? selected.map(([path, content]) => `// FILE: ${path}\n${content}`).join("\n\n") : source;
+  }));
+  const resolveImport = (fromPath: string, importPath: string) => {
+    if (!importPath.startsWith(".")) return undefined;
+    const base = fromPath.split("/");
+    base.pop();
+    const parts = `${base.join("/")}/${importPath}`.split("/");
+    const normalized: string[] = [];
+    for (const part of parts) {
+      if (!part || part === ".") continue;
+      if (part === "..") normalized.pop();
+      else normalized.push(part);
+    }
+    const candidate = normalized.join("/");
+    return [...files.keys()].find((path) =>
+      path === candidate
+      || path.startsWith(`${candidate}.`)
+      || path.startsWith(`${candidate}/index.`));
+  };
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const [path, content] of [...selected]) {
+      for (const match of content.matchAll(/(?:import|export)[\s\S]*?from\s*["']([^"']+)["']/g)) {
+        const dependency = resolveImport(path, match[1]);
+        if (dependency && !selected.has(dependency)) {
+          selected.set(dependency, files.get(dependency)!);
+          changed = true;
+        }
+      }
+    }
+  }
+  return selected.size ? [...selected].map(([path, content]) => `// FILE: ${path}\n${content}`).join("\n\n") : source;
 }
 
 function outputTokenBudget(provider: ProviderName): number {
@@ -1105,7 +1135,9 @@ IMPORTANT: Output complete valid TSX/TypeScript/CSS for every file. Do NOT trunc
     }
   }
 
-  if (invalidCandidate) return invalidCandidate;
+  if (invalidCandidate) {
+    throw new Error(`AI code generation returned invalid project code for all ${providerLabel(provider)} models. ${failures.join(" ")}`);
+  }
   throw new Error(`AI code generation failed: all configured ${providerLabel(provider)} models failed. ${failures.join(" ") || `Set ${secretNamesFor(provider)[0]} in Supabase Edge Function secrets.`}`);
 }
 
@@ -1178,9 +1210,70 @@ async function reviewAndImproveCode(
   return cleanCode(extractChatCompletionCode(data, providerLabel(provider), reviewModel));
 }
 
+async function answerProjectQuestion(
+  providers: Providers,
+  requested: ProviderName,
+  prompt: string,
+  code: string,
+  conversation: ConversationTurn[],
+  system?: string,
+  model?: string,
+) {
+  const result = await executeProviderFailover(providers, requested, async (provider) => {
+    const models = getProviderConfig(provider).models.map((entry) => entry.id);
+    const chatModel = typeof model === "string" && models.includes(model) ? model : getDefaultModel(provider);
+    const context = code ? relevantProjectSource(code, prompt) : "(This is a general conversation before a project has been created.)";
+    const data = await completeChat(provider, providerKey(providers, provider)!, {
+      model: chatModel,
+      messages: [
+        {
+          role: "system",
+          content: `${system ?? ""}\nYou are AppiGen's project-aware coding assistant. Answer the user's question directly using the supplied project context. Do not invent files or claim changes were made. If the user asks for a modification, explain that they should submit it as a change request.`,
+        },
+        ...conversation.slice(-12),
+        {
+          role: "user",
+          content: `PROJECT SOURCE:\n${context}\n\nQUESTION:\n${prompt}`,
+        },
+      ],
+      temperature: 0.2,
+      top_p: 1,
+      max_completion_tokens: 1200,
+      reasoning_effort: "low",
+    }, { retries: 0, timeoutMs: 30000 });
+    const answer = data?.choices?.[0]?.message?.content;
+    if (typeof answer !== "string" || !answer.trim()) {
+      throw new Error(`${providerLabel(provider)} returned no conversational answer.`);
+    }
+    return { answer: answer.trim(), model: chatModel };
+  });
+  return { ...result.value, provider: `${result.provider}:${result.value.model}` };
+}
+
 export function providerFallbackOrder(providers: Providers, requested: ProviderName): ProviderName[] {
+  if (requested === "groq" || requested === "nvidia") {
+    const fallback = requested === "groq" ? "nvidia" : "groq";
+    return [requested, fallback].filter((candidate) => Boolean(providerKey(providers, candidate)));
+  }
   return [requested, ...ACTIVE_PROVIDER_NAMES.filter((candidate) => candidate !== requested)]
     .filter((candidate, index, list) => Boolean(providerKey(providers, candidate)) && list.indexOf(candidate) === index);
+}
+
+export async function executeProviderFailover<T>(
+  providers: Providers,
+  requested: ProviderName,
+  attempt: (provider: ProviderName) => Promise<T>,
+): Promise<{ provider: ProviderName; value: T }> {
+  const failures: string[] = [];
+  for (const candidate of providerFallbackOrder(providers, requested)) {
+    try {
+      return { provider: candidate, value: await attempt(candidate) };
+    } catch (error) {
+      failures.push(providerFailure(providerLabel(candidate), error));
+      if (!isProviderUnavailable(error)) throw error;
+    }
+  }
+  throw new Error(failures.join(" ") || "No configured provider could complete the request.");
 }
 
 // ---------- handler ----------
@@ -1195,8 +1288,9 @@ Deno.serve(async (req) => {
   try { body = await req.json(); }
   catch { return jsonResponse({ error: "Invalid JSON body" }, 400); }
 
-  const mode: "build" | "edit" | "repair" | "review" | "plan" | "health" =
+  const mode: "build" | "edit" | "repair" | "review" | "plan" | "chat" | "health" =
     body?.mode === "health" ? "health"
+      : body?.mode === "chat" ? "chat"
       : body?.mode === "repair" ? "repair"
         : body?.mode === "review" ? "review"
           : body?.mode === "edit" ? "edit"
@@ -1231,6 +1325,27 @@ Deno.serve(async (req) => {
       return jsonResponse({ plan: { implementationPlan: plan.implementationPlan } });
     }
 
+    if (mode === "chat") {
+      const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+      const code = typeof body.code === "string" ? body.code : "";
+      if (!prompt) return jsonResponse({ error: "Question missing" }, 400);
+      const conversation: ConversationTurn[] = Array.isArray(body.conversation)
+        ? body.conversation.slice(-12).filter((turn: any) =>
+          (turn?.role === "user" || turn?.role === "assistant") && typeof turn.content === "string")
+          .map((turn: any) => ({ role: turn.role, content: turn.content.slice(0, 2400) }))
+        : [];
+      const response = await answerProjectQuestion(
+        providers,
+        provider,
+        prompt,
+        code,
+        conversation,
+        typeof body.system === "string" ? body.system.slice(0, 4000) : undefined,
+        body.model,
+      );
+      return jsonResponse({ ...response, mode });
+    }
+
     if (mode !== "plan" && providerFallbackOrder(providers, provider).length === 0) {
       return jsonResponse({
         error: `${providerLabel(provider)} is not configured. Set ${secretNamesFor(provider)[0]} in Supabase Edge Function secrets.`,
@@ -1241,17 +1356,9 @@ Deno.serve(async (req) => {
       const code = typeof body.code === "string" ? body.code : "";
       const errorMsg = typeof body.error === "string" ? body.error : "";
       if (!code || !errorMsg) return jsonResponse({ error: "Missing code or error for repair" }, 400);
-      let fixed = "";
-      const repairFailures: string[] = [];
-      for (const candidate of providerFallbackOrder(providers, provider)) {
-        try {
-          fixed = await repairCode(providers, candidate, code, errorMsg);
-          if (fixed) break;
-        } catch (error) {
-          repairFailures.push(providerFailure(`${providerLabel(candidate)} repair`, error));
-        }
-      }
-      if (!fixed) throw new Error(repairFailures.join(" ") || "No configured provider could repair the project.");
+      const repaired = await executeProviderFailover(providers, provider, (candidate) =>
+        repairCode(providers, candidate, code, errorMsg));
+      const fixed = repaired.value;
       if (!fixed) return jsonResponse({ error: "Repair produced empty code" }, 502);
       const validationError = validateGeneratedCode(fixed);
       if (validationError) {
@@ -1270,26 +1377,18 @@ Deno.serve(async (req) => {
         return jsonResponse(incrementalReviewResponse(code));
       }
 
-      let reviewedCode = "";
-      const reviewFailures: string[] = [];
       const requireArchitecture = body.existingProject !== true;
-      for (const candidate of providerFallbackOrder(providers, provider)) {
-        try {
-          reviewedCode = await reviewAndImproveCode(providers, candidate, prompt, code, body.plan, body.model);
-          let reviewValidation = validateGeneratedCode(reviewedCode, requireArchitecture) || (requireArchitecture ? validatePlannedFiles(reviewedCode, body.plan) : null);
-          if (reviewValidation) {
-            reviewedCode = await repairCode(providers, candidate, reviewedCode, `Reviewed project validation failed: ${reviewValidation}`, requireArchitecture);
-            reviewValidation = validateGeneratedCode(reviewedCode, requireArchitecture) || (requireArchitecture ? validatePlannedFiles(reviewedCode, body.plan) : null);
-          }
-          if (!reviewValidation) break;
-          reviewedCode = "";
-          reviewFailures.push(`${providerLabel(candidate)} review returned invalid project code: ${reviewValidation}`);
-        } catch (error) {
-          reviewFailures.push(providerFailure(`${providerLabel(candidate)} review`, error));
+      const reviewed = await executeProviderFailover(providers, provider, async (candidate) => {
+        let reviewedCode = await reviewAndImproveCode(providers, candidate, prompt, code, body.plan, body.model);
+        let reviewValidation = validateGeneratedCode(reviewedCode, requireArchitecture) || (requireArchitecture ? validatePlannedFiles(reviewedCode, body.plan) : null);
+        if (reviewValidation) {
+          reviewedCode = await repairCode(providers, candidate, reviewedCode, `Reviewed project validation failed: ${reviewValidation}`, requireArchitecture);
+          reviewValidation = validateGeneratedCode(reviewedCode, requireArchitecture) || (requireArchitecture ? validatePlannedFiles(reviewedCode, body.plan) : null);
         }
-      }
-      if (!reviewedCode) throw new Error(reviewFailures.join(" ") || "No configured provider could review the generated project.");
-      return jsonResponse({ code: reviewedCode, mode });
+        if (reviewValidation) throw new Error(`${providerLabel(candidate)} review returned invalid project code: ${reviewValidation}`);
+        return reviewedCode;
+      });
+      return jsonResponse({ code: reviewed.value, provider: `${reviewed.provider}:${getDefaultModel(reviewed.provider)}`, mode });
     }
 
     // build or edit mode
@@ -1320,27 +1419,16 @@ Deno.serve(async (req) => {
     }
 
     const plan = enhanceAndPlan("", prompt, stage, existingCode);
-    let generatedCode = "";
-    let usedProvider = "";
-    const generationFailures: string[] = [];
-    for (const candidate of providerFallbackOrder(providers, provider)) {
-      try {
-        const generated = await generateCode(providers, candidate, plan, system, stage, existingCode, conversation, { model, temperature, topP });
-        generatedCode = generated.code;
-        usedProvider = generated.provider;
-        break;
-      } catch (error) {
-        generationFailures.push(providerFailure(providerLabel(candidate), error));
-      }
-    }
-    if (!generatedCode) {
-      throw new Error(generationFailures.join(" ") || "No configured provider could generate the project.");
-    }
+    const generated = await executeProviderFailover(providers, provider, (candidate) =>
+      generateCode(providers, candidate, plan, system, stage, existingCode, conversation, { model, temperature, topP }));
+    const generatedCode = generated.value.code;
+    const usedProvider = generated.value.provider;
+    const usedProviderName = usedProvider.split(":")[0] as ProviderName;
     let code = generatedCode;
 
     const validationError = validateGeneratedCode(code) || (!existingCode ? validatePlannedFiles(code, plan.implementationPlan) : null);
     if (validationError) {
-      code = await repairCode(providers, provider, code, `Generated project validation failed: ${validationError}`, !existingCode);
+      code = await repairCode(providers, usedProviderName, code, `Generated project validation failed: ${validationError}`, !existingCode);
       const repairedValidationError = validateGeneratedCode(code, !existingCode) || (!existingCode ? validatePlannedFiles(code, plan.implementationPlan) : null);
       if (repairedValidationError) {
         return jsonResponse({ error: `Generated project failed validation after automatic repair: ${repairedValidationError}` }, 502);

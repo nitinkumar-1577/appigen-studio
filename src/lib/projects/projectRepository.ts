@@ -142,15 +142,16 @@ export const persistProject = async (input: {
         if (sameContent) return targetId;
         throw new Error("This project changed or was deleted in another session. Refresh before saving.");
       }
-      const updated = await supabase.from("projects")
+      let updateQuery = supabase.from("projects")
         .update(values)
         .eq("id", targetId)
         .eq("user_id", input.userId)
-        .is("deleted_at", null)
-        .select("id")
-        .single();
+        .is("deleted_at", null);
+      if (input.expectedUpdatedAt) updateQuery = updateQuery.eq("updated_at", input.expectedUpdatedAt);
+      const updated = await updateQuery.select("id").maybeSingle();
       data = updated.data;
       error = updated.error;
+      if (!data && !error) throw new Error("This project changed or was deleted in another session. Refresh before saving.");
     } else {
       const inserted = await supabase.from("projects")
         .insert({ ...values, id: targetId, user_id: input.userId, deleted_at: null })
@@ -234,7 +235,23 @@ export const loadProjectVersions = async (projectId: string, userId: string): Pr
     prompt: version.prompt,
     createdAt: new Date(version.created_at).getTime(),
   }));
-  return cloudVersions.length ? cloudVersions : readLocalVersionsForProject(projectId);
+  return cloudVersions;
+};
+
+export const createProjectVersion = async (input: {
+  projectId: string;
+  userId: string;
+  code: string;
+  prompt: string;
+}): Promise<void> => {
+  const { error } = await supabase.from("project_versions").insert({
+    id: crypto.randomUUID(),
+    project_id: input.projectId,
+    user_id: input.userId,
+    code: input.code,
+    prompt: input.prompt,
+  });
+  if (error) throw error;
 };
 
 export const deleteProjectVersion = async (versionId: string, userId: string) => {
@@ -286,8 +303,17 @@ export const subscribeToProjectSync = (userId: string, events: ProjectSyncEvent)
       if (projectId) void events.refreshProject(projectId);
       void events.refreshProjects();
     })
+    .on("postgres_changes", { event: "DELETE", schema: "public", table: "projects", filter: `user_id=eq.${userId}` }, (payload) => {
+      const projectId = typeof payload.old?.id === "string" ? payload.old.id : "";
+      if (projectId) void events.refreshProject(projectId);
+      void events.refreshProjects();
+    })
     .on("postgres_changes", { event: "INSERT", schema: "public", table: "project_versions", filter: `user_id=eq.${userId}` }, (payload) => {
       const projectId = typeof payload.new?.project_id === "string" ? payload.new.project_id : "";
+      if (projectId) void events.refreshVersions(projectId);
+    })
+    .on("postgres_changes", { event: "DELETE", schema: "public", table: "project_versions", filter: `user_id=eq.${userId}` }, (payload) => {
+      const projectId = typeof payload.old?.project_id === "string" ? payload.old.project_id : "";
       if (projectId) void events.refreshVersions(projectId);
     });
   channel.subscribe((status) => {

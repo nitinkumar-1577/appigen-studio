@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isNewAppPrompt } from "./promptIntent";
+import { isNewAppPrompt, isProjectConversation, isProjectQuestion } from "./promptIntent";
 
 describe("prompt intent", () => {
   it.each([
@@ -9,6 +9,23 @@ describe("prompt intent", () => {
     "create a separate website",
   ])("starts a fresh project only for explicit intent: %s", (prompt) => {
     expect(isNewAppPrompt(prompt)).toBe(true);
+  });
+
+  describe("project conversation intent", () => {
+    it("recognizes questions only when a project exists", () => {
+      expect(isProjectQuestion("Why does the dashboard use this chart?", true)).toBe(true);
+      expect(isProjectQuestion("Why does the dashboard use this chart?", false)).toBe(false);
+    });
+
+    it("does not classify change requests as questions", () => {
+      expect(isProjectQuestion("Update the dashboard chart", true)).toBe(false);
+    });
+
+    it("keeps normal conversation out of the build path", () => {
+      expect(isProjectConversation("Hello, what can you help me with?", false)).toBe(true);
+      expect(isProjectConversation("Thanks, that looks good.", true)).toBe(true);
+      expect(isProjectConversation("Build a task manager", false)).toBe(false);
+    });
   });
 
   it.each([

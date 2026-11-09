@@ -23,10 +23,10 @@ import { normalizeFileMarkers } from "@/lib/preview/parseFileMarkers";
 import { validateGeneratedCode } from "@/lib/preview/validateGeneratedCode";
 import { getFunctionErrorMessage } from "@/lib/supabase/functionError";
 import { createRunnableProjectZip } from "@/lib/projects/exportProject";
-import { isNewAppPrompt } from "@/lib/projects/promptIntent";
+import { isNewAppPrompt, isProjectConversation } from "@/lib/projects/promptIntent";
 import { formatImplementationPlan } from "@/lib/projects/implementationPlan";
 import { clearLocalVersions, deleteLocalVersion, discardProjectDraft, readLocalVersionsForProject, readProjectDraft, writeLocalVersion, writeProjectDraft, writeProjectMessages, type ChatMessage, type LocalProjectVersion } from "@/lib/projects/projectStorage";
-import { clearProjectVersions, deleteProject, deleteProjectVersion, loadMostRecentProject, loadProject, loadProjectVersions, persistActivity, persistProject, subscribeToProjectSync } from "@/lib/projects/projectRepository";
+import { clearProjectVersions, createProjectVersion, deleteProject, deleteProjectVersion, loadMostRecentProject, loadProject, loadProjectVersions, persistActivity, persistProject, subscribeToProjectSync } from "@/lib/projects/projectRepository";
 import { readAppPreferences, readGenerationSettings, recordActivity } from "@/lib/appPreferences";
 import { trackAnonymousUsage } from "@/lib/telemetry";
 
@@ -89,7 +89,14 @@ const suggestProjectTitle = (promptText: string) => {
 };
 
 const Index = () => {
-  const [initialDraft] = useState<ReturnType<typeof readProjectDraft>>(() => null);
+  const [initialDraft] = useState<ReturnType<typeof readProjectDraft>>(() => {
+    const draft = readProjectDraft();
+    if (draft && /\bpdf\s+converter\b/i.test(`${draft.title} ${draft.prompt}`)) {
+      discardProjectDraft();
+      return null;
+    }
+    return draft;
+  });
   const [isBuilding, setIsBuilding] = useState(false);
   const [prompt, setPrompt] = useState(initialDraft?.prompt ?? "");
   const [doc, setDoc] = useState<string>(() => buildDocFromPrompt(initialDraft?.prompt ?? "", initialDraft?.code ?? undefined));
@@ -195,20 +202,9 @@ const Index = () => {
     void loadMostRecentProject(session.user.id)
     .then(async (project) => {
       if (cancelled || !project) return;
+      if (/\bpdf\s+converter\b/i.test(`${project.title} ${project.prompt}`)) return;
       const projectVersions = await loadProjectVersions(project.id, session.user.id);
       if (cancelled) return;
-      if (projectVersions.length === 0) {
-        await deleteProject(project.id, session.user.id);
-        setProjectId(null);
-        setProjectTitle("Untitled Project");
-        setTitleManuallyEdited(false);
-        setPrompt("");
-        setLastCode(null);
-        setMessages([]);
-        setVersions([]);
-        setDoc(buildDocFromPrompt(""));
-        return;
-      }
       setProjectId(project.id);
       setProjectUpdatedAt(project.updated_at);
       setLastSyncedCode(project.code);
@@ -222,6 +218,12 @@ const Index = () => {
       setLastCode(project.code);
       setMessages(project.messages);
       setVersions(projectVersions);
+      setProjectUpdatedAt(project.updated_at);
+      setLastSyncedCode(project.code);
+      lastSyncedPromptRef.current = project.prompt;
+      lastSyncedTitleRef.current = project.title;
+      lastSyncedMessagesRef.current = JSON.stringify(project.messages);
+      promptDirtyRef.current = false;
       setDoc(buildDocFromPrompt(project.prompt, project.code));
     })
     .catch((error: unknown) => {
@@ -406,6 +408,7 @@ const Index = () => {
     lastReportedRef.current = "";
     isRepairingRef.current = false;
     const editMode = Boolean(lastCode) && !isNewAppPrompt(trimmed);
+    const questionMode = isProjectConversation(trimmed, Boolean(lastCode));
     const generationSettings = readGenerationSettings();
     const buildStartedAt = Date.now();
     const baseMessages = editMode ? messages : [];
@@ -420,7 +423,7 @@ const Index = () => {
       setTitleManuallyEdited(false);
     }
     setMobileStudioTab("chat");
-    setProgressStage("Planning");
+    setProgressStage("Understanding request");
     setIsBuilding(true);
     const controller = new AbortController();
     abortRef.current = controller;
@@ -430,6 +433,56 @@ const Index = () => {
       controller.abort();
     }, BUILD_REQUEST_TIMEOUT_MS);
     try {
+      if (questionMode) {
+        setProgressStage("Understanding request");
+        const { data: chatData, error: chatError } = await supabase.functions.invoke("Appigen", {
+          body: {
+            mode: "chat",
+            provider: generationSettings.provider,
+            prompt: trimmed,
+            code: lastCode ?? "",
+            conversation: baseMessages.slice(-12),
+            model: generationSettings.model,
+            system: generationSettings.systemInstructions,
+          },
+          signal: controller.signal,
+        });
+        if (chatError) throw chatError;
+        if (typeof chatData?.answer !== "string" || !chatData.answer.trim()) {
+          throw new Error("The conversation route returned no answer.");
+        }
+        const completedMessages = [...nextMessages, {
+          role: "assistant" as const,
+          content: chatData.answer.trim(),
+          timestamp: Date.now(),
+        }];
+        setMessages(completedMessages);
+        setPrompt("");
+        if (user && session?.user.id && projectId && lastCode) {
+          await persistProject({
+            projectId,
+            userId: session.user.id,
+            title: projectTitle,
+            prompt,
+            code: lastCode,
+            messages: completedMessages,
+            expectedUpdatedAt: projectUpdatedAt ?? undefined,
+          });
+        } else if (!user && lastCode) {
+          writeProjectDraft({
+            projectId: null,
+            title: projectTitle,
+            prompt,
+            code: lastCode,
+            messages: completedMessages,
+            versions,
+            updatedAt: Date.now(),
+          });
+        }
+        toast({ title: "Answer ready", description: typeof chatData.provider === "string" ? `Completed by ${chatData.provider}.` : undefined });
+        return;
+      }
+      setProgressStage("Planning");
       const { data: planData, error: planError } = await supabase.functions.invoke("Appigen", {
         body: {
           mode: "plan",
@@ -520,6 +573,7 @@ const Index = () => {
           }
         }
       }
+      setProgressStage("Updating preview");
       setLastCode(generatedCode);
       setDoc(buildDocFromPrompt(trimmed, generatedCode));
       const fileCount = [...generatedCode.matchAll(/^\s*\/\/\s*FILE:/gm)].length || 1;
@@ -534,6 +588,7 @@ const Index = () => {
       if (finalTitle !== projectTitle) setProjectTitle(finalTitle);
 
       if (user) {
+        setProgressStage("Saving");
         const uid = session?.user.id;
         if (uid) {
           try {
@@ -550,6 +605,9 @@ const Index = () => {
             setLastSyncedCode(generatedCode);
             const authoritative = await loadProject(savedId, uid);
             setProjectUpdatedAt(authoritative.updated_at);
+            if (!editMode) {
+              await createProjectVersion({ projectId: savedId, userId: uid, code: generatedCode, prompt: trimmed });
+            }
             discardProjectDraft();
           } catch (saveError) {
             const recoveryDraft = readProjectDraft();
@@ -564,6 +622,7 @@ const Index = () => {
           }
         }
       } else {
+        setProgressStage("Saving");
         writeProjectDraft({ projectId: null, title: finalTitle, prompt: trimmed, code: generatedCode, messages: completedMessages, versions: versionsAfterBuild, updatedAt: Date.now() });
       }
 
@@ -607,7 +666,7 @@ const Index = () => {
       window.clearTimeout(buildTimeout);
       abortRef.current = null;
       setIsBuilding(false);
-      setProgressStage("Planning");
+      setProgressStage("Understanding request");
     }
   };
 
@@ -655,6 +714,7 @@ const Index = () => {
     if (projectId && session?.user.id) {
       void persistProject({ projectId, userId: session.user.id, title: projectTitle, prompt: version.prompt, code: version.code, messages, expectedUpdatedAt: projectUpdatedAt ?? undefined })
         .then(async (savedId) => {
+          await createProjectVersion({ projectId: savedId, userId: session.user.id, code: version.code, prompt: version.prompt });
           const authoritative = await loadProject(savedId, session.user.id);
           setProjectUpdatedAt(authoritative.updated_at);
           setLastSyncedCode(authoritative.code);
@@ -677,9 +737,8 @@ const Index = () => {
     setVersionMenuOpen(false);
     try {
       if (user && projectId && session?.user.id) {
-        if (nextVersions.length === 0) await deleteProject(projectId, session.user.id);
-        else {
-          await deleteProjectVersion(version.id, session.user.id);
+        await deleteProjectVersion(version.id, session.user.id);
+        if (nextVersions.length > 0) {
           await persistProject({ projectId, userId: session.user.id, title: projectTitle, prompt, code: lastCode, messages: nextMessages, expectedUpdatedAt: projectUpdatedAt ?? undefined });
           const authoritative = await loadProject(projectId, session.user.id);
           setProjectUpdatedAt(authoritative.updated_at);
@@ -688,19 +747,6 @@ const Index = () => {
           lastSyncedTitleRef.current = authoritative.title;
           lastSyncedMessagesRef.current = JSON.stringify(authoritative.messages);
         }
-      }
-      if (nextVersions.length === 0) {
-        setProjectId(null);
-        setProjectTitle("Untitled Project");
-        setTitleManuallyEdited(false);
-        setPrompt("");
-        setLastCode(null);
-        setMessages([]);
-        setVersions([]);
-        setDoc(buildDocFromPrompt(""));
-        setMobileStudioTab("chat");
-        clearLocalVersions(chatKey);
-        discardProjectDraft();
       }
       toast({ title: "Version deleted" });
     } catch (error) {
@@ -711,30 +757,18 @@ const Index = () => {
   };
 
   const clearVersions = async () => {
-    if (!versions.length || !window.confirm("Clear all saved versions and start a blank Untitled Project?")) return;
+    if (!versions.length || !window.confirm("Clear all saved versions? The current project will be kept.")) return;
     const previousVersions = versions;
     setVersions([]);
     setVersionMenuOpen(false);
     try {
       if (user && projectId && session?.user.id) {
         await clearProjectVersions(projectId, session.user.id);
-        await deleteProject(projectId, session.user.id);
       }
       clearLocalVersions(chatKey);
-      setProjectId(null);
-      setProjectTitle("Untitled Project");
-      setTitleManuallyEdited(false);
-      setPrompt("");
-      setLastCode(null);
-      setLastSyncedCode(null);
-      setProjectUpdatedAt(null);
-      setMessages([]);
       setVersions([]);
-      setDoc(buildDocFromPrompt(""));
-      setMobileStudioTab("chat");
       promptDirtyRef.current = false;
-      discardProjectDraft();
-      toast({ title: "Versions cleared", description: "All versions were removed and the workspace was reset to Untitled Project." });
+      toast({ title: "Versions cleared", description: "The current project was kept." });
     } catch (error) {
       setVersions(previousVersions);
       toast({ title: "Could not clear versions", description: error instanceof Error ? error.message : "Version history could not be cleared. Your project was kept.", variant: "destructive" });
