@@ -59,9 +59,6 @@ export type Database = {
           title: string
           updated_at: string
           user_id: string
-          deleted_at: string | null
-          files: Json
-          messages: Json
         }
         Insert: {
           code: string
@@ -72,9 +69,6 @@ export type Database = {
           title?: string
           updated_at?: string
           user_id: string
-          deleted_at?: string | null
-          files?: Json
-          messages?: Json
         }
         Update: {
           code?: string
@@ -85,60 +79,6 @@ export type Database = {
           title?: string
           updated_at?: string
           user_id?: string
-          deleted_at?: string | null
-          files?: Json
-          messages?: Json
-        }
-        Relationships: []
-      }
-      user_activity: {
-        Row: {
-          created_at: string
-          detail: string
-          duration_ms: number | null
-          id: string
-          kind: string
-          prompt_characters: number | null
-          title: string
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          detail: string
-          duration_ms?: number | null
-          id?: string
-          kind: string
-          prompt_characters?: number | null
-          title: string
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          detail?: string
-          duration_ms?: number | null
-          id?: string
-          kind?: string
-          prompt_characters?: number | null
-          title?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
-      anonymous_telemetry: {
-        Row: {
-          created_at: string
-          event_name: string
-          id: string
-        }
-        Insert: {
-          created_at?: string
-          event_name: string
-          id?: string
-        }
-        Update: {
-          created_at?: string
-          event_name?: string
-          id?: string
         }
         Relationships: []
       }
