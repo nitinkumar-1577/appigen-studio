@@ -25,7 +25,7 @@ import { getFunctionErrorMessage } from "@/lib/supabase/functionError";
 import { createRunnableProjectZip } from "@/lib/projects/exportProject";
 import { isNewAppPrompt, isProjectConversation } from "@/lib/projects/promptIntent";
 import { formatImplementationPlan } from "@/lib/projects/implementationPlan";
-import { clearLocalVersions, deleteLocalVersion, discardProjectDraft, readLocalVersionsForProject, readProjectDraft, writeLocalVersion, writeProjectDraft, writeProjectMessages, type ChatMessage, type LocalProjectVersion } from "@/lib/projects/projectStorage";
+import { clearLocalVersions, deleteLocalVersion, discardProjectDraft, readProjectDraft, writeLocalVersion, writeProjectDraft, writeProjectMessages, type ChatMessage, type LocalProjectVersion } from "@/lib/projects/projectStorage";
 import { clearProjectVersions, createProjectVersion, deleteProject, deleteProjectVersion, loadProject, loadProjectVersions, persistActivity, persistProject, subscribeToProjectSync } from "@/lib/projects/projectRepository";
 import { readAppPreferences, readGenerationSettings, recordActivity } from "@/lib/appPreferences";
 import { trackAnonymousUsage } from "@/lib/telemetry";
@@ -47,6 +47,16 @@ export const getValidationSummary = (reviewSkipped: boolean, fileCount: number) 
   reviewSkipped
     ? `AI review was skipped to save tokens, but local project validation passed for ${fileCount} source file${fileCount === 1 ? "" : "s"}, its app structure, and local imports.`
     : `Review complete: the project was checked against the prompt and plan. Validation passed for ${fileCount} source file${fileCount === 1 ? "" : "s"}, its app structure, and local imports.`;
+
+export const createInitialStudioState = () => ({
+  prompt: "",
+  title: "Untitled Project",
+  code: null as string | null,
+  projectId: null as string | null,
+  messages: [] as ChatMessage[],
+  versions: [] as LocalProjectVersion[],
+  mobileTab: "chat" as const,
+});
 
 export const removePromptConversationBlocks = (messages: ChatMessage[], promptText: string) => {
   const result: ChatMessage[] = [];
@@ -89,55 +99,42 @@ const suggestProjectTitle = (promptText: string) => {
 };
 
 const Index = () => {
-  const [initialDraft] = useState<ReturnType<typeof readProjectDraft>>(() => {
-    const draft = readProjectDraft();
-    if (draft && /\bpdf\s+converter\b/i.test(`${draft.title} ${draft.prompt}`)) {
-      discardProjectDraft();
-      return null;
-    }
-    return draft;
-  });
+  const [initialState] = useState(createInitialStudioState);
   const [isBuilding, setIsBuilding] = useState(false);
   const [isGeneratingApp, setIsGeneratingApp] = useState(false);
-  const [prompt, setPrompt] = useState(initialDraft?.prompt ?? "");
-  const [doc, setDoc] = useState<string>(() => buildDocFromPrompt(initialDraft?.prompt ?? "", initialDraft?.code ?? undefined));
+  const [prompt, setPrompt] = useState(initialState.prompt);
+  const [doc, setDoc] = useState<string>(() => buildDocFromPrompt(initialState.prompt));
   const [view, setView] = useState<ViewKey>("studio");
   const [authOpen, setAuthOpen] = useState(false);
   const [pricingOpen, setPricingOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [githubOpen, setGithubOpen] = useState(false);
-  const [projectTitle, setProjectTitle] = useState(initialDraft?.title ?? "Untitled Project");
-  const [titleManuallyEdited, setTitleManuallyEdited] = useState(Boolean(initialDraft?.title && initialDraft.title !== "Untitled Project"));
+  const [projectTitle, setProjectTitle] = useState(initialState.title);
+  const [titleManuallyEdited, setTitleManuallyEdited] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
-  const [lastCode, setLastCode] = useState<string | null>(initialDraft?.code ?? null);
-  const [projectId, setProjectId] = useState<string | null>(initialDraft?.projectId ?? null);
+  const [lastCode, setLastCode] = useState<string | null>(initialState.code);
+  const [projectId, setProjectId] = useState<string | null>(initialState.projectId);
   const [projectUpdatedAt, setProjectUpdatedAt] = useState<string | null>(null);
   const [lastSyncedCode, setLastSyncedCode] = useState<string | null>(null);
   const lastSyncedPromptRef = useRef<string | null>(null);
   const lastSyncedTitleRef = useRef<string | null>(null);
   const lastSyncedMessagesRef = useRef<string | null>(null);
   const promptDirtyRef = useRef(false);
-  const [messages, setMessages] = useState<ChatMessage[]>(() => initialDraft?.code ? initialDraft.messages ?? [] : []);
+  const [messages, setMessages] = useState<ChatMessage[]>(initialState.messages);
   const currentPromptRef = useRef(prompt);
   const currentTitleRef = useRef(projectTitle);
   const currentMessagesRef = useRef(messages);
   currentPromptRef.current = prompt;
   currentTitleRef.current = projectTitle;
   currentMessagesRef.current = messages;
-  const [versions, setVersions] = useState<LocalProjectVersion[]>(() => {
-    if (!initialDraft?.code) return initialDraft?.versions ?? [];
-    const storedVersions = readLocalVersionsForProject(initialDraft.projectId ?? "local:current");
-    return [...new Map([...initialDraft.versions, ...storedVersions].map((version) => [version.id, version])).values()]
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .slice(0, 50);
-  });
+  const [versions, setVersions] = useState<LocalProjectVersion[]>(initialState.versions);
   const [progressStage, setProgressStage] = useState("Planning");
   const [versionMenuOpen, setVersionMenuOpen] = useState(false);
   const [manualFixing, setManualFixing] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const previousUserRef = useRef(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [mobileStudioTab, setMobileStudioTab] = useState<"chat" | "preview">(initialDraft?.code ? "preview" : "chat");
+  const [mobileStudioTab, setMobileStudioTab] = useState<"chat" | "preview">(initialState.mobileTab);
   const showPreview = Boolean(lastCode) || isGeneratingApp;
   const { user, session, authReady, recoveryPending, clearRecoveryPending, addNotification } = useApp();
   const promptActivityTimer = useRef<number | undefined>(undefined);

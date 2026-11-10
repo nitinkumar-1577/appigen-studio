@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { getValidationSummary, removePromptConversationBlocks } from "./Index";
+import { createInitialStudioState, getValidationSummary, removePromptConversationBlocks } from "./Index";
+
+describe("Index startup state", () => {
+  it("starts every fresh Studio session as a clean Untitled Project", () => {
+    expect(createInitialStudioState()).toEqual({
+      prompt: "",
+      title: "Untitled Project",
+      code: null,
+      projectId: null,
+      messages: [],
+      versions: [],
+      mobileTab: "chat",
+    });
+  });
+});
 
 describe("Index review status messaging", () => {
   it("explains that AI review was skipped while local validation passed", () => {
