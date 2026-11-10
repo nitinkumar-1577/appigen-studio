@@ -26,9 +26,9 @@ const corsHeaders = {
 const MODEL_FAST = "openai/gpt-oss-20b";
 const MODEL_SMART = "openai/gpt-oss-120b";
 const ALLOWED_MODELS = [MODEL_FAST, MODEL_SMART] as const;
-const PROVIDER_FAILOVER_TIMEOUT_MS = 105_000;
+const PROVIDER_FAILOVER_TIMEOUT_MS = 85_000;
 
-const FAST_GENERATION_TIMEOUT_MS = 105000;
+const FAST_GENERATION_TIMEOUT_MS = 85000;
 const REPAIR_TIMEOUT_MS = 90000;
 
 type ProviderMessage = { role?: unknown; content?: unknown };
@@ -316,10 +316,9 @@ async function completeChat(
         throw lastErr;
       }
       throw new ProviderRequestError(provider, undefined, "NETWORK_ERROR", "request could not reach provider");
-    } finally {
-      clearTimeout(timer);
     }
     const text = await res.text();
+    clearTimeout(timer);
     const responseContentType = res.headers.get("content-type") ?? "";
     if (res.ok) {
       try {
@@ -1435,7 +1434,7 @@ async function generateBuildFile(providers: Providers, requestedProvider: Provid
         { role: "system", content: `You are AppiGen's file-by-file implementation agent. Generate exactly one complete source file. Return strict JSON only: {"path":"${path}","content":"..."}. No markdown, no other files, no prose. Preserve the user's requested behavior and established project architecture. Ensure syntactically complete code, resolve imports against the provided file tree, and do not use placeholders.` },
         { role: "user", content: `Original user prompt (authoritative):\n${prompt}\n\nTarget file: ${path}\nPurpose: ${purpose}\n\nComplete requirements:\n${JSON.stringify(context.requirements)}\n\nProject file tree:\n${context.fileTree.join("\n")}\n\nExisting source relevant to this target:\n${context.existingSource}\n\nPreviously generated implementation context:\n${context.implementationContext}\n\nArchitecture and design decisions:\n${context.architecture}` },
       ],
-    }, { retries: 1, timeoutMs: Math.min(candidate === "nvidia" ? 105000 : FAST_GENERATION_TIMEOUT_MS, timeoutMs) });
+    }, { retries: 0, timeoutMs: Math.min(candidate === "nvidia" ? 105000 : FAST_GENERATION_TIMEOUT_MS, timeoutMs) });
     const raw = extractChatCompletionCode(response, providerLabel(candidate), model).trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
     let parsed: unknown;
     try { parsed = JSON.parse(raw); } catch { throw new ProviderRequestError(candidate, undefined, "INVALID_RESPONSE", `invalid single-file JSON for ${path}`); }
