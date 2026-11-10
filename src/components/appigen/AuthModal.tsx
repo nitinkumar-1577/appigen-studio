@@ -53,8 +53,8 @@ export const AuthModal = ({ open, recoveryPending = false, onRecoveryHandled, on
 
   if (!open) return null;
 
-  const showError = (title: string, error: unknown, fallback: string) => {
-    toast({ title, description: authErrorMessage(error, fallback), variant: "destructive" });
+  const showError = (title: string, error: unknown, fallback: string, provider?: "google" | "github") => {
+    toast({ title, description: authErrorMessage(error, fallback, provider), variant: "destructive" });
   };
 
   const validatePassword = () => {
@@ -200,16 +200,22 @@ export const AuthModal = ({ open, recoveryPending = false, onRecoveryHandled, on
 
   const signInWithSocialProvider = async (provider: "github" | "google") => {
     setBusy(true);
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider,
-      options: {
-        redirectTo: getAuthRedirectUrl(),
-        ...(provider === "google" ? { queryParams: { prompt: "select_account" } } : {}),
-      },
-    });
-    if (error) {
+    const providerName = provider === "github" ? "GitHub" : "Google";
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: {
+          redirectTo: getAuthRedirectUrl(),
+          ...(provider === "google" ? { queryParams: { prompt: "select_account" } } : {}),
+        },
+      });
+      if (error) {
+        showError(`${providerName} sign-in unavailable`, error, "Could not start OAuth sign-in.", provider);
+      }
+    } catch (error) {
+      showError(`${providerName} sign-in failed`, error, "Could not start OAuth sign-in.", provider);
+    } finally {
       setBusy(false);
-      showError(`${provider === "github" ? "GitHub" : "Google"} sign-in unavailable`, error, "Enable this provider in Supabase Auth.");
     }
   };
 

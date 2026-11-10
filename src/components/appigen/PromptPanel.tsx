@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import type { ChatMessage } from "@/lib/projects/projectStorage";
+import type { BuildFileProgress } from "@/lib/projects/buildWorkflow";
 
 interface PromptPanelProps {
   onBuild: (stage?: string) => void;
@@ -12,6 +13,8 @@ interface PromptPanelProps {
   onNewProject: () => void;
   isBuilding: boolean;
   progressStage: string;
+  buildFiles: BuildFileProgress[];
+  buildTimeline: string[];
   messages: ChatMessage[];
   hasCode: boolean;
   prompt: string;
@@ -77,7 +80,7 @@ export const speechRecognitionErrorMessage = (code?: string) => {
   }
 };
 
-export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuilding, progressStage, messages, hasCode, prompt, onPromptChange }: PromptPanelProps) => {
+export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuilding, progressStage, buildFiles, buildTimeline, messages, hasCode, prompt, onPromptChange }: PromptPanelProps) => {
   const [recording, setRecording] = useState(false);
   const [ideaIndex, setIdeaIndex] = useState(0);
   const [animatedIdea, setAnimatedIdea] = useState("");
@@ -215,12 +218,21 @@ export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuild
               <div className={cn("mb-1 text-[10px] font-semibold uppercase tracking-wide", message.role === "user" ? "text-primary-foreground/75" : "text-primary")}>{message.role === "user" ? "You" : "AppiGen"}</div>
               {message.content}
             </article>)}
-            {isBuilding && (
-              <div className="rounded-xl border border-primary/40 bg-primary/5 p-3 shadow-glow animate-fade-in md:hidden" role="status" aria-live="polite">
-                <div className="flex items-center gap-2 text-xs font-medium text-primary">
-                  <span className="h-1.5 w-1.5 animate-blink rounded-full bg-primary" />
-                  {BUILD_STAGES[activeBuildStage] || "Planning"}…
+            {(isBuilding || buildFiles.length > 0) && (
+              <div className="mr-auto w-full rounded-xl border border-primary/40 bg-primary/5 p-3 shadow-glow animate-fade-in" role="status" aria-live="polite">
+                <div className="flex items-center justify-between gap-2 text-xs font-medium text-primary">
+                  <span className="flex min-w-0 items-center gap-2"><span className="h-1.5 w-1.5 shrink-0 animate-blink rounded-full bg-primary" /><span className="truncate">{progressStage || BUILD_STAGES[activeBuildStage] || "Planning"}</span></span>
+                  {buildFiles.length > 0 && <span className="shrink-0">{buildFiles.filter((file) => file.status === "completed").length}/{buildFiles.length} files</span>}
                 </div>
+                {buildTimeline.length > 0 && <ol className="mt-2 max-h-24 space-y-0.5 overflow-auto border-t border-border/50 pt-2 text-[10px] text-muted-foreground">
+                  {buildTimeline.map((event, index) => <li key={`${index}-${event}`} className="break-words">{event}</li>)}
+                </ol>}
+                {buildFiles.length > 0 && <ul className="mt-2 max-h-40 space-y-1 overflow-auto border-t border-border/50 pt-2 text-[11px]">
+                  {buildFiles.map((file) => <li key={file.path} className="flex items-start justify-between gap-2">
+                    <span className="min-w-0 break-all font-mono text-muted-foreground">{file.path}{file.error && <span className="block font-sans text-destructive">{file.error}</span>}</span>
+                    <span className={cn("shrink-0 capitalize", file.status === "failed" ? "text-destructive" : file.status === "completed" ? "text-emerald-500" : "text-primary")}>{file.status}</span>
+                  </li>)}
+                </ul>}
               </div>
             )}
           </div>

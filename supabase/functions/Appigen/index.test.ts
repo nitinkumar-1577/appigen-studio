@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 describe("Appigen v126 provider and review behavior", () => {
   let providerErrorCode: (status: number, metadata?: string) => string;
+  let providerErrorMetadata: (text: string, apiKey?: string) => string;
   let incrementalReviewResponse: (code: string) => Record<string, unknown>;
   let splitPromptIntoChunks: (prompt: string, maxCharacters?: number) => string[];
   let mergeProjectFiles: (original: string, generated: string) => string;
@@ -10,6 +11,7 @@ describe("Appigen v126 provider and review behavior", () => {
   let executeProviderFailover: <T>(providers: Record<string, string>, requested: string, attempt: (provider: string) => Promise<T>) => Promise<{ provider: string; value: T }>;
   let isProviderUnavailable: (error: unknown) => boolean;
   let relevantProjectSource: (source: string, prompt: string) => string;
+  let outputTokenBudget: (provider: string, inputCharacters?: number) => number;
 
   beforeAll(async () => {
     (globalThis as typeof globalThis & {
@@ -18,7 +20,13 @@ describe("Appigen v126 provider and review behavior", () => {
       env: { get: () => undefined },
       serve: vi.fn(),
     };
-    ({ providerErrorCode, incrementalReviewResponse, splitPromptIntoChunks, mergeProjectFiles, providerRequestBody, providerFallbackOrder, executeProviderFailover, isProviderUnavailable, relevantProjectSource } = await import("./index.ts"));
+    ({ providerErrorCode, providerErrorMetadata, incrementalReviewResponse, splitPromptIntoChunks, mergeProjectFiles, providerRequestBody, providerFallbackOrder, executeProviderFailover, isProviderUnavailable, relevantProjectSource, outputTokenBudget } = await import("./index.ts"));
+  });
+
+  it("preserves provider output budgets for per-file generation", () => {
+    expect(outputTokenBudget("groq", 100)).toBe(1000);
+    expect(outputTokenBudget("groq", 9000)).toBe(3000);
+    expect(outputTokenBudget("nvidia", 9000)).toBe(4096);
   });
 
   it("classifies Groq token-limit HTTP 413 responses as rate limited", () => {
@@ -58,7 +66,10 @@ describe("Appigen v126 provider and review behavior", () => {
   it("maps provider-specific output token parameters", () => {
       const body = { messages: [], max_completion_tokens: 1234 };
       expect(providerRequestBody("deepseek", body)).toMatchObject({ max_tokens: 1234 });
-      expect(providerRequestBody("nvidia", body)).toMatchObject({ max_tokens: 1234, chat_template: "default" });
+      const nvidiaBody = providerRequestBody("nvidia", body);
+      expect(nvidiaBody).toMatchObject({ max_tokens: 1234, stream: false });
+      expect(nvidiaBody).not.toHaveProperty("max_completion_tokens");
+      expect(nvidiaBody).not.toHaveProperty("chat_template");
       expect(providerRequestBody("gemini", body)).toMatchObject({ generationConfig: { maxOutputTokens: 1234 } });
   });
 
@@ -113,14 +124,30 @@ describe("Appigen v126 provider and review behavior", () => {
     expect(calls).toEqual(["groq", "nvidia"]);
   });
 
-  it("does not fail over normal 400 user errors", async () => {
+  it("fails over when a provider rejects its request and reports every failure", async () => {
     const calls: string[] = [];
     await expect(executeProviderFailover({ groqKey: "groq", nvidiaKey: "nvidia" }, "groq", async (provider) => {
       calls.push(provider);
       throw new Error(`${provider} 400 [REQUEST_REJECTED]`);
-    })).rejects.toThrow("400");
-    expect(calls).toEqual(["groq"]);
-    expect(isProviderUnavailable(new Error("Groq 400 [REQUEST_REJECTED]"))).toBe(false);
+    })).rejects.toThrow(/Groq.*NVIDIA.*400/);
+    expect(calls).toEqual(["groq", "nvidia"]);
+    expect(isProviderUnavailable(new Error("Groq 400 [REQUEST_REJECTED]"))).toBe(true);
+  });
+
+  it("includes a sanitized provider error reason without exposing the API key", () => {
+    const apiKey = "nvapi-secret-value-123456789";
+    const metadata = providerErrorMetadata(JSON.stringify({
+      error: { message: `Unknown request field. ${apiKey}`, type: "Bad Request", param: "chat_template" },
+      code: "invalid_request",
+    }), apiKey);
+    expect(metadata).toContain("provider_param=chat_template");
+    expect(metadata).toContain("provider_message=Unknown request field. [REDACTED]");
+    expect(metadata).not.toContain(apiKey);
+  });
+
+  it("tries configured free-tier fallbacks before metered alternatives", () => {
+    expect(providerFallbackOrder({ groqKey: "groq", geminiKey: "gemini", deepseekKey: "deepseek" }, "groq"))
+      .toEqual(["groq", "gemini", "deepseek"]);
   });
 
   it("includes relative import dependencies in large-project context", () => {

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Search, ChevronDown, Play, Pencil, Plus, Loader2, Inbox, Trash2 } from "lucide-react";
+import { Search, ChevronDown, Play, Pencil, Plus, Loader2, Inbox, Trash2, Check, X } from "lucide-react";
 import { useApp } from "../AppContext";
 import { toast } from "@/hooks/use-toast";
 import type { ViewKey } from "../Sidebar";
-import { loadProjects, softDeleteProject, subscribeToProjectSync } from "@/lib/projects/projectRepository";
+import { loadProjects, renameProject, softDeleteProject, subscribeToProjectSync } from "@/lib/projects/projectRepository";
 
 type Sort = "newest" | "name";
 
@@ -35,6 +35,9 @@ export const MyAppsPage = ({ onNavigate, onOpenSignIn, onOpenProject }: MyAppsPa
   const [sort, setSort] = useState<Sort>("newest");
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<ProjectRow[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [savingRename, setSavingRename] = useState(false);
 
   const load = useCallback(async () => {
     if (!user || !session?.user.id) { setRows([]); setLoading(false); return; }
@@ -97,6 +100,24 @@ export const MyAppsPage = ({ onNavigate, onOpenSignIn, onOpenProject }: MyAppsPa
     } catch (error) {
       setRows(prev);
       toast({ title: "Delete failed", description: error instanceof Error ? error.message : "The project could not be deleted.", variant: "destructive" });
+    }
+  };
+
+  const handleRename = async (id: string) => {
+    const title = editTitle.trim();
+    if (!title || !session?.user.id) return;
+    const previous = rows;
+    setRows((current) => current.map((row) => row.id === id ? { ...row, title } : row));
+    setSavingRename(true);
+    try {
+      await renameProject(id, session.user.id, title);
+      setEditingId(null);
+      toast({ title: "Project renamed" });
+    } catch (error) {
+      setRows(previous);
+      toast({ title: "Rename failed", description: error instanceof Error ? error.message : "The project name could not be updated.", variant: "destructive" });
+    } finally {
+      setSavingRename(false);
     }
   };
 
@@ -183,15 +204,47 @@ export const MyAppsPage = ({ onNavigate, onOpenSignIn, onOpenProject }: MyAppsPa
                   </button>
                   <div className="space-y-3 p-4">
                     <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold">{a.title}</div>
-                        <div className="mt-0.5 text-xs text-muted-foreground">
-                          Updated {new Date(a.updated_at).toLocaleDateString()}
-                        </div>
+                      <div className="min-w-0 flex-1">
+                        {editingId === a.id ? (
+                          <form onSubmit={(event) => { event.preventDefault(); void handleRename(a.id); }} className="flex items-center gap-1">
+                            <input
+                              autoFocus
+                              value={editTitle}
+                              onChange={(event) => setEditTitle(event.target.value)}
+                              aria-label="Project name"
+                              className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                            />
+                            <button type="submit" disabled={!editTitle.trim() || savingRename} aria-label="Save project name" title="Save name" className="rounded p-1 text-primary disabled:opacity-50">
+                              <Check className="h-4 w-4" />
+                            </button>
+                            <button type="button" onClick={() => setEditingId(null)} aria-label="Cancel rename" title="Cancel" className="rounded p-1 text-muted-foreground hover:text-foreground">
+                              <X className="h-4 w-4" />
+                            </button>
+                          </form>
+                        ) : (
+                          <>
+                            <div className="truncate text-sm font-semibold">{a.title}</div>
+                            <div className="mt-0.5 text-xs text-muted-foreground">
+                              Updated {new Date(a.updated_at).toLocaleDateString()}
+                            </div>
+                          </>
+                        )}
                       </div>
+                      {editingId !== a.id && <button
+                        onClick={() => {
+                          setEditingId(a.id);
+                          setEditTitle(a.title);
+                        }}
+                        title="Rename project"
+                        aria-label={`Rename ${a.title}`}
+                        className="text-muted-foreground transition-smooth hover:text-primary"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>}
                       <button
                         onClick={() => handleDelete(a.id)}
                         title="Delete project"
+                        aria-label={`Delete ${a.title}`}
                         className="text-muted-foreground transition-smooth hover:text-destructive"
                       >
                         <Trash2 className="h-4 w-4" />

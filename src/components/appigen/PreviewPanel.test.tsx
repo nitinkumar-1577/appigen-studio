@@ -9,14 +9,13 @@ vi.mock("@monaco-editor/react", () => ({
 }));
 
 describe("PreviewPanel", () => {
-  it("opens the version list without crashing", () => {
+  it("opens version history and restores/deletes through the history area", () => {
     const onDeleteVersion = vi.fn();
     render(
       <PreviewPanel
         isBuilding={false}
         doc=""
         code=""
-        onPushToGithub={vi.fn()}
         onCodeChange={vi.fn()}
         versions={[{ id: "version-1", code: "", prompt: "Build another app", createdAt: 0 }]}
         onRestoreVersion={vi.fn()}
@@ -27,11 +26,25 @@ describe("PreviewPanel", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Versions (1)" }));
+    fireEvent.click(screen.getByRole("button", { name: "History (1)" }));
 
     expect(screen.getByText("Build another app")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Delete version Build another app" }));
     expect(onDeleteVersion).toHaveBeenCalledWith(expect.objectContaining({ id: "version-1" }));
+  });
+
+  it("shows added, modified, and unchanged project files in Changes", () => {
+    const baseCode = "// FILE: src/App.tsx\nexport default function App() { return <main>Old</main>; }\n\n// FILE: src/lib/keep.ts\nexport const keep = true;";
+    const code = "// FILE: src/App.tsx\nexport default function App() { return <main>New</main>; }\n\n// FILE: src/lib/keep.ts\nexport const keep = true;\n\n// FILE: src/lib/new.ts\nexport const added = true;";
+    render(<PreviewPanel isBuilding={false} doc="" code={code} baseCode={baseCode} onCodeChange={vi.fn()} versions={[]} onRestoreVersion={vi.fn()} onDeleteVersion={vi.fn()} onClearVersions={vi.fn()} onManualFix={vi.fn()} fixing={false} />);
+    expect(screen.queryByText("GitHub Push")).not.toBeInTheDocument();
+    expect(screen.queryByText("Versions (0)")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Changes" }));
+    expect(screen.getByText("src/App.tsx")).toBeInTheDocument();
+    expect(screen.getByText("modified")).toBeInTheDocument();
+    expect(screen.getByText("unchanged")).toBeInTheDocument();
+    expect(screen.getByText("added")).toBeInTheDocument();
+    expect(screen.getByText(/New/)).toBeInTheDocument();
   });
 
   it("shows generated app layers, including the app stylesheet, in Code view", () => {
@@ -55,7 +68,6 @@ export default function MainView() { return <main>Ready</main>; }
         isBuilding={false}
         doc=""
         code={code}
-        onPushToGithub={vi.fn()}
         onCodeChange={vi.fn()}
         versions={[]}
         onRestoreVersion={vi.fn()}
@@ -90,7 +102,6 @@ main { color: red; }`;
         isBuilding={false}
         doc=""
         code={code}
-        onPushToGithub={vi.fn()}
         onCodeChange={onCodeChange}
         versions={[]}
         onRestoreVersion={vi.fn()}
@@ -121,7 +132,6 @@ main { color: red; }`;
         isBuilding={false}
         doc=""
         code="export default function App() { return <main>Ready</main>; }"
-        onPushToGithub={vi.fn()}
         onCodeChange={vi.fn()}
         versions={[]}
         onRestoreVersion={vi.fn()}
@@ -141,7 +151,6 @@ main { color: red; }`;
         isBuilding={false}
         doc=""
         code={null}
-        onPushToGithub={vi.fn()}
         versions={[]}
         onRestoreVersion={vi.fn()}
         onDeleteVersion={vi.fn()}
@@ -161,7 +170,6 @@ main { color: red; }`;
         isBuilding={false}
         doc="<main>Ready</main>"
         code="export default function App() { return <main>Ready</main>; }"
-        onPushToGithub={vi.fn()}
         versions={[]}
         onRestoreVersion={vi.fn()}
         onDeleteVersion={vi.fn()}

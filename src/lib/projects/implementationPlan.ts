@@ -21,6 +21,7 @@ export interface ImplementationPlan {
   qualityChecks: string[];
   fileBlueprint: PlannedFile[];
   existingFiles: string[];
+  existingDependencies: string[];
 }
 
 interface CreateImplementationPlanOptions {
@@ -29,6 +30,7 @@ interface CreateImplementationPlanOptions {
   domain: string;
   complexity: string;
   existingFiles?: string[];
+  existingDependencies?: string[];
   hasExistingProject?: boolean;
 }
 
@@ -65,13 +67,14 @@ export function createImplementationPlan({
   domain,
   complexity,
   existingFiles = [],
+  existingDependencies = [],
   hasExistingProject = existingFiles.length > 0,
 }: CreateImplementationPlanOptions): { architecture: ProjectArchitecture; implementationPlan: ImplementationPlan } {
   const architecture: ProjectArchitecture = appType === "game"
     ? gameArchitecture(prompt)
     : {
       pages: ["src/pages/MainPage.tsx"],
-      components: [{ path: "src/components/MainView.tsx", purpose: "Compose the requested screen and its primary interactions" }],
+      components: [],
       hooks: [],
       contexts: [],
       utils: [],
@@ -105,13 +108,23 @@ export function createImplementationPlan({
       ? "Check the game's real rules, legal actions, turn changes, win/loss conditions, and visible token or object movement against the requested game."
       : "Exercise the primary user flow, empty/error states, and relevant calculations before calling the app complete.",
   ];
+  const normalizedPrompt = prompt.toLowerCase();
+  const needsReusableUI = appType === "game" || /\b(multiple pages|multi-page|reusable|components|component library|sidebar|navigation|modal|dialog)\b/.test(normalizedPrompt);
+  const requestedDataLogic = /\b(calculat|formula|scoring|rules|validation|workflow|crm|inventory|booking|cart|checkout|filter|search|sort|track|tracker)\b/.test(normalizedPrompt);
+  const featureSlug = (domain || appType).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "app";
+  const adaptiveComponents = needsReusableUI && architecture.components.length === 0
+    ? [{ path: "src/components/MainView.tsx", purpose: "Reusable composition for the requested screens and interactions" }]
+    : architecture.components;
+  const adaptiveUtils = appType !== "game" && requestedDataLogic && !architecture.utils.length
+    ? [{ path: `src/lib/${featureSlug}.ts`, purpose: "Focused domain calculations and validation for the requested workflows" }]
+    : architecture.utils;
   const fileBlueprint: PlannedFile[] = [
     { path: "src/App.tsx", purpose: "Application shell and entry point" },
     ...architecture.pages.map((path) => ({ path, purpose: `Primary ${appType === "game" ? "game" : "app"} screen composition` })),
     { path: "src/styles.css", purpose: "Responsive app-specific design system" },
-    ...architecture.components,
+    ...(needsReusableUI ? adaptiveComponents : []),
     ...architecture.hooks,
-    ...architecture.utils,
+    ...adaptiveUtils,
   ];
 
   return {
@@ -124,6 +137,7 @@ export function createImplementationPlan({
       qualityChecks,
       fileBlueprint,
       existingFiles,
+      existingDependencies,
     },
   };
 }
@@ -169,6 +183,9 @@ export function formatImplementationPlan(value: unknown): string {
   if (Array.isArray(plan.existingFiles) && plan.existingFiles.length) {
     const paths = plan.existingFiles.filter((path): path is string => typeof path === "string");
     if (paths.length) lines.push("", `Existing project files to inspect: ${paths.join(", ")}`);
+  }
+  if (Array.isArray(plan.existingDependencies) && plan.existingDependencies.length) {
+    lines.push("", `Existing dependencies to preserve: ${plan.existingDependencies.filter((name): name is string => typeof name === "string").join(", ")}`);
   }
   return lines.length > 1 ? lines.join("\n") : "";
 }

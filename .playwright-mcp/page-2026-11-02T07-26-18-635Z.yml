@@ -1,0 +1,162 @@
+- generic [ref=f3e2]:
+  - region "Notifications (F8)":
+    - list
+  - region "Notifications alt+T"
+  - generic [ref=f3e3]:
+    - generic [ref=f3e4]:
+      - complementary [ref=f3e5]:
+        - generic [ref=f3e6]:
+          - button [ref=f3e7] [cursor=pointer]
+          - generic [ref=f3e10]: AppiGen
+        - navigation [ref=f3e11]:
+          - list [ref=f3e12]:
+            - listitem [ref=f3e13]:
+              - button "Studio" [ref=f3e14] [cursor=pointer]
+            - listitem [ref=f3e19]:
+              - button "Dashboard" [ref=f3e20] [cursor=pointer]
+            - listitem [ref=f3e27]:
+              - button "My Apps" [ref=f3e28] [cursor=pointer]
+            - listitem [ref=f3e32]:
+              - button "Templates" [ref=f3e33] [cursor=pointer]
+            - listitem [ref=f3e39]:
+              - button "API Settings" [active] [ref=f3e40] [cursor=pointer]
+        - generic [ref=f3e45]:
+          - generic [ref=f3e46]: Accent
+          - generic [ref=f3e53]:
+            - button "Use Purple accent" [ref=f3e54] [cursor=pointer]
+            - button "Use Blue accent" [ref=f3e55] [cursor=pointer]
+            - button "Use Emerald accent" [ref=f3e56] [cursor=pointer]
+            - button "Use Rose accent" [ref=f3e57] [cursor=pointer]
+        - generic [ref=f3e58]:
+          - button "Sign in" [ref=f3e60] [cursor=pointer]
+          - button "Settings" [ref=f3e61] [cursor=pointer]
+        - button "Toggle sidebar" [ref=f3e66] [cursor=pointer]
+      - generic [ref=f3e69]:
+        - banner [ref=f3e70]:
+          - heading "API Settings" [level=1] [ref=f3e245]
+          - generic [ref=f3e78]:
+            - button [ref=f3e80] [cursor=pointer]
+            - button "Upgrade" [ref=f3e84] [cursor=pointer]
+        - main [ref=f3e88]:
+          - generic [ref=f3e247]:
+            - generic [ref=f3e248]:
+              - generic [ref=f3e249]:
+                - heading "API Settings" [level=1] [ref=f3e250]
+                - paragraph [ref=f3e251]: Configure model behavior and generation safety.
+              - button "Save Changes" [ref=f3e252] [cursor=pointer]
+            - generic [ref=f3e257]:
+              - generic [ref=f3e258]:
+                - generic [ref=f3e259]:
+                  - generic [ref=f3e260]: Provider
+                  - combobox "Provider" [ref=f3e261]:
+                    - option "Groq" [selected]
+                    - option "Deepseek"
+                    - option "Openrouter"
+                    - option "Gemini"
+                    - option "Openai"
+                    - option "NVIDIA NIM"
+                  - generic [ref=f3e262]: Model
+                  - combobox "Model" [ref=f3e263]:
+                    - option "openai/gpt-oss-20b"
+                    - option "openai/gpt-oss-120b" [selected]
+                  - paragraph [ref=f3e264]: Provider credentials remain server-managed. Health checks never return API keys.
+                - generic [ref=f3e265]:
+                  - generic [ref=f3e266]: System Instructions
+                  - textbox "System Instructions" [ref=f3e270]: You are an expert product designer and full-stack engineer. Generate clean, accessible, production-ready React + Tailwind code.
+                  - generic [ref=f3e271]: 127/4000
+                - generic [ref=f3e272]:
+                  - generic [ref=f3e273]:
+                    - generic [ref=f3e274]:
+                      - generic [ref=f3e275]: Temperature
+                      - generic [ref=f3e276]: "0.7"
+                    - slider [ref=f3e277]: "0.7"
+                  - generic [ref=f3e278]:
+                    - generic [ref=f3e279]:
+                      - generic [ref=f3e280]: Top-P
+                      - generic [ref=f3e281]: "0.95"
+                    - slider [ref=f3e282]: "0.95"
+              - generic [ref=f3e283]:
+                - generic [ref=f3e284]:
+                  - heading "Safety Settings" [level=2] [ref=f3e285]
+                  - paragraph [ref=f3e286]: The backend applies these thresholds and always blocks clearly harmful requests.
+                - generic [ref=f3e287]:
+                  - generic [ref=f3e288]:
+                    - generic [ref=f3e289]:
+                      - generic [ref=f3e290]: Harassment
+                      - generic [ref=f3e291]: Block some
+                    - slider "Harassment" [ref=f3e292]: "2"
+                  - generic [ref=f3e293]:
+                    - generic [ref=f3e294]:
+                      - generic [ref=f3e295]: Hate Speech
+                      - generic [ref=f3e296]: Block some
+                    - slider "Hate Speech" [ref=f3e297]: "2"
+                  - generic [ref=f3e298]:
+                    - generic [ref=f3e299]:
+                      - generic [ref=f3e300]: Sexually Explicit
+                      - generic [ref=f3e301]: Block most
+                    - slider "Sexually Explicit" [ref=f3e302]: "3"
+                  - generic [ref=f3e303]:
+                    - generic [ref=f3e304]:
+                      - generic [ref=f3e305]: Dangerous Content
+                      - generic [ref=f3e306]: Block some
+                    - slider "Dangerous Content" [ref=f3e307]: "2"
+              - paragraph [ref=f3e309]: Provider credentials are managed securely by the server. Changes here are stored in this browser and sent with each new build; secret keys are never shown in the client.
+    - complementary [ref=f3e130]:
+      - generic [ref=f3e131]:
+        - heading "General Settings" [level=2] [ref=f3e134]
+        - button "Close settings" [ref=f3e135] [cursor=pointer]
+      - generic [ref=f3e139]:
+        - generic [ref=f3e140]:
+          - generic [ref=f3e141]:
+            - generic [ref=f3e142]: Appearance
+            - generic [ref=f3e143]: System and default follow AppiGen's dark theme
+          - generic [ref=f3e145]:
+            - button "Dark" [ref=f3e146] [cursor=pointer]
+            - button "Light" [ref=f3e149] [cursor=pointer]
+            - button "System" [ref=f3e156] [cursor=pointer]
+        - generic [ref=f3e159]:
+          - generic [ref=f3e160]:
+            - generic [ref=f3e161]: Default Model
+            - generic [ref=f3e162]: The model selected for new builds
+          - generic [ref=f3e163]:
+            - combobox [ref=f3e164]:
+              - option "Groq" [selected]
+              - option "Deepseek"
+              - option "Openrouter"
+              - option "Gemini"
+              - option "Openai"
+              - option "NVIDIA NIM"
+            - combobox [ref=f3e165]:
+              - option "openai/gpt-oss-20b"
+              - option "openai/gpt-oss-120b" [selected]
+        - generic [ref=f3e166]:
+          - generic [ref=f3e167]:
+            - generic [ref=f3e168]: UI Density
+            - generic [ref=f3e169]: Adjust card spacing across the workspace
+          - generic [ref=f3e171]:
+            - button "Comfortable" [ref=f3e172] [cursor=pointer]
+            - button "Compact" [ref=f3e173] [cursor=pointer]
+            - button "Spacious" [ref=f3e174] [cursor=pointer]
+        - generic [ref=f3e175]:
+          - generic [ref=f3e176]: Workspace
+          - generic [ref=f3e178]:
+            - generic [ref=f3e179]:
+              - generic [ref=f3e180]:
+                - generic [ref=f3e181]: Autodraft
+                - generic [ref=f3e182]: Save prompts locally while you type
+              - switch "Autodraft" [checked] [ref=f3e183] [cursor=pointer]
+            - generic [ref=f3e185]:
+              - generic [ref=f3e186]:
+                - generic [ref=f3e187]: Anonymous telemetry
+                - generic [ref=f3e188]: Share anonymous usage data to improve AppiGen
+              - switch "Anonymous telemetry" [ref=f3e189] [cursor=pointer]
+        - paragraph [ref=f3e191]: Model behavior and content safety are configured in API Settings.
+      - generic [ref=f3e192]:
+        - button "Cancel" [ref=f3e193] [cursor=pointer]
+        - button "Save changes" [ref=f3e194] [cursor=pointer]
+    - contentinfo [ref=f3e195]:
+      - generic [ref=f3e196]:
+        - generic [ref=f3e197]: All systems operational
+        - generic [ref=f3e199]: ·
+        - generic [ref=f3e200]: v1.0.0
+      - generic [ref=f3e201]: © 2026 AppiGen|Powered by NK

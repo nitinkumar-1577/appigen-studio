@@ -89,6 +89,19 @@ export const loadProjects = async (userId: string): Promise<ProjectSummary[]> =>
   return data ?? [];
 };
 
+export const renameProject = async (projectId: string, userId: string, title: string): Promise<void> => {
+  const { data, error } = await supabase
+    .from("projects")
+    .update({ title })
+    .eq("id", projectId)
+    .eq("user_id", userId)
+    .is("deleted_at", null)
+    .select("id")
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error("This project could not be found in your workspace.");
+};
+
 export const persistProject = async (input: {
   projectId: string | null;
   userId: string;

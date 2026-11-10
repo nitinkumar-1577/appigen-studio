@@ -108,18 +108,30 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
   // Auth listener BEFORE getSession
   useEffect(() => {
+    let authEventReceived = false;
+    let mounted = true;
     const { data: sub } = supabase.auth.onAuthStateChange((event, newSession) => {
+      authEventReceived = true;
       setSession(newSession);
       setUser(toAppUser(newSession?.user));
       setAuthReady(true);
       if (event === "PASSWORD_RECOVERY") setRecoveryPending(true);
     });
-    supabase.auth.getSession().then(({ data }) => {
+    void supabase.auth.getSession().then(({ data, error }) => {
+      if (!mounted || authEventReceived) return;
+      if (error) console.error("Could not restore the Supabase session:", error.message);
       setSession(data.session);
       setUser(toAppUser(data.session?.user));
       setAuthReady(true);
+    }).catch((error: unknown) => {
+      if (!mounted || authEventReceived) return;
+      console.error("Could not restore the Supabase session:", error);
+      setAuthReady(true);
     });
-    return () => sub.subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      sub.subscription.unsubscribe();
+    };
   }, []);
 
   useEffect(() => { localStorage.setItem(LS.notif, JSON.stringify(notifications)); }, [notifications]);

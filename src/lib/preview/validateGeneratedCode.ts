@@ -152,9 +152,6 @@ export function validateGeneratedCode(source: string, requireArchitecture = fals
       return "The generated project is missing a focused screen in src/pages/.";
     }
     const componentPaths = [...files.keys()].filter((path) => /^src\/components\/.+\.tsx?$/.test(path));
-    if (!componentPaths.length) {
-      return "The generated project is missing reusable UI in src/components/.";
-    }
     const entrySource = files.get(entryPath)!;
     if (!/\bimport\s+["']\.\/styles\.css["']/.test(entrySource)) {
       return "src/App.tsx must import its app-specific ./styles.css.";
@@ -162,7 +159,7 @@ export function validateGeneratedCode(source: string, requireArchitecture = fals
     if (!pagePaths.some((path) => isImportedBy(path, entryPath, entrySource))) {
       return "src/App.tsx must compose a page from src/pages/.";
     }
-    if (!componentPaths.some((path) => [...files!.entries()].some(([fromPath, content]) =>
+    if (componentPaths.length > 0 && !componentPaths.some((path) => [...files!.entries()].some(([fromPath, content]) =>
       fromPath !== path && isImportedBy(path, fromPath, content)))) {
       return "A reusable component from src/components/ must be imported by the app.";
     }
@@ -188,6 +185,25 @@ export function validateGeneratedCode(source: string, requireArchitecture = fals
   const entry = files.get(entryPath)!;
   if (!/\bexport\s+default\b|\bexport\s*\{[^}]*\bdefault\b[^}]*\}/s.test(entry)) {
     return `${entryPath} must default-export the root App component.`;
+  }
+  return null;
+}
+
+export function validateGeneratedFile(path: string, content: string, knownPaths: string[] = []): string | null {
+  if (!/^(src|public)\/(?!.*(?:^|\/)\.\.?\/)[A-Za-z0-9_./-]+\.(?:tsx?|jsx?|css|html|json|svg)$/.test(path) || path.includes("..")) {
+    return `Unsafe project path: ${path}`;
+  }
+  if (!content.trim()) return `Generated file ${path} is empty.`;
+  if (!bracketsBalanced(content)) return `Generated file ${path} has unbalanced brackets or an unclosed string.`;
+  const files = new Map(knownPaths.map((knownPath) => [knownPath, ""]));
+  files.set(path, content);
+  for (const match of content.matchAll(/\b(?:from\s*|import\s*)["']([^"']+)["']|\bimport\s*\(\s*["']([^"']+)["']\s*\)/g)) {
+    const specifier = match[1] ?? match[2];
+    if (specifier.startsWith(".") || specifier.startsWith("@/") || specifier.startsWith("/")) {
+      if (!resolveLocalImport(path, specifier, files)) return `Generated file ${path} imports missing module "${specifier}".`;
+    } else if (!ALLOWED_PACKAGES.has(specifier)) {
+      return `Generated file ${path} imports unsupported package "${specifier}".`;
+    }
   }
   return null;
 }

@@ -1,0 +1,174 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - region "Notifications (F8)":
+      - list [ref=e190]:
+        - listitem [ref=e293]:
+          - generic [ref=e294]:
+            - generic [ref=e295]: Provider health check failed
+            - generic [ref=e296]: Edge Function returned a non-2xx status code
+          - button [ref=e297] [cursor=pointer]
+    - region "Notifications alt+T"
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - complementary [ref=e6]:
+          - generic [ref=e7]:
+            - button [ref=e8] [cursor=pointer]
+            - generic [ref=e11]: AppiGen
+          - navigation [ref=e12]:
+            - list [ref=e13]:
+              - listitem [ref=e14]:
+                - button "Studio" [ref=e15] [cursor=pointer]
+              - listitem [ref=e20]:
+                - button "Dashboard" [ref=e21] [cursor=pointer]
+              - listitem [ref=e28]:
+                - button "My Apps" [ref=e29] [cursor=pointer]
+              - listitem [ref=e33]:
+                - button "Templates" [ref=e34] [cursor=pointer]
+              - listitem [ref=e40]:
+                - button "API Settings" [ref=e41] [cursor=pointer]
+          - generic [ref=e46]:
+            - generic [ref=e47]: Accent
+            - generic [ref=e54]:
+              - button "Use Purple accent" [ref=e55] [cursor=pointer]
+              - button "Use Blue accent" [ref=e56] [cursor=pointer]
+              - button "Use Emerald accent" [ref=e57] [cursor=pointer]
+              - button "Use Rose accent" [ref=e58] [cursor=pointer]
+          - generic [ref=e59]:
+            - button "Sign in" [ref=e61] [cursor=pointer]
+            - button "Settings" [ref=e62] [cursor=pointer]
+          - button "Toggle sidebar" [ref=e67] [cursor=pointer]
+        - generic [ref=e70]:
+          - banner [ref=e71]:
+            - heading "API Settings" [level=1] [ref=e221]
+            - generic [ref=e75]:
+              - button [ref=e77] [cursor=pointer]
+              - button "Upgrade" [ref=e81] [cursor=pointer]
+          - main [ref=e85]:
+            - generic [ref=e223]:
+              - generic [ref=e224]:
+                - generic [ref=e225]:
+                  - heading "API Settings" [level=1] [ref=e226]
+                  - paragraph [ref=e227]: Configure model behavior and generation safety.
+                - button "Save Changes" [ref=e228] [cursor=pointer]
+              - generic [ref=e233]:
+                - generic [ref=e234]:
+                  - generic [ref=e235]:
+                    - generic [ref=e236]: Provider
+                    - combobox "Provider" [ref=e237]:
+                      - option "Groq" [selected]
+                      - option "Deepseek"
+                      - option "Openrouter"
+                      - option "Gemini"
+                      - option "Openai"
+                      - option "NVIDIA NIM"
+                    - generic [ref=e238]: Model
+                    - combobox "Model" [ref=e239]:
+                      - option "openai/gpt-oss-20b"
+                      - option "openai/gpt-oss-120b" [selected]
+                    - paragraph [ref=e240]: Provider credentials remain server-managed. Health checks never return API keys.
+                  - generic [ref=e241]:
+                    - generic [ref=e242]: System Instructions
+                    - textbox "System Instructions" [ref=e246]: You are an expert product designer and full-stack engineer. Generate clean, accessible, production-ready React + Tailwind code.
+                    - generic [ref=e247]: 127/4000
+                  - generic [ref=e248]:
+                    - generic [ref=e249]:
+                      - generic [ref=e250]:
+                        - generic [ref=e251]: Temperature
+                        - generic [ref=e252]: "0.7"
+                      - slider [ref=e253]: "0.7"
+                    - generic [ref=e254]:
+                      - generic [ref=e255]:
+                        - generic [ref=e256]: Top-P
+                        - generic [ref=e257]: "0.95"
+                      - slider [ref=e258]: "0.95"
+                - generic [ref=e259]:
+                  - generic [ref=e260]:
+                    - heading "Safety Settings" [level=2] [ref=e261]
+                    - paragraph [ref=e262]: The backend applies these thresholds and always blocks clearly harmful requests.
+                  - generic [ref=e263]:
+                    - generic [ref=e264]:
+                      - generic [ref=e265]:
+                        - generic [ref=e266]: Harassment
+                        - generic [ref=e267]: Block some
+                      - slider "Harassment" [ref=e268]: "2"
+                    - generic [ref=e269]:
+                      - generic [ref=e270]:
+                        - generic [ref=e271]: Hate Speech
+                        - generic [ref=e272]: Block some
+                      - slider "Hate Speech" [ref=e273]: "2"
+                    - generic [ref=e274]:
+                      - generic [ref=e275]:
+                        - generic [ref=e276]: Sexually Explicit
+                        - generic [ref=e277]: Block most
+                      - slider "Sexually Explicit" [ref=e278]: "3"
+                    - generic [ref=e279]:
+                      - generic [ref=e280]:
+                        - generic [ref=e281]: Dangerous Content
+                        - generic [ref=e282]: Block some
+                      - slider "Dangerous Content" [ref=e283]: "2"
+                - paragraph [ref=e285]: Provider credentials are managed securely by the server. Changes here are stored in this browser and sent with each new build; secret keys are never shown in the client.
+                - generic [ref=e287]:
+                  - generic [ref=e288]:
+                    - heading "Provider health" [level=2] [ref=e289]
+                    - paragraph [ref=e290]: Checks configured status, authentication, and a real generation request without exposing secrets.
+                  - button "Check all providers" [ref=e291] [cursor=pointer]
+      - complementary [ref=e114]:
+        - generic [ref=e115]:
+          - heading "General Settings" [level=2] [ref=e118]
+          - button "Close settings" [ref=e119] [cursor=pointer]
+        - generic [ref=e123]:
+          - generic [ref=e124]:
+            - generic [ref=e125]:
+              - generic [ref=e126]: Appearance
+              - generic [ref=e127]: System and default follow AppiGen's dark theme
+            - generic [ref=e129]:
+              - button "Dark" [ref=e130] [cursor=pointer]
+              - button "Light" [ref=e133] [cursor=pointer]
+              - button "System" [ref=e140] [cursor=pointer]
+          - generic [ref=e143]:
+            - generic [ref=e144]:
+              - generic [ref=e145]: Default Model
+              - generic [ref=e146]: The model selected for new builds
+            - generic [ref=e147]:
+              - combobox [ref=e148]:
+                - option "Groq" [selected]
+                - option "Deepseek"
+                - option "Openrouter"
+                - option "Gemini"
+                - option "Openai"
+                - option "NVIDIA NIM"
+              - combobox [ref=e149]:
+                - option "openai/gpt-oss-20b"
+                - option "openai/gpt-oss-120b" [selected]
+          - generic [ref=e150]:
+            - generic [ref=e151]:
+              - generic [ref=e152]: UI Density
+              - generic [ref=e153]: Adjust card spacing across the workspace
+            - generic [ref=e155]:
+              - button "Comfortable" [ref=e156] [cursor=pointer]
+              - button "Compact" [ref=e157] [cursor=pointer]
+              - button "Spacious" [ref=e158] [cursor=pointer]
+          - generic [ref=e159]:
+            - generic [ref=e160]: Workspace
+            - generic [ref=e162]:
+              - generic [ref=e163]:
+                - generic [ref=e164]:
+                  - generic [ref=e165]: Autodraft
+                  - generic [ref=e166]: Save prompts locally while you type
+                - switch "Autodraft" [checked] [ref=e167] [cursor=pointer]
+              - generic [ref=e169]:
+                - generic [ref=e170]:
+                  - generic [ref=e171]: Anonymous telemetry
+                  - generic [ref=e172]: Share anonymous usage data to improve AppiGen
+                - switch "Anonymous telemetry" [ref=e173] [cursor=pointer]
+          - paragraph [ref=e175]: Model behavior and content safety are configured in API Settings.
+        - generic [ref=e176]:
+          - button "Cancel" [ref=e177] [cursor=pointer]
+          - button "Save changes" [ref=e178] [cursor=pointer]
+      - contentinfo [ref=e179]:
+        - generic [ref=e180]:
+          - generic [ref=e181]: All systems operational
+          - generic [ref=e183]: ·
+          - generic [ref=e184]: v1.0.0
+        - generic [ref=e185]: © 2026 AppiGen|Powered by NK
+  - status [ref=e302]: Notification Provider health check failedEdge Function returned a non-2xx status code

@@ -6,6 +6,7 @@ export type ProviderStatus =
   | "working"
   | "missing"
   | "invalid_key"
+  | "permission_denied"
   | "quota_exhausted"
   | "rate_limited"
   | "model_unavailable"
@@ -36,9 +37,8 @@ export const PROVIDER_CATALOG: Record<ProviderName, ProviderConfig> = {
     secretNames: ["GROQ_API_KEY"],
     baseUrl: "https://api.groq.com/openai/v1",
     models: [
-      { id: "qwen/qwen3.8-27b", label: "Qwen 3.8 27B" },
-      { id: "openai/gpt-oss-20b", label: "GPT-OSS 20B" },
-      { id: "openai/gpt-oss-120b", label: "GPT-OSS 120B", default: true },
+      { id: "openai/gpt-oss-20b", label: "GPT-OSS 20B", default: true },
+      { id: "openai/gpt-oss-120b", label: "GPT-OSS 120B" },
     ],
     supportsModelListing: true,
     protocol: "openai",
@@ -111,7 +111,8 @@ export function getDefaultModel(provider: ProviderName): string {
 export function classifyProviderStatus(status: number | "timeout" | "network"): ProviderStatus {
   if (status === "timeout") return "timeout";
   if (status === "network") return "network_error";
-  if (status === 401 || status === 403) return "invalid_key";
+  if (status === 401) return "invalid_key";
+  if (status === 403) return "permission_denied";
   if (status === 402) return "quota_exhausted";
   if (status === 429) return "rate_limited";
   if (status === 404) return "model_unavailable";

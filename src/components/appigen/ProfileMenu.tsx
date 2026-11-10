@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { LogOut, User as UserIcon, Settings as SettingsIcon, CreditCard } from "lucide-react";
+import { LogOut, User as UserIcon, Settings as SettingsIcon, CreditCard, type LucideIcon } from "lucide-react";
 import { useApp } from "./AppContext";
 
 interface ProfileMenuProps {
@@ -73,7 +73,7 @@ export const ProfileMenu = ({ onOpenSignIn, onOpenSettings, onOpenPricing, compa
   );
 };
 
-const MenuItem = ({ icon: Icon, label, onClick, danger }: { icon: any; label: string; onClick: () => void; danger?: boolean }) => (
+const MenuItem = ({ icon: Icon, label, onClick, danger }: { icon: LucideIcon; label: string; onClick: () => void; danger?: boolean }) => (
   <button onClick={onClick} className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-xs font-medium transition-smooth ${danger ? "text-destructive hover:bg-destructive/10" : "text-foreground hover:bg-secondary"}`}>
     <Icon className="h-3.5 w-3.5" />
     {label}

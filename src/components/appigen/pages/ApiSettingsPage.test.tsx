@@ -5,6 +5,7 @@ describe("provider health labels", () => {
   it.each([
     ["working", "Working"],
     ["invalid_key", "Invalid key"],
+    ["permission_denied", "Permission denied"],
     ["quota_exhausted", "Quota exhausted"],
     ["rate_limited", "Rate limited"],
     ["model_unavailable", "Model unavailable"],

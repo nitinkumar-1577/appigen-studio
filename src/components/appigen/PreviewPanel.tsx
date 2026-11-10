@@ -1,11 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import Editor from "@monaco-editor/react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   Code2,
   Eye,
   RefreshCw,
   Maximize2,
-  Github as GithubIcon,
   Folder,
   FolderOpen,
   FileCode2,
@@ -23,7 +21,8 @@ interface PreviewPanelProps {
   isBuilding: boolean;
   doc: string;
   code?: string | null;
-  onPushToGithub: () => void;
+  workingCode?: string | null;
+  baseCode?: string | null;
   onCodeChange?: (code: string) => void;
   versions: LocalProjectVersion[];
   onRestoreVersion: (version: LocalProjectVersion) => void;
@@ -33,7 +32,8 @@ interface PreviewPanelProps {
   fixing: boolean;
 }
 
-type Tab = "preview" | "code" | "github";
+type Tab = "preview" | "code" | "changes" | "history";
+const Editor = lazy(() => import("@monaco-editor/react"));
 interface FileNode {
   name: string;
   path: string;
@@ -41,6 +41,24 @@ interface FileNode {
   content?: string;
   language?: string;
 }
+
+const unifiedLines = (before: string, after: string) => {
+  const oldLines = before.split("\n").slice(0, 180);
+  const newLines = after.split("\n").slice(0, 180);
+  const table = Array.from({ length: oldLines.length + 1 }, () => new Uint16Array(newLines.length + 1));
+  for (let i = oldLines.length - 1; i >= 0; i--) for (let j = newLines.length - 1; j >= 0; j--) {
+    table[i][j] = oldLines[i] === newLines[j] ? table[i + 1][j + 1] + 1 : Math.max(table[i + 1][j], table[i][j + 1]);
+  }
+  const output: string[] = [];
+  let i = 0, j = 0;
+  while (i < oldLines.length || j < newLines.length) {
+    if (i < oldLines.length && j < newLines.length && oldLines[i] === newLines[j]) { output.push(`  ${oldLines[i]}`); i++; j++; }
+    else if (i < oldLines.length && (j >= newLines.length || table[i + 1][j] >= table[i][j + 1])) output.push(`− ${oldLines[i++]}`);
+    else output.push(`+ ${newLines[j++]}`);
+  }
+  if (before.split("\n").length > oldLines.length || after.split("\n").length > newLines.length) output.push("… diff truncated after 180 lines");
+  return output.join("\n");
+};
 
 const buildTree = (appCode: string): FileNode => {
   const files = parseFileMarkers(appCode)?.files ?? { "src/App.tsx": appCode };
@@ -108,17 +126,27 @@ const FileTreeItem = ({
   );
 };
 
-export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChange, versions, onRestoreVersion, onDeleteVersion, onClearVersions, onManualFix, fixing }: PreviewPanelProps) => {
+export const PreviewPanel = ({ isBuilding, doc, code, workingCode, baseCode, onCodeChange, versions, onRestoreVersion, onDeleteVersion, onClearVersions, onManualFix, fixing }: PreviewPanelProps) => {
   const [tab, setTab] = useState<Tab>("preview");
-  const [versionMenuOpen, setVersionMenuOpen] = useState(false);
   const [nonce, setNonce] = useState(0);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const handleSaveRef = useRef<() => void>(() => {});
 
-  const tree = useMemo(() => buildTree(code || "// Build an app to see generated code here"), [code]);
-  const entryPath = useMemo(() => parseFileMarkers(code || "")?.entry || "src/App.tsx", [code]);
+  const explorerCode = workingCode ?? code;
+  const tree = useMemo(() => buildTree(explorerCode || "// Build an app to see generated code here"), [explorerCode]);
+  const changes = useMemo(() => {
+    const current = parseFileMarkers(code || "")?.files ?? (code ? { "src/App.tsx": code } : {});
+    const previous = parseFileMarkers(baseCode || "")?.files ?? (baseCode ? { "src/App.tsx": baseCode } : {});
+    return Object.entries(current).map(([path, content]) => ({
+      path,
+      status: !(path in previous) ? "added" as const : previous[path] === content ? "unchanged" as const : "modified" as const,
+      before: previous[path] ?? "",
+      after: content,
+    })).concat(Object.entries(previous).filter(([path]) => !(path in current)).map(([path, content]) => ({ path, status: "removed" as const, before: content, after: "" })));
+  }, [baseCode, code]);
+  const entryPath = useMemo(() => parseFileMarkers(explorerCode || "")?.entry || "src/App.tsx", [explorerCode]);
   const [selectedPath, setSelectedPath] = useState<string>("src/App.tsx");
-  const [editorContent, setEditorContent] = useState<string>(code || "");
+  const [editorContent, setEditorContent] = useState<string>(explorerCode || "");
   const [dirty, setDirty] = useState(false);
 
   // Find current file
@@ -139,7 +167,7 @@ export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChan
   useEffect(() => {
     setEditorContent(currentFile?.content || "");
     setDirty(false);
-  }, [currentFile, code]);
+  }, [currentFile, explorerCode]);
 
   const srcDoc = doc;
   const previewKey = useMemo(() => `${nonce}-${doc.length}-${doc.slice(0, 128)}`, [doc, nonce]);
@@ -158,9 +186,9 @@ export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChan
   };
 
   const handleSave = () => {
-    if (!onCodeChange || !currentFile) return;
+    if (isBuilding || !onCodeChange || !currentFile) return;
     try {
-      const updatedCode = updateProjectFile(code || "", selectedPath, editorContent);
+      const updatedCode = updateProjectFile(explorerCode || "", selectedPath, editorContent);
       onCodeChange(updatedCode);
       toast({ title: "💾 Saved", description: "Preview updated with your edits." });
       setDirty(false);
@@ -201,14 +229,19 @@ export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChan
               Code
             </button>
             <button
-              onClick={() => { setTab("github"); onPushToGithub(); }}
+              onClick={() => setTab("changes")}
               className={cn(
                 "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-smooth",
-                tab === "github" ? "bg-primary text-primary-foreground shadow-soft" : "text-muted-foreground hover:text-foreground"
+                tab === "changes" ? "bg-primary text-primary-foreground shadow-soft" : "text-muted-foreground hover:text-foreground"
               )}
             >
-              <GithubIcon className="h-3.5 w-3.5" />
-              GitHub Push
+              Changes
+            </button>
+            <button
+              onClick={() => setTab("history")}
+              className={cn("flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-smooth", tab === "history" ? "bg-primary text-primary-foreground shadow-soft" : "text-muted-foreground hover:text-foreground")}
+            >
+              History ({versions.length})
             </button>
           </div>
 
@@ -216,7 +249,7 @@ export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChan
             {tab === "code" && (
               <button
                 onClick={handleSave}
-                disabled={!dirty}
+                disabled={!dirty || isBuilding}
                 className={cn(
                   "flex h-7 items-center gap-1.5 rounded-md border px-2 text-[11px] font-semibold transition-smooth",
                   dirty
@@ -229,29 +262,6 @@ export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChan
                 Save
               </button>
             )}
-            <div className="relative">
-              <Button variant="secondary" size="sm" onClick={() => setVersionMenuOpen((open) => !open)} aria-expanded={versionMenuOpen}>Versions ({versions.length})</Button>
-              {versionMenuOpen && <div className="absolute right-0 top-11 z-20 max-h-72 w-[min(20rem,calc(100vw-2rem))] overflow-auto rounded-lg border border-border bg-surface-elevated p-1 shadow-elevated">
-                <button type="button" onClick={onClearVersions} className="mb-1 w-full rounded-md px-2 py-1 text-left text-[10px] font-semibold uppercase tracking-wider text-destructive hover:bg-destructive/10">Clear all versions</button>
-                {versions.length === 0 ? (
-                  <div className="px-2 py-3 text-xs text-muted-foreground">No saved versions</div>
-                ) : versions.map((version) => (
-                  <div key={version.id} className="flex min-h-10 items-center gap-2 rounded-md px-2 py-1 hover:bg-secondary">
-                    <button onClick={() => onRestoreVersion(version)} className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-md px-1 py-1 text-left text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                      <span className="truncate">{version.prompt}</span><time className="shrink-0 text-muted-foreground">{new Date(version.createdAt).toLocaleString()}</time>
-                    </button>
-                    <button
-                      onClick={() => onDeleteVersion(version)}
-                      aria-label={`Delete version ${version.prompt}`}
-                      title="Delete version"
-                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/15 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ))}
-              </div>}
-            </div>
             {tab === "preview" && code && <Button variant="secondary" size="sm" onClick={onManualFix} loading={fixing}>Fix with AI</Button>}
             <button
               onClick={handleRefresh}
@@ -308,37 +318,51 @@ export const PreviewPanel = ({ isBuilding, doc, code, onPushToGithub, onCodeChan
                   {dirty && <span className="text-warning">● unsaved</span>}
                 </div>
                 <div className="flex-1 min-h-0">
-                  <Editor
-                    height="100%"
-                    theme="vs-dark"
-                    language={currentFile?.language || "javascript"}
-                    value={editorContent}
-                    onChange={(v) => { setEditorContent(v ?? ""); setDirty(true); }}
-                    onMount={(editor, monaco) => {
-                      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => handleSaveRef.current());
-                    }}
-                    options={{
-                      fontSize: 12,
-                      minimap: { enabled: false },
-                      wordWrap: "on",
-                      scrollBeyondLastLine: false,
-                      automaticLayout: true,
-                    }}
-                  />
+                  <Suspense fallback={<div className="flex h-full items-center justify-center text-xs text-muted-foreground">Loading code editor…</div>}>
+                    <Editor
+                      height="100%"
+                      theme="vs-dark"
+                      language={currentFile?.language || "javascript"}
+                      value={editorContent}
+                      onChange={(v) => { setEditorContent(v ?? ""); setDirty(true); }}
+                      onMount={(editor, monaco) => {
+                        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => handleSaveRef.current());
+                      }}
+                      options={{
+                        fontSize: 12,
+                        readOnly: isBuilding,
+                        minimap: { enabled: false },
+                        wordWrap: "on",
+                        scrollBeyondLastLine: false,
+                        automaticLayout: true,
+                      }}
+                    />
+                  </Suspense>
                 </div>
               </div>
             </div>
           )}
 
-          {tab === "github" && (
-            <div className="flex h-full w-full items-center justify-center p-6 text-center">
-              <div className="max-w-sm">
-                <GithubIcon className="mx-auto h-10 w-10 text-foreground/70" />
-                <h3 className="mt-3 text-base font-semibold text-foreground">Push to GitHub</h3>
-                <p className="mt-1 text-xs text-muted-foreground">Opening the GitHub publish dialog…</p>
-              </div>
+          {tab === "changes" && <div className="h-full w-full overflow-auto p-3 sm:p-5">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div><h3 className="text-sm font-semibold">Project changes</h3><p className="text-xs text-muted-foreground">Compared with the source before the latest build.</p></div>
+              <div className="flex gap-2 text-[10px] text-muted-foreground"><span>+{changes.filter((item) => item.status === "added").length} added</span><span>~{changes.filter((item) => item.status === "modified").length} modified</span><span>{changes.filter((item) => item.status === "unchanged").length} unchanged</span></div>
             </div>
-          )}
+            {changes.length === 0 ? <p className="rounded-lg border border-dashed p-5 text-center text-xs text-muted-foreground">Build a project to see its files.</p> : <div className="space-y-2">
+              {changes.map((item) => <details key={item.path} className="rounded-lg border border-border/70 bg-background/40" open={item.status === "modified" || item.status === "added"}>
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-xs"><code className="min-w-0 truncate">{item.path}</code><span className={cn("shrink-0 capitalize", item.status === "added" ? "text-emerald-500" : item.status === "removed" ? "text-destructive" : "text-muted-foreground")}>{item.status}</span></summary>
+                {item.status === "unchanged" ? <p className="border-t px-3 py-2 text-[11px] text-muted-foreground">No source changes.</p> : <pre className="max-h-72 overflow-auto border-t bg-background/50 p-3 text-[11px] leading-relaxed"><code>{unifiedLines(item.before, item.after)}</code></pre>}
+              </details>)}
+            </div>}
+          </div>}
+
+          {tab === "history" && <div className="h-full w-full overflow-auto p-3 sm:p-5">
+            <div className="mb-3 flex items-center justify-between"><div><h3 className="text-sm font-semibold">Version history</h3><p className="text-xs text-muted-foreground">Restore a saved project state.</p></div><Button variant="ghost" size="sm" disabled={versions.length === 0} onClick={onClearVersions} className="text-destructive">Clear history</Button></div>
+            {versions.length === 0 ? <p className="rounded-lg border border-dashed p-5 text-center text-xs text-muted-foreground">No saved versions</p> : <div className="space-y-2">{versions.map((version) => <div key={version.id} className="flex items-center gap-2 rounded-lg border border-border/70 bg-background/40 p-2">
+              <button onClick={() => onRestoreVersion(version)} className="min-w-0 flex-1 rounded px-1 py-1 text-left"><span className="block truncate text-xs font-medium">{version.prompt || "Saved version"}</span><time className="text-[10px] text-muted-foreground">{new Date(version.createdAt).toLocaleString()}</time></button>
+              <Button variant="ghost" size="icon" onClick={() => onDeleteVersion(version)} aria-label={`Delete version ${version.prompt}`} title="Delete version" className="h-8 w-8 text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></Button>
+            </div>)}</div>}
+          </div>}
         </div>
       </div>
     </div>

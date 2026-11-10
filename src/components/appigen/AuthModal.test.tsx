@@ -139,4 +139,36 @@ describe("AuthModal", () => {
       options: { redirectTo: expect.any(String) },
     }));
   });
+
+  it("shows a provider-specific message when an OAuth provider is disabled", async () => {
+    mocks.signInWithOAuth.mockResolvedValueOnce({ error: new Error("Unsupported provider: provider is not enabled") });
+    render(<AuthModal open onClose={vi.fn()} />);
+    fireEvent.click(screen.getByText("Continue with GitHub"));
+
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: "GitHub sign-in unavailable",
+      description: expect.stringContaining("GitHub sign-in is disabled"),
+    })));
+    expect(screen.getByText("Continue with GitHub")).not.toBeDisabled();
+  });
+
+  it("restores the OAuth loading state and reports network errors after a rejected request", async () => {
+    mocks.signInWithOAuth.mockRejectedValueOnce(new Error("Failed to fetch"));
+    render(<AuthModal open onClose={vi.fn()} />);
+    fireEvent.click(screen.getByText("Continue with Google"));
+
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Google sign-in failed",
+      description: expect.stringContaining("Could not reach Supabase"),
+    })));
+    expect(screen.getByText("Continue with Google")).not.toBeDisabled();
+  });
+
+  it("clears loading after OAuth initiation succeeds", async () => {
+    render(<AuthModal open onClose={vi.fn()} />);
+    fireEvent.click(screen.getByText("Continue with GitHub"));
+
+    await waitFor(() => expect(mocks.signInWithOAuth).toHaveBeenCalledWith(expect.objectContaining({ provider: "github" })));
+    expect(screen.getByText("Continue with GitHub")).not.toBeDisabled();
+  });
 });

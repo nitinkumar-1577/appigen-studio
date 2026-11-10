@@ -127,7 +127,7 @@ describe("project repository account ownership", () => {
   });
 
   it("soft-deletes only the active account's project", async () => {
-    const query = createQuery({ data: null, error: null });
+    const query = createQuery({ data: { id: "project-a" }, error: null });
     mocks.from.mockReturnValue(query);
 
     await deleteProject("project-a", "user-a");

@@ -45,4 +45,15 @@ describe("implementation roadmap", () => {
     expect(formatImplementationPlan(implementationPlan)).toContain("Existing project files to inspect");
     expect(formatImplementationPlan(implementationPlan)).toContain("Add dark mode");
   });
+
+  it("adapts file order and avoids a reusable component for a small single-screen app", () => {
+    const { implementationPlan } = createImplementationPlan({
+      prompt: "Create a minimal counter with a reset button",
+      appType: "website",
+      domain: "counter",
+      complexity: "simple",
+    });
+    const paths = implementationPlan.fileBlueprint.map((file) => file.path);
+    expect(paths).toEqual(["src/App.tsx", "src/pages/MainPage.tsx", "src/styles.css"]);
+  });
 });

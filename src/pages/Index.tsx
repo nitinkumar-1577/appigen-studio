@@ -13,18 +13,18 @@ import { SettingsPanel } from "@/components/appigen/SettingsPanel";
 import { NotificationsMenu } from "@/components/appigen/NotificationsMenu";
 import { GithubModal } from "@/components/appigen/GithubModal";
 import { useApp } from "@/components/appigen/AppContext";
-import { Sparkles, Pencil, Menu, MessageSquare, Eye, Github as GithubIcon } from "lucide-react";
+import { Sparkles, Menu, MessageSquare, Eye, Github as GithubIcon } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { buildDocFromPrompt } from "@/lib/preview/buildDocFromPrompt";
-import { isGenericFallbackCode } from "@/lib/preview/isGenericFallbackCode";
 import { normalizeFileMarkers } from "@/lib/preview/parseFileMarkers";
-import { validateGeneratedCode } from "@/lib/preview/validateGeneratedCode";
+import { validateGeneratedCode, validateGeneratedFile } from "@/lib/preview/validateGeneratedCode";
 import { getFunctionErrorMessage } from "@/lib/supabase/functionError";
 import { createRunnableProjectZip } from "@/lib/projects/exportProject";
 import { isNewAppPrompt, isProjectConversation } from "@/lib/projects/promptIntent";
 import { formatImplementationPlan } from "@/lib/projects/implementationPlan";
+import { mergeGeneratedFile, runSequentialFileBuild, selectFilesForEdit, validateBuildFileResponse, validateFileTree, type BuildFileProgress } from "@/lib/projects/buildWorkflow";
 import { clearLocalVersions, deleteLocalVersion, discardProjectDraft, readProjectDraft, writeLocalVersion, writeProjectDraft, writeProjectMessages, type ChatMessage, type LocalProjectVersion } from "@/lib/projects/projectStorage";
 import { clearProjectVersions, createProjectVersion, deleteProject, deleteProjectVersion, loadProject, loadProjectVersions, persistActivity, persistProject, subscribeToProjectSync } from "@/lib/projects/projectRepository";
 import { readAppPreferences, readGenerationSettings, recordActivity } from "@/lib/appPreferences";
@@ -41,7 +41,6 @@ const VIEW_TITLES: Record<ViewKey, string> = {
 
 const slugify = (s: string) =>
   s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "untitled";
-const BUILD_REQUEST_TIMEOUT_MS = 140_000;
 
 export const getValidationSummary = (reviewSkipped: boolean, fileCount: number) =>
   reviewSkipped
@@ -111,8 +110,9 @@ const Index = () => {
   const [githubOpen, setGithubOpen] = useState(false);
   const [projectTitle, setProjectTitle] = useState(initialState.title);
   const [titleManuallyEdited, setTitleManuallyEdited] = useState(false);
-  const [editingTitle, setEditingTitle] = useState(false);
   const [lastCode, setLastCode] = useState<string | null>(initialState.code);
+  const [workingCode, setWorkingCode] = useState<string | null>(initialState.code);
+  const [changeBaseCode, setChangeBaseCode] = useState<string | null>(null);
   const [projectId, setProjectId] = useState<string | null>(initialState.projectId);
   const [projectUpdatedAt, setProjectUpdatedAt] = useState<string | null>(null);
   const [lastSyncedCode, setLastSyncedCode] = useState<string | null>(null);
@@ -129,6 +129,9 @@ const Index = () => {
   currentMessagesRef.current = messages;
   const [versions, setVersions] = useState<LocalProjectVersion[]>(initialState.versions);
   const [progressStage, setProgressStage] = useState("Planning");
+  const [buildFiles, setBuildFiles] = useState<BuildFileProgress[]>([]);
+  const [buildTimeline, setBuildTimeline] = useState<string[]>([]);
+  const partialBuildRef = useRef<{ prompt: string; code: string; completedPaths: string[] } | null>(null);
   const [versionMenuOpen, setVersionMenuOpen] = useState(false);
   const [manualFixing, setManualFixing] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -138,6 +141,10 @@ const Index = () => {
   const showPreview = Boolean(lastCode) || isGeneratingApp;
   const { user, session, authReady, recoveryPending, clearRecoveryPending, addNotification } = useApp();
   const promptActivityTimer = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    if (!isBuilding && !partialBuildRef.current) setWorkingCode(lastCode);
+  }, [isBuilding, lastCode]);
 
   useEffect(() => {
     if (session?.provider_token && sessionStorage.getItem("appigen.github.connect.pending")) {
@@ -391,16 +398,16 @@ const Index = () => {
     }
     setMobileStudioTab(questionMode ? "chat" : "preview");
     setProgressStage("Understanding request");
+    setBuildTimeline(["Understanding the request"]);
     setIsBuilding(true);
     setIsGeneratingApp(!questionMode);
     let generatedPreview = false;
     const controller = new AbortController();
     abortRef.current = controller;
-    let buildTimedOut = false;
-    const buildTimeout = window.setTimeout(() => {
-      buildTimedOut = true;
-      controller.abort();
-    }, BUILD_REQUEST_TIMEOUT_MS);
+    setBuildFiles([]);
+    setChangeBaseCode(lastCode);
+    setWorkingCode(partialBuildRef.current?.prompt === trimmed ? partialBuildRef.current.code : lastCode);
+    let buildProvider = generationSettings.provider;
     try {
       if (questionMode) {
         setProgressStage("Understanding request");
@@ -451,7 +458,10 @@ const Index = () => {
         toast({ title: "Answer ready", description: typeof chatData.provider === "string" ? `Completed by ${chatData.provider}.` : undefined });
         return;
       }
+      setProgressStage("Inspecting existing files");
+      setBuildTimeline((current) => [...current, "Inspecting existing files"]);
       setProgressStage("Planning");
+      setBuildTimeline((current) => [...current, "Creating the implementation plan"]);
       const { data: planData, error: planError } = await supabase.functions.invoke("Appigen", {
         body: {
           mode: "plan",
@@ -474,35 +484,85 @@ const Index = () => {
       if (!planSummary) throw new Error("The deployed Appigen Edge Function does not support the planning route.");
       buildMessages = [...nextMessages, { role: "assistant", content: planSummary, timestamp: Date.now() }];
       setMessages(buildMessages);
-      setProgressStage("Generating");
+      setBuildTimeline((current) => [...current, "Implementation plan ready"]);
+      const canResume = partialBuildRef.current?.prompt === trimmed;
+      let generatedCode = canResume
+        ? partialBuildRef.current?.code ?? ""
+        : editMode && lastCode ? normalizeFileMarkers(lastCode) : "";
+      const plan = planData?.plan?.implementationPlan;
+      const blueprint = Array.isArray(plan?.fileBlueprint) ? plan.fileBlueprint as Array<{ path: string; purpose: string }> : [];
+      if (!blueprint.length) throw new Error("The implementation plan did not include a file blueprint.");
+      const plannedFiles = editMode && generatedCode
+        ? selectFilesForEdit(generatedCode, trimmed).map((path) => blueprint.find((file) => file.path === path) ?? ({ path, purpose: `Apply the requested change to ${path}` }))
+        : blueprint;
+      const uniqueFiles = [...new Map(plannedFiles.map((file) => [file.path, file])).values()];
+      if (!uniqueFiles.length) throw new Error("The plan did not select any files to generate.");
+      setBuildFiles(uniqueFiles.map(({ path, purpose }) => ({ path, purpose, status: "queued" })));
+      const requiredPaths = editMode
+        ? [...(generatedCode.matchAll(/^\s*\/\/\s*FILE:\s*([^\n]+)/gm))].map((match) => match[1].trim())
+        : uniqueFiles.map(({ path }) => path);
 
-      const { data, error } = await supabase.functions.invoke("Appigen", {
-        body: editMode
-          ? {
-              mode: "edit", prompt: trimmed, code: lastCode, conversation: buildMessages.slice(-12),
-              provider: generationSettings.provider,
-              model: generationSettings.model, system: generationSettings.systemInstructions,
-              safety: generationSettings.safety, temperature: generationSettings.temperature, topP: generationSettings.topP,
-            }
-          : {
-              mode: "build", prompt: trimmed, stage, conversation: buildMessages.slice(-12),
-              provider: generationSettings.provider,
-              model: generationSettings.model, system: generationSettings.systemInstructions,
-              safety: generationSettings.safety, temperature: generationSettings.temperature, topP: generationSettings.topP,
-            },
+      const previouslyCompleted = new Set(canResume ? partialBuildRef.current?.completedPaths ?? [] : []);
+      setBuildFiles(uniqueFiles.map(({ path, purpose }) => ({ path, purpose, status: previouslyCompleted.has(path) ? "completed" : "queued" })));
+      const buildResult = await runSequentialFileBuild({
+        files: uniqueFiles,
+        initialSource: generatedCode,
+        completedPaths: [...previouslyCompleted],
         signal: controller.signal,
+        generate: async (file) => {
+          setProgressStage(`Generating ${file.path}`);
+          const { data: fileData, error: fileError } = await supabase.functions.invoke("Appigen", {
+            body: {
+              mode: "build_file", prompt: trimmed, file,
+              requirements: Array.isArray(plan?.requirements) ? plan.requirements : [trimmed],
+              fileTree: [...new Set([...requiredPaths, ...uniqueFiles.map(({ path }) => path)])],
+              existingSource: editMode ? (lastCode ?? "").slice(0, 22000) : "",
+              implementationContext: generatedCode.slice(-14000),
+              architecture: `${planSummary}\nUser architecture instructions: ${generationSettings.systemInstructions ?? ""}`,
+              provider: generationSettings.provider, model: generationSettings.model,
+              temperature: generationSettings.temperature, topP: generationSettings.topP,
+            },
+            signal: controller.signal,
+          });
+          if (fileError) throw fileError;
+          return validateBuildFileResponse(fileData, file.path);
+        },
+        validate: (file, result) => {
+          const fileValidationError = validateGeneratedFile(result.path, result.content, [...new Set([...requiredPaths, ...uniqueFiles.map(({ path }) => path)])]);
+          if (fileValidationError) throw new Error(fileValidationError);
+          buildProvider = result.provider ?? buildProvider;
+          setProgressStage(`Validating ${file.path}`);
+        },
+        merge: (source, file, result) => mergeGeneratedFile(source, file.path, result.content),
+        onProgress: (event, source, completedPaths) => {
+          setBuildFiles((current) => current.map((item) => item.path === event.path ? { ...item, ...event } : item));
+          if (event.status === "generating") {
+            setBuildTimeline((current) => [...current, `Creating ${event.path}`]);
+            setProgressStage(`Generating ${event.path}`);
+          } else if (event.status === "validating") {
+            setBuildTimeline((current) => [...current, `Validating ${event.path}`]);
+            setProgressStage(`Validating ${event.path}`);
+          } else if (event.status === "failed") {
+            setBuildTimeline((current) => [...current, `Failed ${event.path}: ${event.error ?? "unknown error"}`]);
+          }
+          if (event.status === "completed") {
+            setBuildTimeline((current) => [...current, `Completed ${event.path}`]);
+            partialBuildRef.current = { prompt: trimmed, code: source, completedPaths };
+            generatedCode = source;
+            setWorkingCode(source);
+            const count = completedPaths.length;
+            setMessages((current) => current.map((message, messageIndex) => messageIndex === current.length - 1 && message.role === "assistant" && message.content.startsWith("Implementation plan")
+              ? { ...message, content: `${planSummary}\n\nFiles completed: ${count}/${uniqueFiles.length}` }
+              : message));
+          }
+        },
       });
-      if (error) throw error;
-      if (!data?.code) throw new Error("No code returned from AI");
-      if (data.provider === "local-fallback" || isGenericFallbackCode(data.code)) {
-        throw new Error("The AI service returned a generic sample instead of your requested app. Please try again after the AI service is available.");
-      }
-      const actualProvider = typeof data.provider === "string" ? data.provider.split(":")[0] : generationSettings.provider;
-      let generatedCode = normalizeFileMarkers(data.code);
-      const generatedValidationError = validateGeneratedCode(generatedCode, !editMode);
+      generatedCode = buildResult.source;
+      const generatedValidationError = validateFileTree(generatedCode, requiredPaths) || validateGeneratedCode(generatedCode, !editMode);
       if (generatedValidationError) throw new Error(`The generated project is invalid: ${generatedValidationError}`);
 
       setProgressStage("Reviewing");
+      setBuildTimeline((current) => [...current, "Reviewing the complete project"]);
       const { data: reviewData, error: reviewError } = await supabase.functions.invoke("Appigen", {
         body: {
           mode: "review",
@@ -510,7 +570,7 @@ const Index = () => {
           code: generatedCode,
           plan: planData?.plan?.implementationPlan,
           existingProject: editMode,
-          provider: actualProvider,
+          provider: buildProvider.split(":")[0],
           model: generationSettings.model,
           safety: generationSettings.safety,
         },
@@ -518,11 +578,15 @@ const Index = () => {
       });
       if (reviewError) throw reviewError;
       if (typeof reviewData?.code !== "string" || !reviewData.code.trim()) throw new Error("The review stage returned no project source.");
+      if (Array.isArray(reviewData?.findings)) setBuildTimeline((current) => [...current, ...reviewData.findings.filter((finding: unknown): finding is { path: string; issue: string } => Boolean(finding) && typeof finding === "object" && typeof (finding as { path?: unknown }).path === "string" && typeof (finding as { issue?: unknown }).issue === "string").map((finding: { path: string; issue: string }) => `Review finding — ${finding.path}: ${finding.issue}`)]);
+      if (reviewData?.repairAttempted && Array.isArray(reviewData?.changedPaths)) setBuildTimeline((current) => [...current, ...reviewData.changedPaths.filter((path: unknown): path is string => typeof path === "string").map((path: string) => `Repaired ${path}`)]);
       generatedCode = normalizeFileMarkers(reviewData.code);
 
       setProgressStage("Validating");
-      const validationError = validateGeneratedCode(generatedCode, !editMode);
+      setBuildTimeline((current) => [...current, "Running final project validation"]);
+      const validationError = validateFileTree(generatedCode, requiredPaths) || validateGeneratedCode(generatedCode, !editMode);
       if (validationError) throw new Error(`The reviewed project is invalid: ${validationError}`);
+      partialBuildRef.current = null;
       if (editMode && lastCode) {
         const snapshot: LocalProjectVersion = { id: crypto.randomUUID(), code: lastCode, prompt: trimmed, createdAt: Date.now() };
         versionsAfterBuild = [snapshot, ...versions].slice(0, 50);
@@ -544,8 +608,10 @@ const Index = () => {
         }
       }
       setProgressStage("Updating preview");
+      setBuildTimeline((current) => [...current, "Validation passed; updating preview"]);
       generatedPreview = true;
       setLastCode(generatedCode);
+      setWorkingCode(generatedCode);
       setDoc(buildDocFromPrompt(trimmed, generatedCode));
       const fileCount = [...generatedCode.matchAll(/^\s*\/\/\s*FILE:/gm)].length || 1;
       const validationSummary = getValidationSummary(Boolean(reviewData?.reviewSkipped), fileCount);
@@ -560,6 +626,7 @@ const Index = () => {
 
       if (user) {
         setProgressStage("Saving");
+        setBuildTimeline((current) => [...current, "Saving project and version"]);
         const uid = session?.user.id;
         if (uid) {
           try {
@@ -597,6 +664,7 @@ const Index = () => {
       } else {
         setProgressStage("Saving");
         writeProjectDraft({ projectId: null, title: finalTitle, prompt: trimmed, code: generatedCode, messages: completedMessages, versions: versionsAfterBuild, updatedAt: Date.now() });
+        setBuildTimeline((current) => [...current, "Saved local project draft"]);
       }
 
       addNotification({ kind: "build", title: "App Built Successfully", description: finalTitle });
@@ -604,7 +672,7 @@ const Index = () => {
       saveActivity({
         kind: editMode ? "edit" : "build",
         title: editMode ? "App updated successfully" : "App built successfully",
-        detail: `${finalTitle} · ${data.provider || generationSettings.model}`,
+        detail: `${finalTitle} · ${buildProvider}`,
         durationMs: Date.now() - buildStartedAt,
         promptCharacters: trimmed.length,
       });
@@ -613,16 +681,13 @@ const Index = () => {
         description: user ? `Saved: "${finalTitle}"` : `Sign in to save: "${finalTitle}"`,
       });
     } catch (err: unknown) {
-      if (buildTimedOut) {
-        const msg = "The build request timed out while waiting for the AI service. Please try again; your prompt and current preview are unchanged.";
-        setMessages((current) => [...current, { role: "assistant", content: `Build failed: ${msg}`, timestamp: Date.now() }]);
-        toast({ title: "Build timed out", description: msg, variant: "destructive" });
-        return;
-      }
       if ((err instanceof Error && err.name === "AbortError") || controller.signal.aborted) {
+        setBuildFiles((current) => current.map((file) => file.status === "generating" || file.status === "validating" ? { ...file, status: "failed", error: "Build stopped by user" } : file));
+        setMessages((current) => [...current, { role: "assistant", content: `Build stopped. Completed files are kept and this prompt can resume safely.`, timestamp: Date.now() }]);
         toast({ title: "Build stopped", description: "Your prompt is still here; you can try again." });
         return;
       }
+      setBuildFiles((current) => current.map((file) => file.status === "generating" || file.status === "validating" ? { ...file, status: "failed", error: err instanceof Error ? err.message : "Generation failed" } : file));
       console.error("Build failed:", err);
       const errorMessage = await getFunctionErrorMessage(err, "Something went wrong calling the AI.");
       const staleGenerator =
@@ -636,7 +701,6 @@ const Index = () => {
       setMessages((current) => [...current, { role: "assistant", content: `Build failed: ${msg}`, timestamp: Date.now() }]);
       toast({ title: staleGenerator ? "Generator update required" : "Build failed", description: msg, variant: "destructive" });
     } finally {
-      window.clearTimeout(buildTimeout);
       abortRef.current = null;
       setIsBuilding(false);
       setIsGeneratingApp(false);
@@ -661,7 +725,7 @@ const Index = () => {
     if (!window.confirm("Start a new project? Your current chat and code will be cleared.")) return;
     abortRef.current?.abort();
     if (chatKey === "local:current") clearLocalVersions(chatKey);
-    setProjectId(null); setProjectTitle("Untitled Project"); setTitleManuallyEdited(false); setPrompt(""); setLastCode(null); setMessages([]); setVersions([]); setDoc(buildDocFromPrompt("")); setView("studio"); setMobileStudioTab("chat"); setIsGeneratingApp(false); discardProjectDraft();
+    setProjectId(null); setProjectTitle("Untitled Project"); setTitleManuallyEdited(false); setPrompt(""); setLastCode(null); setWorkingCode(null); setChangeBaseCode(null); setBuildFiles([]); setBuildTimeline([]); partialBuildRef.current = null; setMessages([]); setVersions([]); setDoc(buildDocFromPrompt("")); setView("studio"); setMobileStudioTab("chat"); setIsGeneratingApp(false); discardProjectDraft();
   };
 
   const snapshotCode = async (code: string | null, action: string) => {
@@ -885,21 +949,7 @@ const Index = () => {
                 <Menu className="h-5 w-5" />
               </button>
               {view === "studio" ? (
-                editingTitle ? (
-                  <input
-                    autoFocus
-                    value={projectTitle}
-                    onChange={(e) => { setProjectTitle(e.target.value); setTitleManuallyEdited(true); }}
-                    onBlur={() => setEditingTitle(false)}
-                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") setEditingTitle(false); }}
-                    className="w-full min-w-0 rounded-md border border-primary/40 bg-background/60 px-2 py-1 font-display text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 sm:text-base"
-                  />
-                ) : (
-                  <button onClick={() => setEditingTitle(true)} className="group flex min-w-0 items-center gap-2">
-                    <h1 className="max-w-[18ch] sm:max-w-[40ch] truncate font-display text-sm sm:text-base font-semibold text-foreground">{projectTitle}</h1>
-                    <Pencil className="hidden h-3 w-3 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 sm:block" />
-                  </button>
-                )
+                <h1 className="max-w-[18ch] sm:max-w-[40ch] truncate font-display text-sm sm:text-base font-semibold text-foreground">{projectTitle}</h1>
               ) : (
                 <h1 className="truncate font-display text-sm sm:text-base font-semibold text-foreground">{VIEW_TITLES[view]}</h1>
               )}
@@ -974,6 +1024,8 @@ const Index = () => {
                       onNewProject={newProject}
                       isBuilding={isBuilding}
                       progressStage={progressStage}
+                      buildFiles={buildFiles}
+                      buildTimeline={buildTimeline}
                       messages={messages}
                       hasCode={Boolean(lastCode)}
                     />
@@ -988,13 +1040,14 @@ const Index = () => {
                       isBuilding={isBuilding}
                       doc={doc}
                       code={lastCode}
+                      workingCode={workingCode}
+                      baseCode={changeBaseCode}
                       versions={versions}
                       onRestoreVersion={restoreVersion}
                       onDeleteVersion={deleteVersion}
                       onClearVersions={() => void clearVersions()}
                       onManualFix={manualFix}
                       fixing={manualFixing}
-                      onPushToGithub={() => setGithubOpen(true)}
                       onCodeChange={(newCode) => {
                         repairAttemptsRef.current = 0;
                         lastReportedRef.current = "";
@@ -1045,6 +1098,9 @@ const Index = () => {
                     try {
                       const project = await loadProject(p.id, session.user.id);
                       const projectVersions = await loadProjectVersions(p.id, session.user.id);
+                      partialBuildRef.current = null;
+                      setBuildFiles([]);
+                      setBuildTimeline([]);
                       setProjectId(project.id);
                       setProjectUpdatedAt(project.updated_at);
                       setLastSyncedCode(project.code);
@@ -1056,6 +1112,7 @@ const Index = () => {
                       setTitleManuallyEdited(true);
                       setPrompt(project.prompt);
                       setLastCode(project.code);
+                      setWorkingCode(project.code);
                       setMessages(project.messages);
                       setVersions(projectVersions);
                       repairAttemptsRef.current = 0;

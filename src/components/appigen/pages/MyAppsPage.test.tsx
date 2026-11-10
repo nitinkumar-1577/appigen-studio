@@ -1,9 +1,10 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MyAppsPage } from "./MyAppsPage";
 
 const mocks = vi.hoisted(() => ({
   loadProjects: vi.fn(),
+  renameProject: vi.fn(),
   softDeleteProject: vi.fn(),
   subscribeToProjectSync: vi.fn(() => () => {}),
   state: {
@@ -18,6 +19,7 @@ vi.mock("../AppContext", () => ({
 
 vi.mock("@/lib/projects/projectRepository", () => ({
   loadProjects: mocks.loadProjects,
+  renameProject: mocks.renameProject,
   softDeleteProject: mocks.softDeleteProject,
   subscribeToProjectSync: mocks.subscribeToProjectSync,
 }));
@@ -44,6 +46,7 @@ describe("MyAppsPage account visibility", () => {
     mocks.loadProjects.mockImplementation(async (userId: string) => [
       projectFor(userId, userId === "user-a" ? "User A app" : "User B app"),
     ]);
+    mocks.renameProject.mockResolvedValue(undefined);
   });
 
   it("loads only the active account's projects after an account switch", async () => {
@@ -71,5 +74,17 @@ describe("MyAppsPage account visibility", () => {
     expect(screen.getByText("Build")).toBeInTheDocument();
     expect(screen.getByText(/in the studio to generate your first app/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Start a project" })).toBeInTheDocument();
+  });
+
+  it("renames a saved project from My Apps", async () => {
+    render(<MyAppsPage onNavigate={vi.fn()} onOpenSignIn={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText("User A app")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Rename User A app" }));
+    const input = await screen.findByRole("textbox", { name: "Project name" });
+    fireEvent.change(input, { target: { value: "Renamed app" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save project name" }));
+
+    await waitFor(() => expect(mocks.renameProject).toHaveBeenCalledWith("user-a-project", "user-a", "Renamed app"));
   });
 });

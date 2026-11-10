@@ -3,14 +3,13 @@
 // AI stages: 5 Generate (multi-file) · 6 Validate · 7 Auto-Repair · 8 Clean
 // Critical: never run sequential long AI calls inside the edge request.
 import { validateGeneratedCode } from "../../../src/lib/preview/validateGeneratedCode.ts";
-import { createImplementationPlan } from "../../../src/lib/projects/implementationPlan.ts";
+import { createImplementationPlan, type ImplementationPlan } from "../../../src/lib/projects/implementationPlan.ts";
 import { extractChatCompletionCode } from "../_shared/groqResponse.ts";
 import { parseChatProviderResponse } from "../_shared/providerResponse.ts";
 import {
   getDefaultModel,
   getProvider,
   getProviderConfig,
-  ACTIVE_PROVIDER_NAMES,
   PROVIDER_NAMES,
   secretNamesFor,
   classifyProviderStatus,
@@ -27,9 +26,24 @@ const corsHeaders = {
 const MODEL_FAST = "openai/gpt-oss-20b";
 const MODEL_SMART = "openai/gpt-oss-120b";
 const ALLOWED_MODELS = [MODEL_FAST, MODEL_SMART] as const;
+const PROVIDER_FAILOVER_TIMEOUT_MS = 105_000;
 
-const FAST_GENERATION_TIMEOUT_MS = 45000;
-const REPAIR_TIMEOUT_MS = 35000;
+const FAST_GENERATION_TIMEOUT_MS = 105000;
+const REPAIR_TIMEOUT_MS = 90000;
+
+type ProviderMessage = { role?: unknown; content?: unknown };
+type GenerationPlan = {
+  enhancedPrompt: string;
+  appType: string;
+  complexity: string;
+  pages: string[];
+  implementationPlan: ImplementationPlan;
+};
+type ChatCompletionResult = {
+  choices?: Array<{ message?: { content?: unknown; reasoning_content?: unknown; refusal?: string | null }; finish_reason?: string | null }>;
+};
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
 const GENERATOR_SYSTEM = `You are an elite senior frontend engineer generating a production-grade, self-contained React TypeScript application.
 
@@ -101,11 +115,9 @@ RETURN the FULL fixed source using the SAME "// FILE: <path>" delimiter format. 
 - Preserve the user's requested behavior and do not add unrelated features.
 - src/App.tsx must default-export the root component. Do NOT call ReactDOM.createRoot.`;
 
-const REVIEW_SYSTEM = `You are AppiGen's independent senior product, UI, and implementation reviewer. Compare a complete generated React project with the user's exact request and implementation plan, then improve the full project source.
+const REVIEW_SYSTEM = `You are AppiGen's independent product and implementation reviewer. Compare the complete project with the user's exact request and plan. Inspect requested behavior, domain rules, imports, responsive layout, accessibility, and runtime risks. Games need complete recognizable boards and real rules. Do not approve placeholders or dead controls.
 
-Review the visible product design, every requested interaction, the domain rules and edge cases, the complete file tree and imports, responsive behavior, accessibility, and runtime risks. Games must render a complete recognizable board or playfield with appropriate domain geometry; a narrow strip or generic list is a failed design. Improve missing or weak parts. Do not approve placeholders, dead controls, generic shells, incomplete boards, or visually empty screens.
-
-Return the FULL source tree using the exact // FILE: <relative/path> delimiter format. Preserve working features and planned module boundaries; add focused files if needed. No prose, markdown, code fences, TODOs, or placeholders. Even when no changes are needed, return every file unchanged.`;
+Return strict JSON only: {"findings":[{"path":"existing/path","issue":"specific finding"}],"files":[{"path":"existing/path","content":"complete corrected file source"}]}. Include only files that need changes; keep unrelated files untouched. If no repairs are needed, return empty arrays. Do not add prose, markdown, TODOs, or placeholders.`;
 
 // ---------- helpers ----------
 
@@ -225,9 +237,11 @@ function isMultiFile(src: string): boolean {
   return /^\s*\/\/\s*FILE:/m.test(src || "");
 }
 
-function validatePlannedFiles(source: string, implementationPlan: any): string | null {
-  const expected = Array.isArray(implementationPlan?.fileBlueprint)
-    ? implementationPlan.fileBlueprint.map((file: any) => typeof file?.path === "string" ? file.path : "").filter(Boolean)
+function validatePlannedFiles(source: string, implementationPlan: unknown): string | null {
+  const expected = isRecord(implementationPlan) && Array.isArray(implementationPlan.fileBlueprint)
+    ? implementationPlan.fileBlueprint
+      .filter((file): file is Record<string, unknown> => isRecord(file) && typeof file.path === "string")
+      .map((file) => file.path as string)
     : [];
   if (!expected.length) return "The implementation plan has no project file blueprint.";
   const actual = new Set([...source.matchAll(/^\s*\/\/\s*FILE:\s*([^\n]+)\s*$/gm)].map((match) => match[1].trim()));
@@ -241,15 +255,18 @@ export function providerRequestBody(provider: ProviderName, body: Record<string,
   const config = getProviderConfig(provider);
   const isGemini = config.protocol === "gemini";
   if (isGemini) {
+    const messages = Array.isArray(body.messages)
+      ? body.messages.filter((message): message is ProviderMessage => isRecord(message))
+      : [];
     return {
       contents: Array.isArray(body.messages)
-        ? body.messages.filter((message: any) => message?.role !== "system").map((message: any) => ({
+        ? messages.filter((message) => message.role !== "system").map((message) => ({
           role: message.role === "assistant" ? "model" : "user",
           parts: [{ text: String(message.content ?? "") }],
         }))
         : [{ role: "user", parts: [{ text: String(body.prompt ?? "") }] }],
       systemInstruction: Array.isArray(body.messages)
-        ? { parts: [{ text: String(body.messages.find((message: any) => message?.role === "system")?.content ?? "") }] }
+        ? { parts: [{ text: String(messages.find((message) => message.role === "system")?.content ?? "") }] }
         : undefined,
       generationConfig: {
         temperature: body.temperature,
@@ -259,12 +276,8 @@ export function providerRequestBody(provider: ProviderName, body: Record<string,
     };
   }
   if (provider === "deepseek" || provider === "nvidia") {
-    return {
-      ...body,
-      max_tokens: body.max_tokens ?? body.max_completion_tokens,
-      stream: false,
-      ...(provider === "nvidia" ? { chat_template: "default" } : {}),
-    };
+    const { max_completion_tokens: maxCompletionTokens, ...compatibleBody } = body;
+    return { ...compatibleBody, max_tokens: body.max_tokens ?? maxCompletionTokens, stream: false };
   }
   return provider === "groq" ? { ...body, stream: false, include_reasoning: false } : body;
 }
@@ -274,7 +287,7 @@ async function completeChat(
   apiKey: string,
   body: Record<string, unknown>,
   { retries = 0, timeoutMs = 55000 } = {},
-): Promise<any> {
+): Promise<ChatCompletionResult> {
   const config = getProviderConfig(provider);
   const model = typeof body.model === "string" ? body.model : getDefaultModel(provider);
   const isGemini = config.protocol === "gemini";
@@ -324,7 +337,7 @@ async function completeChat(
         throw new ProviderRequestError(provider, res.status, "INVALID_RESPONSE", `${parserDetail} (content-type: ${responseContentType || "missing"}; length: ${text.length}; shape: ${responseShape(text)})`);
       }
     }
-    const metadata = providerErrorMetadata(text);
+    const metadata = providerErrorMetadata(text, apiKey);
     lastErr = new ProviderRequestError(
       provider,
       res.status,
@@ -337,7 +350,12 @@ async function completeChat(
       }
       let wait = Math.min(1200, 400 * 2 ** attempt) + Math.random() * 150;
       const m = text.match(/try again in ([\d.]+)s/i);
-      if (m) wait = Math.min(2500, Math.ceil(parseFloat(m[1]) * 1000) + 250);
+      const retryAfter = Number(res.headers.get("retry-after"));
+      const providerWait = Number.isFinite(retryAfter) && retryAfter > 0
+        ? Math.ceil(retryAfter * 1000)
+        : m ? Math.ceil(parseFloat(m[1]) * 1000) + 250 : 0;
+      if (providerWait > 2500) throw lastErr;
+      if (providerWait > 0) wait = providerWait;
       await new Promise((r) => setTimeout(r, wait));
       continue;
     }
@@ -392,7 +410,7 @@ export const incrementalReviewResponse = (code: string) => ({
   reviewReason: "incremental_edit_token_saving" as const,
 });
 
-function providerErrorMetadata(text: string): string {
+export function providerErrorMetadata(text: string, apiKey?: string): string {
   try {
     const payload = JSON.parse(text) as Record<string, unknown>;
     const nested = payload.error && typeof payload.error === "object"
@@ -404,8 +422,24 @@ function providerErrorMetadata(text: string): string {
     const type = typeof payload.type === "string"
       ? payload.type
       : typeof nested?.type === "string" ? nested.type : undefined;
+    const parameter = typeof payload.param === "string"
+      ? payload.param
+      : typeof nested?.param === "string" ? nested.param : undefined;
+    const rawMessage = typeof payload.message === "string"
+      ? payload.message
+      : typeof nested?.message === "string" ? nested.message : undefined;
+    const redactProviderText = (value?: string) => value
+      ?.replaceAll(apiKey || "\0", "[REDACTED]")
+      .replace(/(?:gsk_|nvapi-|sk-or-v1-|AIza|sk-)[A-Za-z0-9._-]{10,}/g, "[REDACTED_KEY]")
+      .replace(/\b(?:bearer|api[_ -]?key|authorization)\s*[:=]?\s*[^\s,;]+/gi, "[REDACTED_AUTH]")
+      .replace(/\s+/g, " ")
+      .slice(0, 180);
+    const safeCode = redactProviderText(code);
+    const safeType = redactProviderText(type);
+    const safeParameter = redactProviderText(parameter);
+    const safeMessage = redactProviderText(rawMessage);
     const keys = Object.keys(payload).slice(0, 8).join(",");
-    return [code && `provider_code=${code}`, type && `provider_type=${type}`, keys && `response_keys=${keys}`]
+    return [safeCode && `provider_code=${safeCode}`, safeType && `provider_type=${safeType}`, safeParameter && `provider_param=${safeParameter}`, safeMessage && `provider_message=${safeMessage}`, keys && `response_keys=${keys}`]
       .filter(Boolean)
       .join(" ");
   } catch {
@@ -416,8 +450,8 @@ function providerErrorMetadata(text: string): string {
 export function isProviderUnavailable(err: unknown) {
   const msg = err instanceof Error ? err.message : String(err);
   return err instanceof ProviderRequestError
-    ? err.code === "RATE_LIMITED" || err.code === "PROVIDER_ERROR" || err.code === "TIMEOUT" || err.code === "NETWORK_ERROR"
-    : /429|5\d\d|rate limit|timed out|temporary/i.test(msg);
+    ? ["INVALID_CREDENTIALS", "PERMISSION_DENIED", "QUOTA_EXCEEDED", "RATE_LIMITED", "MODEL_UNAVAILABLE", "PROVIDER_ERROR", "INVALID_RESPONSE", "REQUEST_REJECTED", "TIMEOUT", "NETWORK_ERROR"].includes(err.code)
+    : /\b(?:400|401|402|403|404|413|429|5\d\d)\b|rate limit|timed out|temporary|quota|invalid credentials/i.test(msg);
 }
 
 function providerFailure(provider: string, error: unknown): string {
@@ -455,10 +489,12 @@ function httpStatusForErrorCode(code: ProviderErrorCode): number {
   return 400;
 }
 
-function normalizeGeminiResponse(data: any): { choices: Array<{ message: { content: string } }> } {
-  const content = data?.candidates?.[0]?.content?.parts
-    ?.map((part: { text?: string }) => part.text ?? "")
-    .join("") ?? "";
+function normalizeGeminiResponse(data: unknown): ChatCompletionResult {
+  const record = isRecord(data) ? data : {};
+  const candidate = Array.isArray(record.candidates) && isRecord(record.candidates[0]) ? record.candidates[0] : {};
+  const candidateContent = isRecord(candidate.content) ? candidate.content : {};
+  const parts = Array.isArray(candidateContent.parts) ? candidateContent.parts : [];
+  const content = parts.map((part) => isRecord(part) && typeof part.text === "string" ? part.text : "").join("");
   if (!content.trim()) {
     throw new ProviderRequestError("gemini", 200, "INVALID_RESPONSE", "response contained no candidate text");
   }
@@ -622,8 +658,9 @@ export function relevantProjectSource(source: string, prompt: string): string {
   return selected.size ? [...selected].map(([path, content]) => `// FILE: ${path}\n${content}`).join("\n\n") : source;
 }
 
-function outputTokenBudget(provider: ProviderName): number {
-  if (provider === "groq") return 7000;
+export function outputTokenBudget(provider: ProviderName, inputCharacters = 0): number {
+  if (provider === "groq") return Math.min(3000, Math.max(1000, Math.ceil(inputCharacters / 3)));
+  if (provider === "nvidia") return 4096;
   if (provider === "gemini") return 16000;
   return 12000;
 }
@@ -646,12 +683,19 @@ function enhanceAndPlan(_apiKey: string, userPrompt: string, stage?: string, exi
   const existingFiles = existingCode
     ? [...existingCode.matchAll(/^\s*\/\/\s*FILE:\s*([^\n]+)/gm)].map((match) => match[1].trim())
     : [];
+  const existingDependencies = existingCode
+    ? [...new Set([...existingCode.matchAll(/\b(?:from\s*|import\s*)["']([^"']+)["']/g)]
+      .map((match) => match[1])
+      .filter((specifier) => !specifier.startsWith(".") && !specifier.startsWith("@/") && !specifier.startsWith("/") && !specifier.startsWith("node:"))
+      .map((specifier) => specifier.startsWith("@") ? specifier.split("/").slice(0, 2).join("/") : specifier.split("/")[0]))]
+    : [];
   const { architecture: arch, implementationPlan } = createImplementationPlan({
     prompt: userPrompt,
     appType,
     domain,
     complexity,
     existingFiles,
+    existingDependencies,
     hasExistingProject: Boolean(existingCode),
   });
 
@@ -689,7 +733,50 @@ function enhanceAndPlan(_apiKey: string, userPrompt: string, stage?: string, exi
   };
 }
 
-function fallbackCode(prompt: string, plan: any) {
+async function createModelAssistedPlan(providers: Providers, preferred: ProviderName, prompt: string, existingCode?: string) {
+  const fallback = enhanceAndPlan("", prompt, undefined, existingCode).implementationPlan;
+  const apiKey = providerKey(providers, preferred);
+  if (!apiKey) return fallback;
+  try {
+    const response = await completeChat(preferred, apiKey, {
+      model: getDefaultModel(preferred),
+      temperature: 0.1,
+      top_p: 1,
+      max_completion_tokens: 1600,
+      messages: [
+        { role: "system", content: "Create a concise adaptive software implementation plan. Return strict JSON only with keys: intent, requirements, steps, designDirection, qualityChecks, fileBlueprint. fileBlueprint is an ordered array of {path,purpose}. Do not invent requirements. Include only files necessary for this product. For a new app include src/App.tsx, a focused src/pages screen, and src/styles.css. Keep the user's original request authoritative." },
+        { role: "user", content: `Original request:\n${prompt}\n\nExisting files/source:\n${(existingCode ?? "(new project)").slice(0, 10000)}\n\nDeterministic fallback file blueprint:\n${JSON.stringify(fallback.fileBlueprint)}` },
+      ],
+    }, { retries: 0, timeoutMs: 12000 });
+    const text = extractChatCompletionCode(response, providerLabel(preferred), getDefaultModel(preferred)).trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
+    const candidate: unknown = JSON.parse(text);
+    if (!isRecord(candidate) || !Array.isArray(candidate.fileBlueprint)) return fallback;
+    const blueprint = candidate.fileBlueprint.filter((file): file is Record<string, unknown> => isRecord(file))
+      .map((file) => ({ path: typeof file.path === "string" ? file.path.trim() : "", purpose: typeof file.purpose === "string" ? file.purpose.trim() : "" }))
+      .filter((file) => /^(src|public)\/(?!.*(?:^|\/)\.\.?\/)[A-Za-z0-9_./-]+\.(?:tsx?|jsx?|css|html|json|svg)$/.test(file.path) && !file.path.includes("..") && Boolean(file.purpose));
+    const unique = [...new Map(blueprint.map((file) => [file.path, file])).values()].slice(0, 12);
+    if (!unique.some((file) => file.path === "src/App.tsx" || file.path === "src/App.jsx") ||
+      !unique.some((file) => /^src\/pages\/.+\.tsx?$/.test(file.path)) ||
+      !unique.some((file) => file.path === "src/styles.css")) return fallback;
+    const strings = (key: string, defaultValue: string[]) => Array.isArray(candidate[key])
+      ? (candidate[key] as unknown[]).filter((item): item is string => typeof item === "string" && item.trim()).slice(0, 12)
+      : defaultValue;
+    return {
+      ...fallback,
+      intent: typeof candidate.intent === "string" ? candidate.intent.slice(0, 300) : fallback.intent,
+      requirements: fallback.requirements,
+      steps: strings("steps", fallback.steps),
+      designDirection: strings("designDirection", fallback.designDirection),
+      qualityChecks: strings("qualityChecks", fallback.qualityChecks),
+      fileBlueprint: unique,
+    };
+  } catch {
+    // Planning has a deterministic local fallback when a model is unavailable or returns malformed JSON.
+    return fallback;
+  }
+}
+
+function fallbackCode(prompt: string, _plan: GenerationPlan) {
   const title = titleCaseWord((prompt.match(/[a-zA-Z0-9]+/) || ["AppiGen"])[0]) + " App";
   if (/ludo/i.test(prompt)) {
     return `// FILE: src/App.jsx
@@ -999,10 +1086,11 @@ async function testProvider(provider: ProviderName, apiKey?: string) {
   if (auth.response?.ok) {
     try {
       const payload = await auth.response.json();
-      const rawModels = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.models) ? payload.models : [];
+      const modelPayload = isRecord(payload) ? payload : {};
+      const rawModels = Array.isArray(modelPayload.data) ? modelPayload.data : Array.isArray(modelPayload.models) ? modelPayload.models : [];
       result.models = {
         status: "working",
-        ids: rawModels.map((model: any) => String(model.id ?? model.name ?? "")).filter(Boolean).slice(0, 100),
+        ids: rawModels.map((model) => isRecord(model) ? String(model.id ?? model.name ?? "") : "").filter(Boolean).slice(0, 100),
       };
     } catch (error) {
       result.models = { status: "request_error", ids: [], detail: "Provider returned invalid model-list JSON." };
@@ -1020,6 +1108,7 @@ async function testProvider(provider: ProviderName, apiKey?: string) {
       temperature: 0,
       top_p: 1,
       max_completion_tokens: 16,
+      reasoning_effort: "low",
     }, { timeoutMs: 12000 });
     const content = data?.choices?.[0]?.message?.content;
     result.generation = {
@@ -1045,12 +1134,12 @@ async function testProvider(provider: ProviderName, apiKey?: string) {
 async function generateCode(
   providers: Providers,
   provider: ProviderName,
-  plan: any,
+  plan: GenerationPlan,
   system?: string,
   stage?: string,
   existingCode?: string,
   conversation: ConversationTurn[] = [],
-  generation: { model: string; temperature: number; topP: number } = {
+  generation: { model: string; temperature: number; topP: number; timeoutMs?: number } = {
     model: MODEL_SMART,
     temperature: 0.2,
     topP: 1,
@@ -1108,9 +1197,15 @@ IMPORTANT: Output complete valid TSX/TypeScript/CSS for every file. Do NOT trunc
     ? generation.model
     : getDefaultModel(provider);
   const modelOrder = [preferredModel, ...configuredModels.filter((model) => model !== preferredModel)];
+  const deadline = Date.now() + (generation.timeoutMs ?? FAST_GENERATION_TIMEOUT_MS);
   const apiKey = providerKey(providers, provider);
   if (apiKey) {
     for (const model of modelOrder) {
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        failures.push(`${providerLabel(provider)} exceeded its generation timeout.`);
+        break;
+      }
       try {
         const data = await completeChat(provider, apiKey, {
           model,
@@ -1119,9 +1214,9 @@ IMPORTANT: Output complete valid TSX/TypeScript/CSS for every file. Do NOT trunc
           top_p: generation.topP,
           // Keep requests within Groq's per-request token budget while leaving
           // enough room for a multi-file app and its focused domain logic.
-          max_completion_tokens: outputTokenBudget(provider),
+          max_completion_tokens: outputTokenBudget(provider, JSON.stringify(messages).length),
           reasoning_effort: "low",
-        }, { retries: 0, timeoutMs: FAST_GENERATION_TIMEOUT_MS });
+        }, { retries: 0, timeoutMs: Math.min(FAST_GENERATION_TIMEOUT_MS, remainingMs) });
         const code = mergeProjectFiles(existingCode ?? "", cleanCode(extractChatCompletionCode(data, providerLabel(provider), model)));
         const validationError = validateGeneratedCode(code, !existingCode) || (!existingCode ? validatePlannedFiles(code, plan.implementationPlan) : null);
         if (!validationError) return { code, provider: `${provider}:${model}` };
@@ -1141,7 +1236,7 @@ IMPORTANT: Output complete valid TSX/TypeScript/CSS for every file. Do NOT trunc
   throw new Error(`AI code generation failed: all configured ${providerLabel(provider)} models failed. ${failures.join(" ") || `Set ${secretNamesFor(provider)[0]} in Supabase Edge Function secrets.`}`);
 }
 
-async function repairCode(providers: Providers, provider: ProviderName, brokenCode: string, errorMsg: string, requireArchitecture = false) {
+async function repairCode(providers: Providers, provider: ProviderName, brokenCode: string, errorMsg: string, requireArchitecture = false, timeoutMs = REPAIR_TIMEOUT_MS) {
   const failures: string[] = [];
   const messages = [
     { role: "system", content: REPAIR_SYSTEM },
@@ -1156,9 +1251,9 @@ async function repairCode(providers: Providers, provider: ProviderName, brokenCo
         model,
         messages,
         temperature: 0.2,
-        max_completion_tokens: outputTokenBudget(provider),
+        max_completion_tokens: outputTokenBudget(provider, JSON.stringify(messages).length),
         reasoning_effort: "low",
-      }, { retries: 0, timeoutMs: REPAIR_TIMEOUT_MS });
+      }, { retries: 0, timeoutMs: Math.min(REPAIR_TIMEOUT_MS, timeoutMs) });
       const fixed = cleanCode(extractChatCompletionCode(data, providerLabel(provider), model));
       const validationError = validateGeneratedCode(fixed, requireArchitecture);
       if (!validationError) return fixed;
@@ -1182,7 +1277,8 @@ async function reviewAndImproveCode(
   code: string,
   plan: unknown,
   model?: string,
-) {
+  timeoutMs = 38000,
+): Promise<{ code: string; findings: Array<{ path: string; issue: string }>; changedPaths: string[] }> {
   const apiKey = providerKey(providers, provider);
   if (!apiKey) throw new Error(`${providerLabel(provider)} is not configured for the review stage.`);
   const modelIds = getProviderConfig(provider).models.map((entry) => entry.id);
@@ -1194,7 +1290,7 @@ async function reviewAndImproveCode(
     typeof plan === "string" ? plan : JSON.stringify(plan ?? {}),
     "\nFULL CURRENT PROJECT SOURCE:",
     code,
-    "\nCompare the complete implementation with the requested product. Fix missing behavior, weak layout, generic styling, incomplete game boards or rules, inaccessible controls, broken imports, and mobile overflow. Return the full corrected project source, not a review summary.",
+    "\nReview the whole project carefully. For each concrete defect, identify only its affected source file, state the specific issue, and provide that complete corrected file. Preserve unrelated files and behavior. If the implementation is sound, return empty arrays.",
   ].join("\n");
   const data = await completeChat(provider, apiKey, {
     model: reviewModel,
@@ -1204,10 +1300,36 @@ async function reviewAndImproveCode(
     ],
     temperature: 0.15,
     top_p: 1,
-    max_completion_tokens: outputTokenBudget(provider),
+    max_completion_tokens: outputTokenBudget(provider, brief.length),
     reasoning_effort: "low",
-  }, { timeoutMs: 38000 });
-  return cleanCode(extractChatCompletionCode(data, providerLabel(provider), reviewModel));
+  }, { timeoutMs: Math.min(38000, timeoutMs) });
+  const raw = extractChatCompletionCode(data, providerLabel(provider), reviewModel).trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
+  let result: unknown;
+  try { result = JSON.parse(raw); } catch { throw new ProviderRequestError(provider, undefined, "INVALID_RESPONSE", "review did not return structured JSON"); }
+  if (!isRecord(result) || !Array.isArray(result.files) || !Array.isArray(result.findings)) {
+    throw new ProviderRequestError(provider, undefined, "INVALID_RESPONSE", "review JSON is missing findings or files arrays");
+  }
+  const originalFiles = projectFiles(code);
+  const updates: Record<string, string> = {};
+  for (const item of result.files) {
+    if (!isRecord(item) || typeof item.path !== "string" || typeof item.content !== "string" || !item.content.trim()) {
+      throw new ProviderRequestError(provider, undefined, "INVALID_RESPONSE", "review returned an invalid file update");
+    }
+    const path = item.path.trim();
+    if (!/^(src|public)\/(?!.*(?:^|\/)\.\.?\/)[A-Za-z0-9_./-]+\.(?:tsx?|jsx?|css|html|json|svg)$/.test(path) || path.includes("..") || Object.hasOwn(updates, path)) {
+      throw new ProviderRequestError(provider, undefined, "INVALID_RESPONSE", `review returned an unsafe or duplicate path ${path}`);
+    }
+    if (!originalFiles.has(path)) throw new ProviderRequestError(provider, undefined, "INVALID_RESPONSE", `review returned an unplanned file ${path}`);
+    updates[path] = item.content.trim();
+  }
+  const findings = result.findings.filter((item): item is Record<string, unknown> => isRecord(item))
+    .filter((item) => typeof item.path === "string" && typeof item.issue === "string")
+    .map((item) => ({ path: String(item.path), issue: String(item.issue).slice(0, 400) }));
+  if (findings.length && !Object.keys(updates).length) {
+    throw new ProviderRequestError(provider, undefined, "INVALID_RESPONSE", "review found issues but supplied no focused file repairs");
+  }
+  const delta = Object.entries(updates).map(([path, content]) => `// FILE: ${path}\n${content}`).join("\n\n");
+  return { code: delta ? mergeProjectFiles(code, delta) : code, findings, changedPaths: Object.keys(updates) };
 }
 
 async function answerProjectQuestion(
@@ -1219,7 +1341,7 @@ async function answerProjectQuestion(
   system?: string,
   model?: string,
 ) {
-  const result = await executeProviderFailover(providers, requested, async (provider) => {
+  const result = await executeProviderFailover(providers, requested, async (provider, timeoutMs) => {
     const models = getProviderConfig(provider).models.map((entry) => entry.id);
     const chatModel = typeof model === "string" && models.includes(model) ? model : getDefaultModel(provider);
     const context = code ? relevantProjectSource(code, prompt) : "(This is a general conversation before a project has been created.)";
@@ -1240,7 +1362,7 @@ async function answerProjectQuestion(
       top_p: 1,
       max_completion_tokens: 1200,
       reasoning_effort: "low",
-    }, { retries: 0, timeoutMs: 30000 });
+    }, { retries: 0, timeoutMs: Math.min(30000, timeoutMs) });
     const answer = data?.choices?.[0]?.message?.content;
     if (typeof answer !== "string" || !answer.trim()) {
       throw new Error(`${providerLabel(provider)} returned no conversational answer.`);
@@ -1251,29 +1373,78 @@ async function answerProjectQuestion(
 }
 
 export function providerFallbackOrder(providers: Providers, requested: ProviderName): ProviderName[] {
-  if (requested === "groq" || requested === "nvidia") {
-    const fallback = requested === "groq" ? "nvidia" : "groq";
-    return [requested, fallback].filter((candidate) => Boolean(providerKey(providers, candidate)));
-  }
-  return [requested, ...ACTIVE_PROVIDER_NAMES.filter((candidate) => candidate !== requested)]
+  // Preserve the user's explicit choice first; try known free-tier providers
+  // before the other configured providers during automatic fallback.
+  const fallbackPriority: readonly ProviderName[] = ["gemini", "groq", "nvidia", "deepseek", "openrouter", "openai"];
+  return [requested, ...fallbackPriority.filter((candidate) => candidate !== requested)]
     .filter((candidate, index, list) => Boolean(providerKey(providers, candidate)) && list.indexOf(candidate) === index);
 }
 
 export async function executeProviderFailover<T>(
   providers: Providers,
   requested: ProviderName,
-  attempt: (provider: ProviderName) => Promise<T>,
+  attempt: (provider: ProviderName, timeoutMs: number) => Promise<T>,
 ): Promise<{ provider: ProviderName; value: T }> {
   const failures: string[] = [];
+  const deadline = Date.now() + PROVIDER_FAILOVER_TIMEOUT_MS;
   for (const candidate of providerFallbackOrder(providers, requested)) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      failures.push(`Provider fallback exceeded its ${PROVIDER_FAILOVER_TIMEOUT_MS / 1000}-second time limit.`);
+      break;
+    }
     try {
-      return { provider: candidate, value: await attempt(candidate) };
+      return { provider: candidate, value: await attempt(candidate, remainingMs) };
     } catch (error) {
       failures.push(providerFailure(providerLabel(candidate), error));
       if (!isProviderUnavailable(error)) throw error;
     }
   }
   throw new Error(failures.join(" ") || "No configured provider could complete the request.");
+}
+
+async function generateBuildFile(providers: Providers, requestedProvider: ProviderName, body: Record<string, unknown>) {
+  const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+  const file = isRecord(body.file) ? body.file : {};
+  const path = typeof file.path === "string" ? file.path.trim() : "";
+  const purpose = typeof file.purpose === "string" ? file.purpose.trim() : "";
+  const safePath = /^(src|public)\/(?!.*(?:^|\/)\.\.?\/)[A-Za-z0-9_./-]+\.(?:tsx?|jsx?|css|html|json|svg)$/.test(path) && !path.includes("..");
+  if (!prompt || !safePath || !purpose) throw new Error("A prompt and safe planned file path/purpose are required.");
+  const apiKeyFor = (provider: ProviderName) => providerKey(providers, provider);
+  const context = {
+    requirements: Array.isArray(body.requirements) ? body.requirements.filter((item) => typeof item === "string") : [],
+    fileTree: Array.isArray(body.fileTree) ? body.fileTree.filter((item) => typeof item === "string") : [],
+    existingSource: typeof body.existingSource === "string" ? body.existingSource.slice(0, 22000) : "",
+    implementationContext: typeof body.implementationContext === "string" ? body.implementationContext.slice(0, 10000) : "",
+    architecture: typeof body.architecture === "string" ? body.architecture.slice(0, 5000) : "",
+  };
+  const requested = typeof body.provider === "string" ? getProvider(body.provider) : requestedProvider;
+  const modelHint = typeof body.model === "string" ? body.model : undefined;
+  const generated = await executeProviderFailover(providers, requested, async (candidate, timeoutMs) => {
+    const apiKey = apiKeyFor(candidate);
+    if (!apiKey) throw new ProviderRequestError(candidate, undefined, "INVALID_CREDENTIALS", "provider is not configured");
+    const models = getProviderConfig(candidate).models.map((item) => item.id);
+    const model = modelHint && models.includes(modelHint) ? modelHint : getDefaultModel(candidate);
+    const response = await completeChat(candidate, apiKey, {
+      model,
+      temperature: numericSetting(body.temperature, 0.2, 0, 2),
+      top_p: numericSetting(body.topP, 1, 0, 1),
+      max_completion_tokens: outputTokenBudget(candidate, prompt.length + JSON.stringify(context).length),
+      reasoning_effort: "low",
+      messages: [
+        { role: "system", content: `You are AppiGen's file-by-file implementation agent. Generate exactly one complete source file. Return strict JSON only: {"path":"${path}","content":"..."}. No markdown, no other files, no prose. Preserve the user's requested behavior and established project architecture. Ensure syntactically complete code, resolve imports against the provided file tree, and do not use placeholders.` },
+        { role: "user", content: `Original user prompt (authoritative):\n${prompt}\n\nTarget file: ${path}\nPurpose: ${purpose}\n\nComplete requirements:\n${JSON.stringify(context.requirements)}\n\nProject file tree:\n${context.fileTree.join("\n")}\n\nExisting source relevant to this target:\n${context.existingSource}\n\nPreviously generated implementation context:\n${context.implementationContext}\n\nArchitecture and design decisions:\n${context.architecture}` },
+      ],
+    }, { retries: 1, timeoutMs: Math.min(candidate === "nvidia" ? 105000 : FAST_GENERATION_TIMEOUT_MS, timeoutMs) });
+    const raw = extractChatCompletionCode(response, providerLabel(candidate), model).trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
+    let parsed: unknown;
+    try { parsed = JSON.parse(raw); } catch { throw new ProviderRequestError(candidate, undefined, "INVALID_RESPONSE", `invalid single-file JSON for ${path}`); }
+    if (!isRecord(parsed) || parsed.path !== path || typeof parsed.content !== "string" || !parsed.content.trim()) {
+      throw new ProviderRequestError(candidate, undefined, "INVALID_RESPONSE", `unexpected or empty file for ${path}`);
+    }
+    return { path, content: parsed.content.trim(), model };
+  });
+  return { ...generated.value, provider: `${generated.provider}:${generated.value.model}` };
 }
 
 // ---------- handler ----------
@@ -1284,14 +1455,18 @@ Deno.serve(async (req) => {
 
   const providers = readProviderKeys();
 
-  let body: any;
-  try { body = await req.json(); }
+  let body: Record<string, unknown>;
+  try {
+    const parsedBody: unknown = await req.json();
+    body = isRecord(parsedBody) ? parsedBody : {};
+  }
   catch { return jsonResponse({ error: "Invalid JSON body" }, 400); }
 
-  const mode: "build" | "edit" | "repair" | "review" | "plan" | "chat" | "health" =
+  const mode: "build" | "edit" | "build_file" | "repair" | "review" | "plan" | "chat" | "health" =
     body?.mode === "health" ? "health"
       : body?.mode === "chat" ? "chat"
-      : body?.mode === "repair" ? "repair"
+        : body?.mode === "build_file" ? "build_file"
+        : body?.mode === "repair" ? "repair"
         : body?.mode === "review" ? "review"
           : body?.mode === "edit" ? "edit"
             : body?.mode === "plan" ? "plan"
@@ -1322,7 +1497,8 @@ Deno.serve(async (req) => {
       if (body.existingProject === true && !existingCode) return jsonResponse({ error: "Existing project code missing for plan" }, 400);
       const stage = typeof body.stage === "string" ? body.stage : undefined;
       const plan = enhanceAndPlan("", prompt, stage, existingCode);
-      return jsonResponse({ plan: { implementationPlan: plan.implementationPlan } });
+      const implementationPlan = await createModelAssistedPlan(providers, provider, prompt, existingCode);
+      return jsonResponse({ plan: { implementationPlan: { ...plan.implementationPlan, ...implementationPlan } } });
     }
 
     if (mode === "chat") {
@@ -1330,9 +1506,9 @@ Deno.serve(async (req) => {
       const code = typeof body.code === "string" ? body.code : "";
       if (!prompt) return jsonResponse({ error: "Question missing" }, 400);
       const conversation: ConversationTurn[] = Array.isArray(body.conversation)
-        ? body.conversation.slice(-12).filter((turn: any) =>
-          (turn?.role === "user" || turn?.role === "assistant") && typeof turn.content === "string")
-          .map((turn: any) => ({ role: turn.role, content: turn.content.slice(0, 2400) }))
+        ? body.conversation.slice(-12).filter((turn): turn is Record<string, unknown> =>
+          isRecord(turn) && (turn.role === "user" || turn.role === "assistant") && typeof turn.content === "string")
+          .map((turn) => ({ role: turn.role as "user" | "assistant", content: (turn.content as string).slice(0, 2400) }))
         : [];
       const response = await answerProjectQuestion(
         providers,
@@ -1346,6 +1522,11 @@ Deno.serve(async (req) => {
       return jsonResponse({ ...response, mode });
     }
 
+    if (mode === "build_file") {
+      const generated = await generateBuildFile(providers, provider, body);
+      return jsonResponse({ ...generated, mode });
+    }
+
     if (mode !== "plan" && providerFallbackOrder(providers, provider).length === 0) {
       return jsonResponse({
         error: `${providerLabel(provider)} is not configured. Set ${secretNamesFor(provider)[0]} in Supabase Edge Function secrets.`,
@@ -1356,8 +1537,8 @@ Deno.serve(async (req) => {
       const code = typeof body.code === "string" ? body.code : "";
       const errorMsg = typeof body.error === "string" ? body.error : "";
       if (!code || !errorMsg) return jsonResponse({ error: "Missing code or error for repair" }, 400);
-      const repaired = await executeProviderFailover(providers, provider, (candidate) =>
-        repairCode(providers, candidate, code, errorMsg));
+      const repaired = await executeProviderFailover(providers, provider, (candidate, timeoutMs) =>
+        repairCode(providers, candidate, code, errorMsg, false, timeoutMs));
       const fixed = repaired.value;
       if (!fixed) return jsonResponse({ error: "Repair produced empty code" }, 502);
       const validationError = validateGeneratedCode(fixed);
@@ -1378,17 +1559,14 @@ Deno.serve(async (req) => {
       }
 
       const requireArchitecture = body.existingProject !== true;
-      const reviewed = await executeProviderFailover(providers, provider, async (candidate) => {
-        let reviewedCode = await reviewAndImproveCode(providers, candidate, prompt, code, body.plan, body.model);
-        let reviewValidation = validateGeneratedCode(reviewedCode, requireArchitecture) || (requireArchitecture ? validatePlannedFiles(reviewedCode, body.plan) : null);
-        if (reviewValidation) {
-          reviewedCode = await repairCode(providers, candidate, reviewedCode, `Reviewed project validation failed: ${reviewValidation}`, requireArchitecture);
-          reviewValidation = validateGeneratedCode(reviewedCode, requireArchitecture) || (requireArchitecture ? validatePlannedFiles(reviewedCode, body.plan) : null);
-        }
+      const reviewed = await executeProviderFailover(providers, provider, async (candidate, timeoutMs) => {
+        const reviewResult = await reviewAndImproveCode(providers, candidate, prompt, code, body.plan, body.model, timeoutMs);
+        const reviewedCode = reviewResult.code;
+        const reviewValidation = validateGeneratedCode(reviewedCode, requireArchitecture) || (requireArchitecture ? validatePlannedFiles(reviewedCode, body.plan) : null);
         if (reviewValidation) throw new Error(`${providerLabel(candidate)} review returned invalid project code: ${reviewValidation}`);
-        return reviewedCode;
+        return { code: reviewedCode, repairAttempted: reviewResult.changedPaths.length > 0, findings: reviewResult.findings, changedPaths: reviewResult.changedPaths };
       });
-      return jsonResponse({ code: reviewed.value, provider: `${reviewed.provider}:${getDefaultModel(reviewed.provider)}`, mode });
+      return jsonResponse({ code: reviewed.value.code, repairAttempted: reviewed.value.repairAttempted, findings: reviewed.value.findings, changedPaths: reviewed.value.changedPaths, provider: `${reviewed.provider}:${getDefaultModel(reviewed.provider)}`, mode });
     }
 
     // build or edit mode
@@ -1402,14 +1580,14 @@ Deno.serve(async (req) => {
     const stage = typeof body.stage === "string" ? body.stage : undefined;
     const system = typeof body.system === "string" ? body.system.slice(0, 4000) : undefined;
     const configuredModels = getProviderConfig(provider).models.map((entry) => entry.id);
-    const model = configuredModels.includes(body.model) ? body.model : getDefaultModel(provider);
+    const model = typeof body.model === "string" && configuredModels.includes(body.model) ? body.model : getDefaultModel(provider);
     const temperature = numericSetting(body.temperature, 0.2, 0, 2);
     const topP = numericSetting(body.topP, 1, 0, 1);
     const conversation: ConversationTurn[] = [];
     let remainingContext = 12000;
     if (Array.isArray(body.conversation)) {
       for (const turn of body.conversation.slice(-12)) {
-        if ((turn?.role !== "user" && turn?.role !== "assistant") || typeof turn.content !== "string") continue;
+        if (!isRecord(turn) || (turn.role !== "user" && turn.role !== "assistant") || typeof turn.content !== "string") continue;
         const content = turn.content.slice(0, Math.min(2400, remainingContext));
         if (!content) break;
         conversation.push({ role: turn.role, content });
@@ -1419,8 +1597,8 @@ Deno.serve(async (req) => {
     }
 
     const plan = enhanceAndPlan("", prompt, stage, existingCode);
-    const generated = await executeProviderFailover(providers, provider, (candidate) =>
-      generateCode(providers, candidate, plan, system, stage, existingCode, conversation, { model, temperature, topP }));
+    const generated = await executeProviderFailover(providers, provider, (candidate, timeoutMs) =>
+      generateCode(providers, candidate, plan, system, stage, existingCode, conversation, { model, temperature, topP, timeoutMs }));
     const generatedCode = generated.value.code;
     const usedProvider = generated.value.provider;
     const usedProviderName = usedProvider.split(":")[0] as ProviderName;

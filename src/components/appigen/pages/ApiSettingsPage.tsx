@@ -25,6 +25,7 @@ export const healthStatusLabel = (status?: string) => {
     case "working": return "Working";
     case "missing": return "Not configured";
     case "invalid_key": return "Invalid key";
+    case "permission_denied": return "Permission denied";
     case "quota_exhausted": return "Quota exhausted";
     case "rate_limited": return "Rate limited";
     case "model_unavailable": return "Model unavailable";

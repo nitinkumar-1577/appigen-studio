@@ -21,8 +21,13 @@ describe("provider catalog", () => {
     expect(getProviderConfig("deepseek").models.map((model) => model.id)).toEqual(["deepseek-flash", "deepseek-v4-pro"]);
   });
 
+  it("defaults Groq to its lower-cost compatible model", () => {
+    expect(getDefaultModel("groq")).toBe("openai/gpt-oss-20b");
+  });
+
   it("classifies provider failures without exposing response bodies", () => {
     expect(classifyProviderStatus(401)).toBe("invalid_key");
+    expect(classifyProviderStatus(403)).toBe("permission_denied");
     expect(classifyProviderStatus(402)).toBe("quota_exhausted");
     expect(classifyProviderStatus(429)).toBe("rate_limited");
     expect(classifyProviderStatus(404)).toBe("model_unavailable");

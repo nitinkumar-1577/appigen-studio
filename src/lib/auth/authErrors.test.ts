@@ -10,6 +10,9 @@ describe("auth error handling", () => {
 
   it("returns actionable messages without hiding provider failures", () => {
     expect(authErrorMessage(new Error("Invalid login credentials"), "fallback")).toContain("email or password");
-    expect(authErrorMessage(new Error("network unavailable"), "Try again")).toBe("network unavailable");
+    expect(authErrorMessage(new Error("network unavailable"), "Try again")).toContain("Could not reach Supabase");
+    expect(authErrorMessage(new Error("Unsupported provider: provider is not enabled"), "fallback", "github")).toContain("GitHub sign-in is disabled");
+    expect(authErrorMessage(new Error("Failed to fetch"), "fallback", "google")).toContain("Could not reach Supabase");
+    expect(authErrorMessage(new Error("redirect URL not allowed"), "fallback", "google")).toContain("redirect URL is invalid or not allowed");
   });
 });

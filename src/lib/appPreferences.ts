@@ -65,7 +65,7 @@ export const DEFAULT_SYSTEM_INSTRUCTIONS =
 export const DEFAULT_PREFERENCES: AppPreferences = {
   theme: "dark",
   provider: "groq",
-  model: GENERATION_MODELS[1],
+  model: GENERATION_MODELS[0],
   density: "Comfortable",
   autoDraft: true,
   telemetry: false,
@@ -73,7 +73,7 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
 
 export const DEFAULT_GENERATION_SETTINGS: GenerationSettings = {
   provider: "groq",
-  model: GENERATION_MODELS[1],
+  model: GENERATION_MODELS[0],
   systemInstructions: DEFAULT_SYSTEM_INSTRUCTIONS,
   temperature: 0.7,
   topP: 0.95,
