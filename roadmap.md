@@ -1,8 +1,5 @@
-- [x] Finish approved preview-helper refactor and validate the requested safety changes.
-  - [x] Review and execute the uploaded AppiGen Studio upgrade brief, Parts A–E.
-    - [x] Part A: design system and reusable UI states/components.
-    - [x] Part B: per-project edit chat, versioning, cancel/progress, and prompt behavior.
-    - [x] Part C: reliable preview dependencies, routing, errors, auto-repair, and boundary.
-    - [x] Part D: staged build/review/validation pipeline with compatible function contract.
-    - [x] Part E: project autosave/drafts/versions/gallery/export.
-  - [x] Check 360px, 768px, and 1280px layouts; report Done / Not done.
+- [ ] Replace AppiGen's default user-owned AI provider with managed Lovable AI and test a full hard-prompt build.
+- [ ] Improve the build/edit instructions so new apps and requested changes are specific, complete, validated, and preserved.
+- [ ] Repair cloud project and numbered version history so builds, edits, restores, and deletions sync across signed-in devices.
+- [ ] Add the animated edit-prompt placeholder and verify it remains editable and responsive.
+- [ ] Run targeted tests, check 360px/768px/1280px, and inspect current build/backend results.

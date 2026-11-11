@@ -22,6 +22,7 @@ export type Database = {
           project_id: string
           prompt: string
           user_id: string
+          version_number: number
         }
         Insert: {
           code: string
@@ -30,6 +31,7 @@ export type Database = {
           project_id: string
           prompt: string
           user_id: string
+          version_number?: number
         }
         Update: {
           code?: string
@@ -38,6 +40,7 @@ export type Database = {
           project_id?: string
           prompt?: string
           user_id?: string
+          version_number?: number
         }
         Relationships: [
           {
@@ -53,32 +56,44 @@ export type Database = {
         Row: {
           code: string
           created_at: string
+          deleted_at: string | null
+          files: Json
           id: string
+          messages: Json
           prompt: string
           thumbnail: string | null
           title: string
           updated_at: string
           user_id: string
+          version_counter: number
         }
         Insert: {
           code: string
           created_at?: string
+          deleted_at?: string | null
+          files?: Json
           id?: string
+          messages?: Json
           prompt: string
           thumbnail?: string | null
           title?: string
           updated_at?: string
           user_id: string
+          version_counter?: number
         }
         Update: {
           code?: string
           created_at?: string
+          deleted_at?: string | null
+          files?: Json
           id?: string
+          messages?: Json
           prompt?: string
           thumbnail?: string | null
           title?: string
           updated_at?: string
           user_id?: string
+          version_counter?: number
         }
         Relationships: []
       }
