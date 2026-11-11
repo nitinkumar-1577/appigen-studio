@@ -24,8 +24,11 @@ import { getFunctionErrorMessage } from "@/lib/supabase/functionError";
 import { createRunnableProjectZip } from "@/lib/projects/exportProject";
 import { isNewAppPrompt, isProjectConversation } from "@/lib/projects/promptIntent";
 import { formatImplementationPlan } from "@/lib/projects/implementationPlan";
-import { mergeGeneratedFile, runSequentialFileBuild, selectFilesForEdit, validateBuildFileResponse, validateFileTree, type BuildFileProgress } from "@/lib/projects/buildWorkflow";
-import { clearLocalVersions, deleteLocalVersion, discardProjectDraft, readProjectDraft, writeLocalVersion, writeProjectDraft, writeProjectMessages, type ChatMessage, type LocalProjectVersion } from "@/lib/projects/projectStorage";
+import { mergeGeneratedFile, orderBuildFiles, runSequentialFileBuild, selectFilesForEdit, validateBuildFileResponse, validateFileTree, type BuildFileProgress } from "@/lib/projects/buildWorkflow";
+import { clearLocalVersions, clearProjectChangeRecords, clearProjectMemory, deleteLocalVersion, discardProjectDraft, readProjectChangeRecords, readProjectDraft, readProjectMemory, writeLocalVersion, writeProjectChangeRecord, writeProjectDraft, writeProjectMemory, writeProjectMessages, type ChatMessage, type LocalProjectVersion } from "@/lib/projects/projectStorage";
+import { computeChangeRecord, formatChangeRecord } from "@/lib/projects/changeTracking";
+import { formatUnderstandingForPrompt, understandProject } from "@/lib/projects/projectUnderstanding";
+import { detectConflicts, formatMemoryForPrompt, updateProjectMemory } from "@/lib/projects/projectMemory";
 import { clearProjectVersions, createProjectVersion, deleteProject, deleteProjectVersion, loadProject, loadProjectVersions, persistActivity, persistProject, subscribeToProjectSync } from "@/lib/projects/projectRepository";
 import { readAppPreferences, readGenerationSettings, recordActivity } from "@/lib/appPreferences";
 import { trackAnonymousUsage } from "@/lib/telemetry";
@@ -380,8 +383,9 @@ const Index = () => {
     repairAttemptsRef.current = 0;
     lastReportedRef.current = "";
     isRepairingRef.current = false;
+    const intent = analyzeIntent(trimmed, { hasExistingProject: Boolean(lastCode) });
     const editMode = Boolean(lastCode) && !isNewAppPrompt(trimmed);
-    const questionMode = isProjectConversation(trimmed, Boolean(lastCode));
+    const questionMode = !intent.shouldBuild;
     const generationSettings = readGenerationSettings();
     const buildStartedAt = Date.now();
     const baseMessages = editMode ? messages : [];
@@ -398,15 +402,33 @@ const Index = () => {
     }
     setMobileStudioTab(questionMode ? "chat" : "preview");
     setProgressStage("Understanding request");
-    setBuildTimeline(["Understanding the request"]);
+    setBuildTimeline(["Understanding the request", `Intent: ${intent.intent} (${intent.responseLanguage})`]);
+    const projectKey = chatKey;
+    const baseCodeForEdit = lastCode;
+    const understanding = (editMode || Boolean(baseCodeForEdit)) && baseCodeForEdit ? understandProject(baseCodeForEdit, projectId) : null;
+    const existingMemory = (editMode || Boolean(baseCodeForEdit)) ? readProjectMemory(projectKey) : null;
+    const recentChanges = (editMode || Boolean(baseCodeForEdit)) ? readProjectChangeRecords(projectKey) : [];
+    const recentChangeSummary = recentChanges[0] ? formatChangeRecord(recentChanges[0]) : "";
+    const memoryPreview = (editMode || Boolean(baseCodeForEdit)) ? updateProjectMemory({ existing: existingMemory, projectKey, projectId, title: projectTitle, understanding, messages: nextMessages, prompt: trimmed }) : null;
+    if (understanding) setBuildTimeline((current) => [...current, `Understood project: ${understanding.architectureSummary}`]);
+    if (memoryPreview?.conflicts.length) setBuildTimeline((current) => [...current, `Potential conflicts detected: ${memoryPreview.conflicts[0]}`]);
+    const clarificationNeeded = (memoryPreview?.clarifications ?? []).filter((item) => !/too ambiguous/i.test(item) || trimmed.split(/\s+/).length < 4);
+    if (questionMode && intent.needsClarification) clarificationNeeded.push("Please clarify what should change and where in the current project.");
+    if (!questionMode && clarificationNeeded.length) {
+      setMessages((current) => [...current, { role: "assistant", content: `I need clarification before making targeted changes:\n${clarificationNeeded.map((c) => `- ${c}`).join("\n")}\n\nPlease specify the target behavior/file or confirm the intended change so I can preserve unrelated functionality.`, timestamp: Date.now() }]);
+      toast({ title: "Clarification needed", description: clarificationNeeded[0] });
+      return;
+    }
+    const understandingText = understanding ? formatUnderstandingForPrompt(understanding) : "";
+    const memoryText = memoryPreview ? formatMemoryForPrompt(memoryPreview, understanding) : "";
     setIsBuilding(true);
     setIsGeneratingApp(!questionMode);
     let generatedPreview = false;
     const controller = new AbortController();
     abortRef.current = controller;
     setBuildFiles([]);
-    setChangeBaseCode(lastCode);
-    setWorkingCode(partialBuildRef.current?.prompt === trimmed ? partialBuildRef.current.code : lastCode);
+    setChangeBaseCode(baseCodeForEdit);
+    setWorkingCode(partialBuildRef.current?.prompt === trimmed ? partialBuildRef.current.code : baseCodeForEdit);
     let buildProvider = generationSettings.provider;
     try {
       if (questionMode) {
@@ -419,7 +441,12 @@ const Index = () => {
             code: lastCode ?? "",
             conversation: baseMessages.slice(-12),
             model: generationSettings.model,
-            system: generationSettings.systemInstructions,
+            system: [generationSettings.systemInstructions, responseLanguageInstruction(intent.responseLanguage)].filter(Boolean).join("\n\n"),
+            projectUnderstanding: understandingText,
+            projectMemory: memoryText,
+            changeSummary: recentChangeSummary,
+            responseLanguage: intent.responseLanguage,
+            intent: intent.intent,
           },
           signal: controller.signal,
         });
@@ -469,18 +496,24 @@ const Index = () => {
           prompt: trimmed,
           stage,
           model: generationSettings.model,
-          system: generationSettings.systemInstructions,
+          system: [generationSettings.systemInstructions, responseLanguageInstruction(intent.responseLanguage)].filter(Boolean).join("\n\n"),
           safety: generationSettings.safety,
           temperature: generationSettings.temperature,
           topP: generationSettings.topP,
           existingProject: editMode,
           ...(editMode ? { code: lastCode } : {}),
           conversation: baseMessages.slice(-12),
+          projectUnderstanding: understandingText,
+          projectMemory: memoryText,
+          changeSummary: recentChangeSummary,
+          responseLanguage: intent.responseLanguage,
+          intent: intent.intent,
         },
         signal: controller.signal,
       });
       if (planError) throw planError;
-      const planSummary = formatImplementationPlan(planData?.plan?.implementationPlan);
+      const implementationPlan = planData?.plan?.implementationPlan as Record<string, unknown> | undefined;
+      const planSummary = formatImplementationPlan(implementationPlan);
       if (!planSummary) throw new Error("The deployed Appigen Edge Function does not support the planning route.");
       buildMessages = [...nextMessages, { role: "assistant", content: planSummary, timestamp: Date.now() }];
       setMessages(buildMessages);
@@ -489,18 +522,20 @@ const Index = () => {
       let generatedCode = canResume
         ? partialBuildRef.current?.code ?? ""
         : editMode && lastCode ? normalizeFileMarkers(lastCode) : "";
-      const plan = planData?.plan?.implementationPlan;
-      const blueprint = Array.isArray(plan?.fileBlueprint) ? plan.fileBlueprint as Array<{ path: string; purpose: string }> : [];
+      const blueprint = Array.isArray(implementationPlan?.fileBlueprint) ? implementationPlan.fileBlueprint as Array<{ path: string; purpose: string }> : [];
       if (!blueprint.length) throw new Error("The implementation plan did not include a file blueprint.");
+      const recentlyChangedPaths = recentChanges.flatMap((record) => record.changedPaths).slice(0, 12);
       const plannedFiles = editMode && generatedCode
-        ? selectFilesForEdit(generatedCode, trimmed).map((path) => blueprint.find((file) => file.path === path) ?? ({ path, purpose: `Apply the requested change to ${path}` }))
+        ? selectFilesForEdit(generatedCode, trimmed, { understanding, recentlyChanged: recentlyChangedPaths }).map((path) => blueprint.find((file) => file.path === path) ?? ({ path, purpose: `Apply the requested change to ${path}` }))
         : blueprint;
-      const uniqueFiles = [...new Map(plannedFiles.map((file) => [file.path, file])).values()];
+      if (editMode) setBuildTimeline((current) => [...current, `Targeted files: ${plannedFiles.map((f) => f.path).join(", ")}`]);
+      const uniqueFiles = orderBuildFiles([...new Map(plannedFiles.map((file) => [file.path, file])).values()], { understanding: understanding ?? undefined });
       if (!uniqueFiles.length) throw new Error("The plan did not select any files to generate.");
+      if (uniqueFiles.length > 1) setBuildTimeline((current) => [...current, `Build order: ${uniqueFiles.map((f) => f.path).join(" -> ")}`]);
       setBuildFiles(uniqueFiles.map(({ path, purpose }) => ({ path, purpose, status: "queued" })));
       const requiredPaths = editMode
         ? [...(generatedCode.matchAll(/^\s*\/\/\s*FILE:\s*([^\n]+)/gm))].map((match) => match[1].trim())
-        : uniqueFiles.map(({ path }) => path);
+        : uniqueFiles.filter((file) => file.path === "src/App.tsx" || file.path === "src/App.jsx" || file.path === "src/styles.css").map((file) => file.path);
 
       const previouslyCompleted = new Set(canResume ? partialBuildRef.current?.completedPaths ?? [] : []);
       setBuildFiles(uniqueFiles.map(({ path, purpose }) => ({ path, purpose, status: previouslyCompleted.has(path) ? "completed" : "queued" })));
@@ -509,18 +544,26 @@ const Index = () => {
         initialSource: generatedCode,
         completedPaths: [...previouslyCompleted],
         signal: controller.signal,
+        retries: 1,
         generate: async (file) => {
           setProgressStage(`Generating ${file.path}`);
           const { data: fileData, error: fileError } = await supabase.functions.invoke("Appigen", {
             body: {
               mode: "build_file", prompt: trimmed, file,
-              requirements: Array.isArray(plan?.requirements) ? plan.requirements : [trimmed],
+              requirements: Array.isArray(implementationPlan?.requirements) ? implementationPlan.requirements : [trimmed],
+              specification: implementationPlan?.specification ?? null,
+              requirementTrace: Array.isArray(implementationPlan?.requirementTrace) ? implementationPlan.requirementTrace : [],
               fileTree: [...new Set([...requiredPaths, ...uniqueFiles.map(({ path }) => path)])],
               existingSource: editMode ? (lastCode ?? "").slice(0, 22000) : "",
               implementationContext: generatedCode.slice(-14000),
-              architecture: `${planSummary}\nUser architecture instructions: ${generationSettings.systemInstructions ?? ""}`,
+              architecture: `${planSummary}\nArchitecture strategy: ${typeof (implementationPlan?.architecture as { strategy?: string } | undefined)?.strategy === "string" ? (implementationPlan?.architecture as { strategy?: string }).strategy : "adaptive"}\nUser architecture instructions: ${generationSettings.systemInstructions ?? ""}\nResponse language: ${intent.responseLanguage}`,
+              projectUnderstanding: understandingText,
+              projectMemory: memoryText,
+              changeSummary: recentChangeSummary,
               provider: generationSettings.provider, model: generationSettings.model,
               temperature: generationSettings.temperature, topP: generationSettings.topP,
+              responseLanguage: intent.responseLanguage,
+              intent: intent.intent,
             },
             signal: controller.signal,
           });
@@ -542,6 +585,9 @@ const Index = () => {
           } else if (event.status === "validating") {
             setBuildTimeline((current) => [...current, `Validating ${event.path}`]);
             setProgressStage(`Validating ${event.path}`);
+          } else if (event.status === "retrying") {
+            setBuildTimeline((current) => [...current, `Retrying ${event.path}${event.error ? `: ${event.error}` : ""}`]);
+            setProgressStage(`Retrying ${event.path}`);
           } else if (event.status === "failed") {
             setBuildTimeline((current) => [...current, `Failed ${event.path}: ${event.error ?? "unknown error"}`]);
           }
@@ -568,7 +614,7 @@ const Index = () => {
           mode: "review",
           prompt: trimmed,
           code: generatedCode,
-          plan: planData?.plan?.implementationPlan,
+          plan: implementationPlan,
           existingProject: editMode,
           provider: buildProvider.split(":")[0],
           model: generationSettings.model,
@@ -615,14 +661,34 @@ const Index = () => {
       setDoc(buildDocFromPrompt(trimmed, generatedCode));
       const fileCount = [...generatedCode.matchAll(/^\s*\/\/\s*FILE:/gm)].length || 1;
       const validationSummary = getValidationSummary(Boolean(reviewData?.reviewSkipped), fileCount);
-      const completedMessages = [...buildMessages, { role: "assistant" as const, content: editMode ? `Project updated. ${validationSummary} Your previous version is available to restore.` : `Your app is ready in Preview. ${validationSummary}`, timestamp: Date.now() }];
-      setMessages(completedMessages);
-      setPrompt("");
-
       const finalTitle = editMode
         ? projectTitle !== "Untitled Project" ? projectTitle : suggestProjectTitle(trimmed)
         : suggestProjectTitle(trimmed);
       if (finalTitle !== projectTitle) setProjectTitle(finalTitle);
+
+      const changeRecord = (editMode || baseCodeForEdit)
+        ? computeChangeRecord({ projectKey, before: baseCodeForEdit, after: generatedCode, prompt: trimmed, reason: editMode ? "Follow-up edit" : "Project update" })
+        : null;
+      if (changeRecord) {
+        setBuildTimeline((current) => [...current, `Change tracking: ${changeRecord.summary}`]);
+        writeProjectChangeRecord(projectKey, changeRecord);
+      }
+      const updatedMemory = updateProjectMemory({
+        existing: readProjectMemory(projectKey),
+        projectKey,
+        projectId,
+        title: finalTitle,
+        understanding: understandProject(generatedCode, projectId),
+        messages: buildMessages,
+        prompt: trimmed,
+        changedFiles: changeRecord?.changedPaths ?? [],
+        changeSummary: changeRecord ? formatChangeRecord(changeRecord) : undefined,
+      });
+      writeProjectMemory(projectKey, updatedMemory);
+      const memoryNote = updatedMemory.conflicts.length ? `\n\nPotential decision conflicts detected (preserved for review): ${updatedMemory.conflicts.join("; ")}` : "";
+      const completedMessages = [...buildMessages, { role: "assistant" as const, content: editMode ? `Project updated. ${validationSummary}${changeRecord ? `\n\n${formatChangeRecord(changeRecord)}` : ""}${memoryNote} Your previous version is available to restore.` : `Your app is ready in Preview. ${validationSummary}`, timestamp: Date.now() }];
+      setMessages(completedMessages);
+      setPrompt("");
 
       if (user) {
         setProgressStage("Saving");

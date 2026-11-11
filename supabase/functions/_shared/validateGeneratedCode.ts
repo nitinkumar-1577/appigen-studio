@@ -147,24 +147,19 @@ export function validateGeneratedCode(source: string, requireArchitecture = fals
 
   if (requireArchitecture) {
     if (!files.has("src/styles.css")) return "The generated project is missing src/styles.css for its app-specific design system.";
-    const pagePaths = [...files.keys()].filter((path) => /^src\/pages\/.+\.tsx?$/.test(path));
-    if (!pagePaths.length) {
-      return "The generated project is missing a focused screen in src/pages/.";
-    }
-    const componentPaths = [...files.keys()].filter((path) => /^src\/components\/.+\.tsx?$/.test(path));
-    if (!componentPaths.length) {
-      return "The generated project is missing reusable UI in src/components/.";
-    }
     const entrySource = files.get(entryPath)!;
     if (!/\bimport\s+["']\.\/styles\.css["']/.test(entrySource)) {
       return "src/App.tsx must import its app-specific ./styles.css.";
     }
-    if (!pagePaths.some((path) => isImportedBy(path, entryPath, entrySource))) {
-      return "src/App.tsx must compose a page from src/pages/.";
+    const pagePaths = [...files.keys()].filter((path) => /^src\/pages\/.+\.tsx?$/.test(path));
+    const componentPaths = [...files.keys()].filter((path) => /^src\/components\/.+\.tsx?$/.test(path));
+    const hookPaths = [...files.keys()].filter((path) => /^src\/hooks\/.+\.[jt]sx?$/.test(path));
+    const utilPaths = [...files.keys()].filter((path) => /^src\/lib\/.+\.[jt]sx?$/.test(path));
+    if (files.size >= 6 && pagePaths.length === 0 && componentPaths.length === 0 && hookPaths.length === 0 && utilPaths.length === 0) {
+      return "A larger generated project must organize requested behavior into focused modules such as pages, components, hooks, or lib utilities.";
     }
-    if (!componentPaths.some((path) => [...files!.entries()].some(([fromPath, content]) =>
-      fromPath !== path && isImportedBy(path, fromPath, content)))) {
-      return "A reusable component from src/components/ must be imported by the app.";
+    if (pagePaths.length > 0 && !pagePaths.some((path) => isImportedBy(path, entryPath, entrySource))) {
+      return "src/App.tsx must compose a planned screen from src/pages/.";
     }
   }
 

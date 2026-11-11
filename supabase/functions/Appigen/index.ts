@@ -1,9 +1,13 @@
+import { understandProject, formatUnderstandingForPrompt, rankFilesForIntent, impactedFiles } from "../../../src/lib/projects/projectUnderstanding.ts";
+import { formatMemoryForPrompt, type ProjectMemory } from "../../../src/lib/projects/projectMemory.ts";
+import { formatChangeRecord, type ChangeRecord } from "../../../src/lib/projects/changeTracking.ts";
+
 // AppiGen V4 — Timeout-safe Thinking Engine pipeline (Groq)
 // Local stages: 1 Intent · 2 Requirements · 3 Architecture · 4 Blueprint
 // AI stages: 5 Generate (multi-file) · 6 Validate · 7 Auto-Repair · 8 Clean
 // Critical: never run sequential long AI calls inside the edge request.
 import { validateGeneratedCode } from "../../../src/lib/preview/validateGeneratedCode.ts";
-import { createImplementationPlan, type ImplementationPlan } from "../../../src/lib/projects/implementationPlan.ts";
+import { createImplementationPlan, extractExplicitRequirements, formatImplementationPlan, type ImplementationPlan } from "../../../src/lib/projects/implementationPlan.ts";
 import { extractChatCompletionCode } from "../_shared/groqResponse.ts";
 import { parseChatProviderResponse } from "../_shared/providerResponse.ts";
 import {
@@ -59,16 +63,12 @@ OUTPUT CONTRACT (STRICT — the parser depends on it):
     // FILE: src/components/Header.tsx
     export default function Header(){ ... }
 
-PROJECT STRUCTURE (required for every new app):
-- src/App.tsx: small application shell and page composition; default-export the root component.
-- src/pages/<Feature>Page.tsx: the main screen, with additional pages only when the prompt asks for them.
-- src/components/<Feature>*.tsx: reusable visual sections and controls, separate from page-level composition.
-- src/styles.css: the app's own design system: CSS variables, typography, responsive rules, and custom visual details.
-- src/hooks/use<Feature>.ts: put meaningful stateful workflows and interaction logic here when the app has them.
-- src/lib/<feature>.ts: put non-UI domain rules, calculations, and validation here when they are meaningful.
-- Add data/context files only when the requested app needs them. Do not create empty, duplicate, or ceremonial files.
-- Import "./styles.css" from src/App.tsx. Keep visual styling in this file and reusable components; do not put the whole app in App.tsx.
-- A simple app still needs the App, page, a reusable component, and stylesheet layers. A larger app should use more components and separate its real domain logic into hooks/lib modules.
+PROJECT STRUCTURE (adaptive, required minimums):
+- src/App.tsx: application shell/composition; default-export the root component.
+- src/styles.css: app-specific design tokens and responsive styles; import "./styles.css" from src/App.tsx.
+- Create src/pages, src/components, src/hooks, src/lib, src/data, or context files only when they are needed by the requested product and plan. Small products should stay simple; complex products should be modular.
+- Every planned file in the implementation blueprint must exist and serve a purpose. Do not create empty, duplicate, or ceremonial files.
+- Keep meaningful workflows and domain rules separate from presentation when the product complexity warrants it.
 
 MODULE RULES:
 - Use ES module syntax: \`import X from "./path"\` and \`export default\` / \`export const\`.
@@ -245,8 +245,12 @@ function validatePlannedFiles(source: string, implementationPlan: unknown): stri
     : [];
   if (!expected.length) return "The implementation plan has no project file blueprint.";
   const actual = new Set([...source.matchAll(/^\s*\/\/\s*FILE:\s*([^\n]+)\s*$/gm)].map((match) => match[1].trim()));
-  const missing = expected.filter((path: string) => !actual.has(path));
-  return missing.length ? `The generated project is missing planned files: ${missing.join(", ")}.` : null;
+  const essential = expected.filter((path) => /src\/App\.(tsx|jsx)$/.test(path) || /src\/styles\.css$/.test(path));
+  const missingEssential = essential.filter((path) => !actual.has(path));
+  if (missingEssential.length) return `The generated project is missing essential planned files: ${missingEssential.join(", ")}.`;
+  const missing = expected.filter((path) => !actual.has(path));
+  if (missing.length && missing.length === expected.length) return `The generated project is missing planned files: ${missing.join(", ")}.`;
+  return null;
 }
 
 
@@ -664,21 +668,7 @@ export function outputTokenBudget(provider: ProviderName, inputCharacters = 0): 
   return 12000;
 }
 
-function enhanceAndPlan(_apiKey: string, userPrompt: string, stage?: string, existingCode?: string) {
-  const appType = inferAppType(userPrompt);
-  const domain = inferDomain(userPrompt, appType);
-  const complexity = userPrompt.length > 900 || /multi|auth|database|payment|realtime|ai|advanced|full/.test(userPrompt.toLowerCase()) ? "complex" : "moderate";
-  const intent = { goal: userPrompt, appType, domain, complexity };
-  const reqs = {
-    functional: [
-      "Implement only the user-requested features and interactions",
-      "Use production-ready React + Tailwind code",
-      "Do not add features, content, or behavior not specified by the user",
-    ],
-    nonFunctional: ["responsive layout", "accessible controls", "stable event handlers", "fast first render"],
-    edgeCases: ["Handle only edge cases directly relevant to the requested features"],
-    uxStates: ["Include states relevant to the requested experience"],
-  };
+function enhanceAndPlan(_apiKey: string, userPrompt: string, stage?: string, existingCode?: string, conversation: ConversationTurn[] = []) {
   const existingFiles = existingCode
     ? [...existingCode.matchAll(/^\s*\/\/\s*FILE:\s*([^\n]+)/gm)].map((match) => match[1].trim())
     : [];
@@ -690,87 +680,152 @@ function enhanceAndPlan(_apiKey: string, userPrompt: string, stage?: string, exi
     : [];
   const { architecture: arch, implementationPlan } = createImplementationPlan({
     prompt: userPrompt,
-    appType,
-    domain,
-    complexity,
     existingFiles,
     existingDependencies,
     hasExistingProject: Boolean(existingCode),
+    conversation,
   });
-
-  const components = arch.components.map((c) => `${c.path} — ${c.purpose}`);
-  const hooks = arch.hooks.map((h) => `${h.path} — ${h.purpose}`);
-  const contexts = arch.contexts.map((c) => `${c.path} — ${c.purpose}`);
-  const utils = arch.utils.map((u) => `${u.path} — ${u.purpose}`);
-
+  const spec = implementationPlan.specification;
   const promptChunks = splitPromptIntoChunks(userPrompt);
   const enhancedPrompt = [
     `User specification (authoritative): ${userPrompt}`,
     `Coherent requirement tasks:\n${promptChunks.map((chunk, index) => `Task ${index + 1}: ${chunk}`).join("\n")}`,
-    `Generation stage (implementation guidance only): ${stage ?? "polish"}`,
+    `Generation stage (implementation guidance only): ${stage ?? "plan"}`,
+    `Product purpose: ${spec.purpose}`,
+    `Primary users/goals: ${spec.targetUsers.map((user) => `${user.role}: ${user.goals.join("; ")}`).join(" | ") || "Primary user"}`,
+    `Explicit requirements: ${spec.explicitRequirements.join(" | ") || userPrompt}`,
+    `Requirement trace: ${implementationPlan.requirementTrace.map((item) => `${item.id} -> ${item.modules.join(", ")} :: ${item.expectedBehavior}`).join(" | ")}`,
     `Implementation roadmap: ${implementationPlan.steps.join(" -> ")}`,
     `Feature file blueprint: ${implementationPlan.fileBlueprint.map((file) => `${file.path} — ${file.purpose}`).join("; ")}`,
-    `Visual design direction: ${implementationPlan.designDirection.join(" ")}`,
-    `Acceptance checklist: ${implementationPlan.qualityChecks.join(" ")}`,
-    "Accuracy requirement: Treat the user's original prompt as the exact product specification. Implement every explicit requirement and do not invent additional functionality, sections, or assumptions.",
+    `Architecture rationale: ${arch.rationale.join(" ")}`,
+    `Quality criteria: ${implementationPlan.qualityChecks.join(" ")}`,
+    `Assumptions: ${implementationPlan.assumptions.join(" ") || "None beyond explicit request"}`,
+    `Clarifications if needed: ${implementationPlan.clarificationNeeded.join(" ") || "None blocking"}`,
+    "Accuracy requirement: Treat the user's original prompt as the exact product specification. Implement every explicit requirement, preserve follow-up context for existing projects, and do not invent additional functionality or pages.",
   ].join("\n");
 
   return {
     enhancedPrompt,
-    appType: intent.appType || "app",
-    pages: arch.pages || [],
-    components,
-    hooks,
-    contexts,
-    utils,
-    features: reqs.functional || [],
-    complexity: intent.complexity || "moderate",
-    _intent: intent,
-    _requirements: reqs,
+    appType: spec.category,
+    pages: arch.pages.map((file) => file.path),
+    components: arch.components.map((file) => `${file.path} — ${file.purpose}`),
+    hooks: arch.hooks.map((file) => `${file.path} — ${file.purpose}`),
+    contexts: arch.contexts.map((file) => `${file.path} — ${file.purpose}`),
+    utils: arch.utils.map((file) => `${file.path} — ${file.purpose}`),
+    features: spec.functionalFeatures,
+    complexity: spec.complexity,
+    _intent: { goal: spec.purpose, appType: spec.category, domain: spec.category, complexity: spec.complexity },
+    _requirements: { functional: spec.functionalFeatures, nonFunctional: implementationPlan.qualityChecks, edgeCases: spec.edgeCases, uxStates: spec.errorHandling },
     _architecture: arch,
     implementationPlan,
   };
 }
 
-async function createModelAssistedPlan(providers: Providers, preferred: ProviderName, prompt: string, existingCode?: string) {
-  const fallback = enhanceAndPlan("", prompt, undefined, existingCode).implementationPlan;
-  const apiKey = providerKey(providers, preferred);
-  if (!apiKey) return fallback;
+
+type ContextBrief = { understandingText: string; memoryText: string; changeText: string };
+
+function projectContextBrief(existingCode: string | undefined, prompt: string, body: Record<string, unknown>): ContextBrief {
+  const understandingText = typeof body.projectUnderstanding === "string" && body.projectUnderstanding.trim()
+    ? String(body.projectUnderstanding).slice(0, 7000)
+    : (existingCode ? (() => {
+        try {
+          const u = understandProject(existingCode);
+          return u ? formatUnderstandingForPrompt(u) : "";
+        } catch { return ""; }
+      })() : "");
+  const memoryText = typeof body.projectMemory === "string" ? String(body.projectMemory).slice(0, 6000) : "";
+  const changeText = typeof body.changeSummary === "string" ? String(body.changeSummary).slice(0, 3000) : "";
+  return { understandingText, memoryText, changeText };
+}
+
+function responseLanguageContract(body: Record<string, unknown>): string {
+  const lang = typeof body.responseLanguage === "string" ? body.responseLanguage : "";
+  if (lang === "hi") return "Response language: Hindi (Devanagari). Reply in Devanagari Hindi; do not convert to Roman script unless quoting user text/code.";
+  if (lang === "hinglish") return "Response language: Hinglish/Roman Hindi. Reply in Hindi written in English/Latin letters (same script style as user); do not convert to Devanagari.";
+  if (lang === "en") return "Response language: English.";
+  return "Response language: match the user's language and script exactly (Hindi Devanagari, Hinglish/Roman Hindi, or English).";
+}
+
+function modelForTask(configured: string[], preferred: string | undefined, fallback: string, role: "planning" | "coding" | "review" | "chat" | "repair", complexity?: string): string {
+  if (preferred && configured.includes(preferred)) return preferred;
+  const wantSmart = role === "planning" || role === "review" || complexity === "complex";
+  const smart = configured.find((m) => /120b|pro|large|4o(?!-mini)|flash-thinking|reason/i.test(m) && !/mini|20b/i.test(m));
+  const fast = configured.find((m) => /mini|20b|flash(?!-thinking)/i.test(m)) ?? configured[0];
+  if (wantSmart && smart) return smart;
+  if (fast) return fast;
+  return configured.includes(fallback) ? fallback : (configured[0] ?? fallback);
+}
+
+async function createModelAssistedPlan(providers: Providers, preferred: ProviderName, prompt: string, existingCode?: string, conversation: ConversationTurn[] = [], context?: ContextBrief & { responseLanguage?: string; intent?: string }) {
+  const fallback = enhanceAndPlan("", prompt, undefined, existingCode, conversation).implementationPlan;
   try {
-    const response = await completeChat(preferred, apiKey, {
-      model: getDefaultModel(preferred),
-      temperature: 0.1,
-      top_p: 1,
-      max_completion_tokens: 1600,
-      messages: [
-        { role: "system", content: "Create a concise adaptive software implementation plan. Return strict JSON only with keys: intent, requirements, steps, designDirection, qualityChecks, fileBlueprint. fileBlueprint is an ordered array of {path,purpose}. Do not invent requirements. Include only files necessary for this product. For a new app include src/App.tsx, a focused src/pages screen, and src/styles.css. Keep the user's original request authoritative." },
-        { role: "user", content: `Original request:\n${prompt}\n\nExisting files/source:\n${(existingCode ?? "(new project)").slice(0, 10000)}\n\nDeterministic fallback file blueprint:\n${JSON.stringify(fallback.fileBlueprint)}` },
-      ],
-    }, { retries: 0, timeoutMs: 12000 });
-    const text = extractChatCompletionCode(response, providerLabel(preferred), getDefaultModel(preferred)).trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
-    const candidate: unknown = JSON.parse(text);
-    if (!isRecord(candidate) || !Array.isArray(candidate.fileBlueprint)) return fallback;
-    const blueprint = candidate.fileBlueprint.filter((file): file is Record<string, unknown> => isRecord(file))
+    const result = await executeProviderFailover(providers, preferred, async (candidate, timeoutMs) => {
+      const apiKey = providerKey(providers, candidate);
+      if (!apiKey) throw new ProviderRequestError(candidate, undefined, "INVALID_CREDENTIALS", "provider is not configured");
+      const models = getProviderConfig(candidate).models.map((m) => m.id);
+      const planModel = modelForTask(models, undefined, getDefaultModel(candidate), "planning", fallback.specification?.complexity);
+      const response = await completeChat(candidate, apiKey, {
+        model: planModel,
+        temperature: 0.1,
+        top_p: 1,
+        max_completion_tokens: 1600,
+        messages: [
+          { role: "system", content: `Refine an adaptive software implementation plan. ${responseLanguageContract({ responseLanguage: context?.responseLanguage })} Return strict JSON only with keys: intent, steps, designDirection, qualityChecks, fileBlueprint, assumptions, clarificationNeeded. fileBlueprint is an ordered array of {path,purpose}. Do not invent or remove explicit requirements. Keep fileBlueprint proportional to product complexity and include only necessary files. Do not generate source code.` },
+          { role: "user", content: `Original request:\n${prompt}\n\nDetected intent: ${context?.intent ?? "build"}\n\nProject understanding:\n${context?.understandingText || "(none)"}\n\nProject memory:\n${context?.memoryText || "(none)"}\n\nRecent changes:\n${context?.changeText || "(none)"}\n\nRecent conversation:\n${conversation.slice(-6).map((turn) => `${turn.role}: ${turn.content}`).join("\n") || "(none)"}\n\nExisting files/source:\n${(existingCode ?? "(new project)").slice(0, 10000)}\n\nDeterministic plan (authoritative specification/requirements/traceability):\n${JSON.stringify({ intent: fallback.intent, requirements: fallback.requirements, requirementTrace: fallback.requirementTrace, specification: fallback.specification, architecture: fallback.architecture, fileBlueprint: fallback.fileBlueprint, assumptions: fallback.assumptions, clarificationNeeded: fallback.clarificationNeeded })}` },
+        ],
+      }, { retries: 0, timeoutMs: Math.min(18000, timeoutMs) });
+      const text = extractChatCompletionCode(response, providerLabel(candidate), planModel).trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
+      const parsed: unknown = JSON.parse(text);
+      if (!isRecord(parsed) || !Array.isArray(parsed.fileBlueprint)) throw new ProviderRequestError(candidate, undefined, "INVALID_RESPONSE", "plan JSON missing fileBlueprint");
+      return parsed;
+    });
+    const candidate = result.value;
+    const blueprint = Array.isArray(candidate.fileBlueprint) ? candidate.fileBlueprint.filter((file): file is Record<string, unknown> => isRecord(file))
       .map((file) => ({ path: typeof file.path === "string" ? file.path.trim() : "", purpose: typeof file.purpose === "string" ? file.purpose.trim() : "" }))
-      .filter((file) => /^(src|public)\/(?!.*(?:^|\/)\.\.?\/)[A-Za-z0-9_./-]+\.(?:tsx?|jsx?|css|html|json|svg)$/.test(file.path) && !file.path.includes("..") && Boolean(file.purpose));
-    const unique = [...new Map(blueprint.map((file) => [file.path, file])).values()].slice(0, 12);
-    if (!unique.some((file) => file.path === "src/App.tsx" || file.path === "src/App.jsx") ||
-      !unique.some((file) => /^src\/pages\/.+\.tsx?$/.test(file.path)) ||
-      !unique.some((file) => file.path === "src/styles.css")) return fallback;
+      .filter((file) => /^(src|public)\/(?!.*(?:^|\/)\.\.?\/)[A-Za-z0-9_./-]+\.(?:tsx?|jsx?|css|html|json|svg)$/.test(file.path) && !file.path.includes("..") && Boolean(file.purpose)) : [];
+    const unique = [...new Map(blueprint.map((file) => [file.path, file])).values()].slice(0, 16);
+    if (!unique.some((file) => file.path === "src/App.tsx" || file.path === "src/App.jsx")) return fallback;
     const strings = (key: string, defaultValue: string[]) => Array.isArray(candidate[key])
-      ? (candidate[key] as unknown[]).filter((item): item is string => typeof item === "string" && item.trim()).slice(0, 12)
+      ? (candidate[key] as unknown[]).filter((item): item is string => typeof item === "string" && item.trim()).slice(0, 16)
       : defaultValue;
+    const fileBlueprint = unique.map((file) => {
+      const modules = [file.path];
+      const relevant = fallback.requirementTrace.filter((item) => Array.isArray(item.modules) && item.modules.some((module) => modules.includes(module))).map((item) => item.id);
+      return { ...file, requirementIds: relevant.length ? relevant : fallback.requirementTrace.map((item) => item.id) };
+    });
+    const implementationSteps = strings("steps", fallback.implementationSteps.map((step) => `${step.title}: ${step.description}`)).map((title, index) => ({
+      id: `STEP-${index + 1}`,
+      title: title.split(":")[0]?.trim() || `Step ${index + 1}`,
+      description: title.includes(":") ? title.split(":").slice(1).join(":").trim() : title,
+      requirementIds: fallback.requirementTrace.map((item) => item.id),
+      targetPaths: fileBlueprint.map((file) => file.path),
+    }));
+    const qualityCriteria = strings("qualityChecks", fallback.qualityCriteria.map((item) => item.description)).map((description, index) => ({
+      id: `QC-${index + 1}`,
+      description,
+      requirementIds: fallback.requirementTrace.map((item) => item.id),
+    }));
     return {
       ...fallback,
       intent: typeof candidate.intent === "string" ? candidate.intent.slice(0, 300) : fallback.intent,
-      requirements: fallback.requirements,
-      steps: strings("steps", fallback.steps),
+      steps: implementationSteps.map((step) => `${step.title}: ${step.description}`),
+      implementationSteps,
       designDirection: strings("designDirection", fallback.designDirection),
-      qualityChecks: strings("qualityChecks", fallback.qualityChecks),
-      fileBlueprint: unique,
+      qualityChecks: qualityCriteria.map((item) => item.description),
+      qualityCriteria,
+      assumptions: strings("assumptions", fallback.assumptions),
+      clarificationNeeded: strings("clarificationNeeded", fallback.clarificationNeeded),
+      fileBlueprint,
+      architecture: {
+        ...fallback.architecture,
+        pages: fileBlueprint.filter((file) => /\/pages\//.test(file.path)),
+        components: fileBlueprint.filter((file) => /\/components\//.test(file.path)),
+        hooks: fileBlueprint.filter((file) => /\/hooks\//.test(file.path)),
+        contexts: fileBlueprint.filter((file) => /\/contexts?\//.test(file.path)),
+        utils: fileBlueprint.filter((file) => /\/lib\//.test(file.path)),
+      },
     };
   } catch {
-    // Planning has a deterministic local fallback when a model is unavailable or returns malformed JSON.
     return fallback;
   }
 }
@@ -1143,6 +1198,7 @@ async function generateCode(
     temperature: 0.2,
     topP: 1,
   },
+  extraContext?: { understandingText?: string; memoryText?: string; changeText?: string },
 ) {
   const failures: string[] = [];
   let invalidCandidate: { code: string; provider: string } | undefined;
@@ -1153,6 +1209,7 @@ async function generateCode(
   const recentConversation = conversation.length
     ? `RECENT PROJECT CONVERSATION (use as context; the current prompt is authoritative):\n${conversation.map((turn) => `${turn.role.toUpperCase()}:\n${turn.content}`).join("\n\n")}`
     : "";
+  const projectMemoryBlock = [extraContext?.understandingText, extraContext?.memoryText, extraContext?.changeText].filter(Boolean).join("\n\n");
   const blueprint = `BUILD BRIEF
 App type: ${plan.appType || "app"}
 Complexity: ${plan.complexity || "moderate"}
@@ -1177,11 +1234,13 @@ Existing file tree: ${existingPaths.join(", ") || "(single-file project)"}
 EXISTING PROJECT SOURCE (focused context; untouched files will be merged back automatically):
 ${contextCode}` : ""}
 
+${projectMemoryBlock ? `PROJECT UNDERSTANDING, MEMORY & CHANGE CONTEXT (project-scoped):\n${projectMemoryBlock}` : ""}
+
 ${recentConversation}
 
 ${system ? "EXTRA SYSTEM HINTS:\n" + system : ""}
 
-IMPORTANT: Output complete valid TSX/TypeScript/CSS for every file. Do NOT truncate or use placeholders. Close every JSX tag, bracket, and CSS block. Every local import MUST resolve to a file you emit or an allowed runtime module (react, react-dom, react-dom/client, lucide-react, react-router-dom, recharts, framer-motion, date-fns, clsx). The design must be intentionally specific to the requested app, not a generic sample. Preserve exactly the user's specified requirements; do not invent additional features.${existingCode ? " For this edit, apply only the requested changes to the existing source and return the complete updated project, preserving the established file structure." : ""}`.trim();
+IMPORTANT: Output complete valid TSX/TypeScript/CSS for every file. Do NOT truncate or use placeholders. Close every JSX tag, bracket, and CSS block. Every local import MUST resolve to a file you emit or an allowed runtime module (react, react-dom, react-dom/client, lucide-react, react-router-dom, recharts, framer-motion, date-fns, clsx). The design must be intentionally specific to the requested app, not a generic sample. Preserve exactly the user's specified requirements; do not invent additional features.${existingCode ? " For this edit, apply only the requested changes to the existing source and return the complete updated project, preserving the established file structure and unrelated working features." : ""}`.trim();
 
   const messages = [
     {
@@ -1192,9 +1251,7 @@ IMPORTANT: Output complete valid TSX/TypeScript/CSS for every file. Do NOT trunc
   ];
 
   const configuredModels = getProviderConfig(provider).models.map((model) => model.id);
-  const preferredModel = configuredModels.includes(generation.model)
-    ? generation.model
-    : getDefaultModel(provider);
+  const preferredModel = modelForTask(configuredModels, generation.model, getDefaultModel(provider), existingCode ? "coding" : "coding", plan.complexity);
   const modelOrder = [preferredModel, ...configuredModels.filter((model) => model !== preferredModel)];
   const deadline = Date.now() + (generation.timeoutMs ?? FAST_GENERATION_TIMEOUT_MS);
   const apiKey = providerKey(providers, provider);
@@ -1245,7 +1302,7 @@ async function repairCode(providers: Providers, provider: ProviderName, brokenCo
   const apiKey = providerKey(providers, provider);
   if (apiKey) {
     try {
-      const model = getDefaultModel(provider);
+      const model = modelForTask(getProviderConfig(provider).models.map((entry) => entry.id), undefined, getDefaultModel(provider), "repair");
       const data = await completeChat(provider, apiKey, {
         model,
         messages,
@@ -1281,7 +1338,7 @@ async function reviewAndImproveCode(
   const apiKey = providerKey(providers, provider);
   if (!apiKey) throw new Error(`${providerLabel(provider)} is not configured for the review stage.`);
   const modelIds = getProviderConfig(provider).models.map((entry) => entry.id);
-  const reviewModel = typeof model === "string" && modelIds.includes(model) ? model : getDefaultModel(provider);
+  const reviewModel = modelForTask(modelIds, typeof model === "string" ? model : undefined, getDefaultModel(provider), "review");
   const brief = [
     "ORIGINAL USER REQUEST (authoritative):",
     prompt,
@@ -1339,29 +1396,33 @@ async function answerProjectQuestion(
   conversation: ConversationTurn[],
   system?: string,
   model?: string,
+  extraContext?: { understandingText?: string; memoryText?: string; changeText?: string; responseLanguage?: string; intent?: string },
 ) {
   const result = await executeProviderFailover(providers, requested, async (provider, timeoutMs) => {
     const models = getProviderConfig(provider).models.map((entry) => entry.id);
-    const chatModel = typeof model === "string" && models.includes(model) ? model : getDefaultModel(provider);
+    const chatModel = modelForTask(models, model, getDefaultModel(provider), "chat");
     const context = code ? relevantProjectSource(code, prompt) : "(This is a general conversation before a project has been created.)";
+    const projectMemoryBlock = [extraContext?.understandingText, extraContext?.memoryText, extraContext?.changeText].filter(Boolean).join("\n\n");
+    const langRule = responseLanguageContract({ responseLanguage: extraContext?.responseLanguage });
+    const intentRule = extraContext?.intent ? `Detected intent: ${extraContext.intent}.` : "";
     const data = await completeChat(provider, providerKey(providers, provider)!, {
       model: chatModel,
       messages: [
         {
           role: "system",
-          content: `${system ?? ""}\nYou are AppiGen's project-aware coding assistant. Answer the user's question directly using the supplied project context. Do not invent files or claim changes were made. If the user asks for a modification, explain that they should submit it as a change request.`,
+          content: `${system ?? ""}\nYou are AppiGen's project-aware coding assistant. ${langRule}\n${intentRule}\nUse prior conversation and project understanding/memory/change context. Answer clearly and accurately. If the user is asking a question, explanation, or feature discussion, answer conversationally and do NOT generate code or claim you built/changed anything. If the user explicitly asks to create/modify/fix the app, explain they should submit it as a change/build request (do not implement in chat mode). When project context is relevant, ground answers in it and do not invent files/features or claim behavior without evidence; if unavailable, say so honestly. For ambiguous requests, ask one short clarification question. Keep responses useful and non-repetitive.`,
         },
         ...conversation.slice(-12),
         {
           role: "user",
-          content: `PROJECT SOURCE:\n${context}\n\nQUESTION:\n${prompt}`,
+          content: `${projectMemoryBlock ? `PROJECT UNDERSTANDING/MEMORY/CHANGES:\n${projectMemoryBlock}\n\n` : ""}PROJECT SOURCE:\n${context}\n\nUSER MESSAGE:\n${prompt}`,
         },
       ],
       temperature: 0.2,
       top_p: 1,
-      max_completion_tokens: 1200,
+      max_completion_tokens: 1400,
       reasoning_effort: "low",
-    }, { retries: 0, timeoutMs: Math.min(30000, timeoutMs) });
+    }, { retries: 0, timeoutMs: Math.min(35000, timeoutMs) });
     const answer = data?.choices?.[0]?.message?.content;
     if (typeof answer !== "string" || !answer.trim()) {
       throw new Error(`${providerLabel(provider)} returned no conversational answer.`);
@@ -1416,6 +1477,9 @@ async function generateBuildFile(providers: Providers, requestedProvider: Provid
     existingSource: typeof body.existingSource === "string" ? body.existingSource.slice(0, 22000) : "",
     implementationContext: typeof body.implementationContext === "string" ? body.implementationContext.slice(0, 10000) : "",
     architecture: typeof body.architecture === "string" ? body.architecture.slice(0, 5000) : "",
+    projectUnderstanding: typeof body.projectUnderstanding === "string" ? body.projectUnderstanding.slice(0, 6000) : "",
+    projectMemory: typeof body.projectMemory === "string" ? body.projectMemory.slice(0, 5000) : "",
+    changeSummary: typeof body.changeSummary === "string" ? body.changeSummary.slice(0, 3000) : "",
   };
   const requested = typeof body.provider === "string" ? getProvider(body.provider) : requestedProvider;
   const modelHint = typeof body.model === "string" ? body.model : undefined;
@@ -1423,7 +1487,8 @@ async function generateBuildFile(providers: Providers, requestedProvider: Provid
     const apiKey = apiKeyFor(candidate);
     if (!apiKey) throw new ProviderRequestError(candidate, undefined, "INVALID_CREDENTIALS", "provider is not configured");
     const models = getProviderConfig(candidate).models.map((item) => item.id);
-    const model = modelHint && models.includes(modelHint) ? modelHint : getDefaultModel(candidate);
+    const complexity = isRecord(body.specification) && typeof body.specification.complexity === "string" ? body.specification.complexity : (Array.isArray(body.fileTree) && body.fileTree.length > 10 ? "complex" : "moderate");
+    const model = modelForTask(models, modelHint, getDefaultModel(candidate), "coding", complexity);
     const response = await completeChat(candidate, apiKey, {
       model,
       temperature: numericSetting(body.temperature, 0.2, 0, 2),
@@ -1431,8 +1496,8 @@ async function generateBuildFile(providers: Providers, requestedProvider: Provid
       max_completion_tokens: outputTokenBudget(candidate, prompt.length + JSON.stringify(context).length),
       reasoning_effort: "low",
       messages: [
-        { role: "system", content: `You are AppiGen's file-by-file implementation agent. Generate exactly one complete source file. Return strict JSON only: {"path":"${path}","content":"..."}. No markdown, no other files, no prose. Preserve the user's requested behavior and established project architecture. Ensure syntactically complete code, resolve imports against the provided file tree, and do not use placeholders.` },
-        { role: "user", content: `Original user prompt (authoritative):\n${prompt}\n\nTarget file: ${path}\nPurpose: ${purpose}\n\nComplete requirements:\n${JSON.stringify(context.requirements)}\n\nProject file tree:\n${context.fileTree.join("\n")}\n\nExisting source relevant to this target:\n${context.existingSource}\n\nPreviously generated implementation context:\n${context.implementationContext}\n\nArchitecture and design decisions:\n${context.architecture}` },
+        { role: "system", content: `You are AppiGen's file-by-file implementation agent. Generate exactly one complete source file. Return strict JSON only: {"path":"${path}","content":"..."}. No markdown, no other files, no prose. Preserve the user's requested behavior and established project architecture. Ensure syntactically complete code, resolve imports against the provided file tree, and do not use placeholders. Keep user-facing text/content aligned with the user's request language and script when applicable.` },
+        { role: "user", content: `${responseLanguageContract(body)}\nIntent: ${typeof body.intent === "string" ? body.intent : "build"}\n\nOriginal user prompt (authoritative):\n${prompt}\n\nTarget file: ${path}\nPurpose: ${purpose}\n\nComplete requirements and traceability:\n${JSON.stringify(context.requirements)}\n\nProject file tree:\n${context.fileTree.join("\n")}\n\nProject understanding:\n${context.projectUnderstanding || "(none)"}\n\nProject memory (project-scoped):\n${context.projectMemory || "(none)"}\n\nRecent change tracking:\n${context.changeSummary || "(none)"}\n\nExisting source relevant to this target:\n${context.existingSource}\n\nPreviously generated implementation context:\n${context.implementationContext}\n\nArchitecture/specification decisions:\n${context.architecture}` },
       ],
     }, { retries: 0, timeoutMs: Math.min(candidate === "nvidia" ? 105000 : FAST_GENERATION_TIMEOUT_MS, timeoutMs) });
     const raw = extractChatCompletionCode(response, providerLabel(candidate), model).trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
@@ -1494,10 +1559,17 @@ Deno.serve(async (req) => {
       if (safetyViolation) return jsonResponse({ error: `This request was blocked by AppiGen's safety filters (${safetyViolation}). Revise the prompt to continue.` }, 400);
       const existingCode = typeof body.code === "string" ? body.code : undefined;
       if (body.existingProject === true && !existingCode) return jsonResponse({ error: "Existing project code missing for plan" }, 400);
+      const conversation: ConversationTurn[] = Array.isArray(body.conversation)
+        ? body.conversation.slice(-12).filter((turn): turn is Record<string, unknown> => isRecord(turn) && (turn.role === "user" || turn.role === "assistant") && typeof turn.content === "string")
+          .map((turn) => ({ role: turn.role as "user" | "assistant", content: (turn.content as string).slice(0, 2400) }))
+        : [];
       const stage = typeof body.stage === "string" ? body.stage : undefined;
-      const plan = enhanceAndPlan("", prompt, stage, existingCode);
-      const implementationPlan = await createModelAssistedPlan(providers, provider, prompt, existingCode);
-      return jsonResponse({ plan: { implementationPlan: { ...plan.implementationPlan, ...implementationPlan } } });
+      const contextBrief = projectContextBrief(existingCode, prompt, body);
+      const plan = enhanceAndPlan("", prompt, stage, existingCode, conversation);
+      const implementationPlan = await createModelAssistedPlan(providers, provider, prompt, existingCode, conversation, { ...contextBrief, responseLanguage: typeof body.responseLanguage === "string" ? body.responseLanguage : undefined, intent: typeof body.intent === "string" ? body.intent : undefined });
+      const understanding = existingCode ? understandProject(existingCode) : null;
+      const focusFiles = understanding ? rankFilesForIntent(understanding, prompt).slice(0, 8).map((r) => r.path) : [];
+      return jsonResponse({ plan: { implementationPlan: { ...plan.implementationPlan, ...implementationPlan } }, projectContext: { focusFiles, understanding: contextBrief.understandingText, memory: contextBrief.memoryText, changes: contextBrief.changeText } });
     }
 
     if (mode === "chat") {
@@ -1509,6 +1581,7 @@ Deno.serve(async (req) => {
           isRecord(turn) && (turn.role === "user" || turn.role === "assistant") && typeof turn.content === "string")
           .map((turn) => ({ role: turn.role as "user" | "assistant", content: (turn.content as string).slice(0, 2400) }))
         : [];
+      const contextBrief = projectContextBrief(code || undefined, prompt, body);
       const response = await answerProjectQuestion(
         providers,
         provider,
@@ -1516,9 +1589,10 @@ Deno.serve(async (req) => {
         code,
         conversation,
         typeof body.system === "string" ? body.system.slice(0, 4000) : undefined,
-        body.model,
+        typeof body.model === "string" ? body.model : undefined,
+        { ...contextBrief, responseLanguage: typeof body.responseLanguage === "string" ? body.responseLanguage : undefined, intent: typeof body.intent === "string" ? body.intent : undefined },
       );
-      return jsonResponse({ ...response, mode });
+      return jsonResponse({ ...response, mode, intent: body.intent ?? null, responseLanguage: body.responseLanguage ?? null });
     }
 
     if (mode === "build_file") {
@@ -1595,9 +1669,10 @@ Deno.serve(async (req) => {
       }
     }
 
-    const plan = enhanceAndPlan("", prompt, stage, existingCode);
+    const plan = enhanceAndPlan("", prompt, stage, existingCode, conversation);
+    const contextBrief = projectContextBrief(existingCode, prompt, body);
     const generated = await executeProviderFailover(providers, provider, (candidate, timeoutMs) =>
-      generateCode(providers, candidate, plan, system, stage, existingCode, conversation, { model, temperature, topP, timeoutMs }));
+      generateCode(providers, candidate, plan, system, stage, existingCode, conversation, { model, temperature, topP, timeoutMs }, contextBrief));
     const generatedCode = generated.value.code;
     const usedProvider = generated.value.provider;
     const usedProviderName = usedProvider.split(":")[0] as ProviderName;

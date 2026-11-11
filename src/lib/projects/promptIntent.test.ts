@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isNewAppPrompt, isProjectConversation, isProjectQuestion } from "./promptIntent";
+import { analyzeIntent, isNewAppPrompt, isProjectConversation, isProjectQuestion } from "./promptIntent";
 
 describe("prompt intent", () => {
   it.each([
@@ -41,5 +41,14 @@ describe("prompt intent", () => {
     "Please update the existing website header",
   ])("keeps an in-project request in edit mode: %s", (prompt) => {
     expect(isNewAppPrompt(prompt)).toBe(false);
+  });
+
+  it("integrates multilingual conversational intelligence", () => {
+    expect(analyzeIntent("Mujhe batao authentication kya hota hai?", { hasExistingProject: false }).shouldBuild).toBe(false);
+    expect(analyzeIntent("Mujhe ek calculator banana hai, kaise banega?", { hasExistingProject: false }).shouldBuild).toBe(false);
+    expect(analyzeIntent("Achha, ab ye app bana do.", { hasExistingProject: false }).shouldBuild).toBe(true);
+    expect(analyzeIntent("Ab monthly reports bhi add kar do.", { hasExistingProject: true }).shouldBuild).toBe(true);
+    expect(analyzeIntent("Isme kya galat hai?", { hasExistingProject: true }).shouldBuild).toBe(false);
+    expect(analyzeIntent("Isme login add kr do.", { hasExistingProject: true }).shouldBuild).toBe(true);
   });
 });

@@ -1,12 +1,18 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   clearLocalVersions,
+  clearProjectChangeRecords,
+  clearProjectMemory,
   deleteLocalVersion,
   discardProjectDraft,
   readLocalVersionsForProject,
+  readProjectChangeRecords,
   readProjectDraft,
+  readProjectMemory,
   writeLocalVersion,
+  writeProjectChangeRecord,
   writeProjectDraft,
+  writeProjectMemory,
 } from "./projectStorage";
 
 describe("project draft persistence", () => {
@@ -68,3 +74,16 @@ describe("project draft persistence", () => {
     expect(readLocalVersionsForProject("local:current")).toEqual([second]);
   });
 });
+  it("stores and isolates project memory and change records by project key", () => {
+    writeProjectMemory("p1", { projectId: "p1", projectKey: "p1", title: "A", architectureSummary: "a", keyModules: [], decisions: [], requirements: ["req"], changeHistory: [], conflicts: [], clarifications: [], updatedAt: 1 });
+    writeProjectMemory("p2", { projectId: "p2", projectKey: "p2", title: "B", architectureSummary: "b", keyModules: [], decisions: [], requirements: ["other"], changeHistory: [], conflicts: [], clarifications: [], updatedAt: 2 });
+    expect(readProjectMemory("p1")?.requirements).toEqual(["req"]);
+    expect(readProjectMemory("p2")?.requirements).toEqual(["other"]);
+    writeProjectChangeRecord("p1", { id: "c1", projectKey: "p1", prompt: "x", reason: "edit", at: 1, changedPaths: ["src/App.tsx"], addedPaths: [], removedPaths: [], unchangedCount: 0, files: [], summary: "Changes: modified 1" });
+    expect(readProjectChangeRecords("p1")[0]?.id).toBe("c1");
+    expect(readProjectChangeRecords("p2")).toEqual([]);
+    clearProjectMemory("p1");
+    clearProjectChangeRecords("p1");
+    expect(readProjectMemory("p1")).toBeNull();
+    expect(readProjectChangeRecords("p1")).toEqual([]);
+  });

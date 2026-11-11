@@ -4,8 +4,12 @@ import { validateGeneratedCode } from "./validateGeneratedCode";
 describe("generated project validation", () => {
   it("accepts a complete multi-file project with resolved imports", () => {
     const source = `// FILE: src/App.tsx
+import "./styles.css";
 import Header from "./components/Header";
 export default function App() { return <Header />; }
+
+// FILE: src/styles.css
+body { margin: 0; }
 
 // FILE: src/components/Header.tsx
 export default function Header() { return <h1>Ready</h1>; }`;
@@ -13,29 +17,60 @@ export default function Header() { return <h1>Ready</h1>; }`;
     expect(validateGeneratedCode(source)).toBeNull();
   });
 
-  it("requires separate page, reusable component, and stylesheet layers for new builds", () => {
+  it("allows simple adaptive builds without forcing pages/components structure", () => {
     const source = `// FILE: src/App.tsx
 import "./styles.css";
-import HomePage from "./pages/HomePage";
-export default function App() { return <HomePage />; }
-
-// FILE: src/pages/HomePage.tsx
-import CounterPanel from "../components/CounterPanel";
-export default function HomePage() { return <CounterPanel />; }
-
-// FILE: src/components/CounterPanel.tsx
-export default function CounterPanel() { return <main>Counter</main>; }
+export default function App() { return <main>Timer</main>; }
 
 // FILE: src/styles.css
-:root { --accent: #2563eb; }`;
+:root { color-scheme: dark; }`;
 
     expect(validateGeneratedCode(source, true)).toBeNull();
-    expect(validateGeneratedCode(source.replace(/\/\/ FILE: src\/styles\.css[\s\S]*$/, ""), true))
-      .toContain("missing src/styles.css");
-    expect(validateGeneratedCode(source.replace('import HomePage from "./pages/HomePage";', 'import HomePage from "./UnusedPage";'), true))
-      .toContain("must compose a page");
-    expect(validateGeneratedCode(source.replace('import CounterPanel from "../components/CounterPanel";', 'const CounterPanel = () => <main />;'), true))
-      .toContain("reusable component from src/components/");
+  });
+
+  it("requires coherent organization for larger multi-file builds, but not for focused small projects", () => {
+    const focusedSmall = `// FILE: src/App.tsx
+import "./styles.css";
+import { compute } from "./lib/compute";
+export default function App() { return <main>{compute(1)}</main>; }
+
+// FILE: src/styles.css
+body { margin: 0; }
+
+// FILE: src/lib/compute.ts
+export const compute = (value: number) => value + 1;`;
+    expect(validateGeneratedCode(focusedSmall, true)).toBeNull();
+
+    const withoutStyles = `// FILE: src/App.tsx
+export default function App() { return <main />; }
+// FILE: src/pages/HomePage.tsx
+export default function HomePage() { return <main />; }
+// FILE: src/components/Card.tsx
+export default function Card() { return <div />; }
+// FILE: src/lib/data.ts
+export const data = [];
+// FILE: src/hooks/useData.ts
+export const useData = () => data;
+// FILE: src/components/List.tsx
+export default function List() { return <div />; }`;
+    expect(validateGeneratedCode(withoutStyles, true)).toContain("missing src/styles.css");
+
+    const withoutModules = `// FILE: src/App.tsx
+import "./styles.css";
+export default function App() { return <main />; }
+// FILE: src/styles.css
+body {}
+// FILE: src/a.ts
+export const a = 1;
+// FILE: src/b.ts
+export const b = 2;
+// FILE: src/c.ts
+export const c = 3;
+// FILE: src/d.ts
+export const d = 4;
+// FILE: src/e.ts
+export const e = 5;`;
+    expect(validateGeneratedCode(withoutModules, true)).toContain("focused modules");
   });
 
   it("accepts packages supplied by the preview runtime", () => {
