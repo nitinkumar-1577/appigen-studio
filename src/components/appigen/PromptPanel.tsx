@@ -145,7 +145,6 @@ export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuild
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const used = prompt.length;
   const activeBuildStage = BUILD_STAGES.indexOf(progressStage as typeof BUILD_STAGES[number]);
 
   const handleAttach = () => fileRef.current?.click();
@@ -294,12 +293,6 @@ export const PromptPanel = ({ onBuild, onDownload, onStop, onNewProject, isBuild
             {isBuilding ? <Button variant="danger" size="md" onClick={onStop}>Stop</Button> : <Button variant="primary" size="md" onClick={() => onBuild()} disabled={!prompt.trim()} className="pulse-ring relative">
               <Send className="h-4 w-4" />{hasCode ? "Send" : "Build"}
             </Button>}
-          </div>
-        </div>
-        <div className="mt-1 px-1">
-          <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-            <span className="font-mono">Characters</span>
-            <span className="font-mono text-foreground" aria-label={`Prompt character count: ${used.toLocaleString()}`}>{used.toLocaleString()}</span>
           </div>
         </div>
       </div>
