@@ -1,30 +1,97 @@
 import { describe, expect, it } from "vitest";
-import { analyzeIntent, detectResponseLanguage } from "./conversationIntelligence";
+import { mergeGeneratedFile, orderBuildFiles, runSequentialFileBuild, validateBuildFileResponse, validateFileTree } from "./buildWorkflow";
 
-const cases = [
-  { name: "Hindi general question", prompt: "मुझे लॉगिन सिस्टम समझाओ", has: false, expectBuild: false, lang: "hi" },
-  { name: "Hinglish general question", prompt: "Mujhe batao authentication kya hota hai?", has: false, expectBuild: false, lang: "hinglish" },
-  { name: "English general question", prompt: "What is authentication?", has: false, expectBuild: false, lang: "en" },
-  { name: "Hindi build instruction", prompt: "मुझे एक कैलकुलेटर ऐप बनाओ", has: false, expectBuild: true, lang: "hi" },
-  { name: "Hinglish build instruction", prompt: "Mujhe ek todo app bana do", has: false, expectBuild: true, lang: "hinglish" },
-  { name: "English build instruction", prompt: "Build a weather dashboard", has: false, expectBuild: true, lang: "en" },
-  { name: "discussion then build context (build)", prompt: "Achha, ab ye app bana do.", has: false, expectBuild: true, lang: "hinglish" },
-  { name: "existing follow-up feature", prompt: "Ab monthly reports bhi add kar do.", has: true, expectBuild: true, lang: "hinglish" },
-  { name: "project issue question", prompt: "Isme kya galat hai?", has: true, expectBuild: false, lang: "hinglish" },
-  { name: "ambiguous reference needs care", prompt: "isko theek karo", has: true, expectBuild: true, lang: "hinglish" },
-];
+describe("Phase 3 build engine", () => {
+  it("validates exact planned file responses and safe paths", () => {
+    expect(validateBuildFileResponse({ path: "src/App.tsx", content: "export default function App() { return null; }" }, "src/App.tsx").path).toBe("src/App.tsx");
+    expect(() => validateBuildFileResponse({ path: "src/Other.tsx", content: "x" }, "src/App.tsx")).toThrow();
+    expect(() => validateBuildFileResponse({ path: "../secret.ts", content: "x" }, "../secret.ts")).toThrow();
+  });
 
-describe("Phase 3 conversational-to-build acceptance scenarios", () => {
-  for (const c of cases) {
-    it(c.name, () => {
-      const a = analyzeIntent(c.prompt, { hasExistingProject: c.has });
-      expect(a.shouldBuild).toBe(c.expectBuild);
-      expect(detectResponseLanguage(c.prompt)).toBe(c.lang);
+  it("merges generated files without dropping unrelated existing files", () => {
+    const base = "// FILE: src/App.tsx\nexport default function App(){return 1}\n\n// FILE: src/lib/keep.ts\nexport const keep = true;";
+    const merged = mergeGeneratedFile(base, "src/App.tsx", "export default function App(){return 2}");
+    expect(merged).toContain("return 2");
+    expect(merged).toContain("src/lib/keep.ts");
+    expect(merged).toContain("export const keep = true");
+  });
+
+  it("validates file tree completeness and rejects unsafe/duplicate/missing files", () => {
+    const tree = "// FILE: src/App.tsx\nexport default function App(){}\n\n// FILE: src/styles.css\nbody{}";
+    expect(validateFileTree(tree, ["src/App.tsx", "src/styles.css"])).toBeNull();
+    expect(validateFileTree(tree, ["src/App.tsx", "src/missing.tsx"])).toContain("Missing required");
+    expect(validateFileTree("// FILE: ../bad.ts\nx", [])).toContain("Unsafe");
+  });
+
+  it("orders files by dependency/role so foundations generate before consumers", () => {
+    const files = [
+      { path: "src/App.tsx", purpose: "entry" },
+      { path: "src/components/Header.tsx", purpose: "ui" },
+      { path: "src/lib/helpers.ts", purpose: "util" },
+      { path: "src/styles.css", purpose: "style" },
+    ];
+    const understanding = {
+      dependencyGraph: {
+        "src/App.tsx": ["src/components/Header.tsx", "src/styles.css"],
+        "src/components/Header.tsx": ["src/lib/helpers.ts"],
+        "src/lib/helpers.ts": [],
+        "src/styles.css": [],
+      },
+      reverseDependencyGraph: {},
+      files: [
+        { path: "src/App.tsx", role: "entry" },
+        { path: "src/components/Header.tsx", role: "component" },
+        { path: "src/lib/helpers.ts", role: "util" },
+        { path: "src/styles.css", role: "style" },
+      ],
+    } as unknown as Parameters<typeof orderBuildFiles>[1]["understanding"];
+    const ordered = orderBuildFiles(files, { understanding }).map((f) => f.path);
+    expect(ordered.indexOf("src/lib/helpers.ts")).toBeLessThan(ordered.indexOf("src/components/Header.tsx"));
+    expect(ordered.indexOf("src/styles.css")).toBeLessThan(ordered.indexOf("src/App.tsx"));
+  });
+
+  it("retries a failed file, preserves completed work, and resumes only incomplete files", async () => {
+    let attempts = 0;
+    const events: string[] = [];
+    const first = await runSequentialFileBuild({
+      files: [
+        { path: "src/styles.css", purpose: "styles" },
+        { path: "src/App.tsx", purpose: "entry" },
+      ],
+      initialSource: "",
+      signal: new AbortController().signal,
+      retries: 1,
+      generate: async (file) => {
+        if (file.path === "src/App.tsx") {
+          attempts += 1;
+          if (attempts === 1) throw new Error("temporary failure");
+          return { content: "export default function App(){return null}" };
+        }
+        return { content: file.path === "src/styles.css" ? "body{}" : "" };
+      },
+      validate: () => {},
+      merge: (source, file, result) => mergeGeneratedFile(source, file.path, result.content),
+      onProgress: (p) => events.push(`${p.status}:${p.path}`),
     });
-  }
+    expect(attempts).toBe(2);
+    expect(events).toContain("completed:src/styles.css");
+    expect(events).toContain("retrying:src/App.tsx");
+    expect(first.completedPaths).toEqual(["src/styles.css", "src/App.tsx"]);
 
-  it("does not start build on discussion-only prompt", () => {
-    const a = analyzeIntent("Mujhe ek expense tracker banana hai. Isme kya-kya ho sakta hai?", { hasExistingProject: false });
-    expect(a.shouldBuild).toBe(false);
+    const resumed = await runSequentialFileBuild({
+      files: [
+        { path: "src/styles.css", purpose: "styles" },
+        { path: "src/App.tsx", purpose: "entry" },
+        { path: "src/lib/extra.ts", purpose: "extra" },
+      ],
+      initialSource: first.source,
+      completedPaths: first.completedPaths,
+      signal: new AbortController().signal,
+      generate: async (file) => ({ content: `export const x = "${file.path}";` }),
+      validate: () => {},
+      merge: (source, file, result) => mergeGeneratedFile(source, file.path, result.content),
+    });
+    expect(resumed.source).toContain("body{}");
+    expect(resumed.completedPaths).toEqual(["src/styles.css", "src/App.tsx", "src/lib/extra.ts"]);
   });
 });

@@ -19,6 +19,7 @@ export function mergeGeneratedFile(source: string, path: string, content: string
   if (!SAFE_PROJECT_PATH.test(path) || path.includes("..")) throw new Error(`Unsafe project file path: ${path}`);
   const parsed = parseFileMarkers(source);
   if (!parsed) {
+    if (!source.trim()) return formatFileMarkers({ [path]: content });
     if (path === "src/App.tsx" || path === "src/App.jsx") return formatFileMarkers({ [path]: content });
     throw new Error(`Cannot merge ${path} because the existing project source is not a file tree.`);
   }
