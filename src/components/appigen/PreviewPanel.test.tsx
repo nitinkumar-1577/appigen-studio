@@ -120,7 +120,7 @@ main { color: red; }`;
     fireEvent.change(screen.getByRole("textbox", { name: "source editor" }), {
       target: { value: "export default function Widget() { return <main>New</main>; }" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Save/ }));
 
     expect(onCodeChange).toHaveBeenCalledWith(expect.stringContaining("src/styles.css"));
     expect(onCodeChange).toHaveBeenCalledWith(expect.stringContaining("<main>New</main>"));
@@ -164,7 +164,7 @@ main { color: red; }`;
     expect(screen.getByText("Your generated app will appear here")).toBeInTheDocument();
   });
 
-  it("shows one reload control for the preview", () => {
+  it("shows responsive device preview controls and one reload control", () => {
     render(
       <PreviewPanel
         isBuilding={false}
@@ -179,10 +179,13 @@ main { color: red; }`;
       />,
     );
 
-    expect(screen.queryByRole("button", { name: "Desktop" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Tablet" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Mobile" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Desktop" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Tablet" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Mobile" })).toBeInTheDocument();
     expect(screen.getByTitle("AppiGen Sandbox Preview")).toHaveStyle({ width: "100%" });
+    fireEvent.click(screen.getByRole("button", { name: "Tablet" }));
+    expect(screen.getByRole("button", { name: "Tablet" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTitle("AppiGen Sandbox Preview")).toHaveStyle({ width: "768px" });
     expect(screen.getAllByTitle("Reload preview")).toHaveLength(1);
   });
 });

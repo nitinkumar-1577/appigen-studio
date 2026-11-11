@@ -1569,7 +1569,7 @@ Deno.serve(async (req) => {
       const implementationPlan = await createModelAssistedPlan(providers, provider, prompt, existingCode, conversation, { ...contextBrief, responseLanguage: typeof body.responseLanguage === "string" ? body.responseLanguage : undefined, intent: typeof body.intent === "string" ? body.intent : undefined });
       const understanding = existingCode ? understandProject(existingCode) : null;
       const focusFiles = understanding ? rankFilesForIntent(understanding, prompt).slice(0, 8).map((r) => r.path) : [];
-      return jsonResponse({ plan: { implementationPlan: { ...plan.implementationPlan, ...implementationPlan } }, projectContext: { focusFiles, understanding: contextBrief.understandingText, memory: contextBrief.memoryText, changes: contextBrief.changeText } });
+      return jsonResponse({ plan: { implementationPlan: { ...plan.implementationPlan, ...implementationPlan } }, projectContext: { focusFiles, understanding: contextBrief.understandingText, memory: contextBrief.memoryText, changes: contextBrief.changeText }, requestedProvider: provider, mode });
     }
 
     if (mode === "chat") {
@@ -1592,12 +1592,12 @@ Deno.serve(async (req) => {
         typeof body.model === "string" ? body.model : undefined,
         { ...contextBrief, responseLanguage: typeof body.responseLanguage === "string" ? body.responseLanguage : undefined, intent: typeof body.intent === "string" ? body.intent : undefined },
       );
-      return jsonResponse({ ...response, mode, intent: body.intent ?? null, responseLanguage: body.responseLanguage ?? null });
+      return jsonResponse({ ...response, mode, intent: body.intent ?? null, responseLanguage: body.responseLanguage ?? null, requestedProvider: provider });
     }
 
     if (mode === "build_file") {
       const generated = await generateBuildFile(providers, provider, body);
-      return jsonResponse({ ...generated, mode });
+      return jsonResponse({ ...generated, mode, requestedProvider: provider });
     }
 
     if (mode !== "plan" && providerFallbackOrder(providers, provider).length === 0) {
@@ -1618,7 +1618,8 @@ Deno.serve(async (req) => {
       if (validationError) {
         return jsonResponse({ error: `Repaired project is still invalid: ${validationError}` }, 502);
       }
-      return jsonResponse({ code: fixed, mode });
+      const repairModel = modelForTask(getProviderConfig(repaired.provider).models.map((entry) => entry.id), typeof body.model === "string" ? body.model : undefined, getDefaultModel(repaired.provider), "repair");
+      return jsonResponse({ code: fixed, mode, provider: `${repaired.provider}:${repairModel}`, requestedProvider: provider });
     }
 
     if (mode === "review") {
@@ -1637,9 +1638,10 @@ Deno.serve(async (req) => {
         const reviewedCode = reviewResult.code;
         const reviewValidation = validateGeneratedCode(reviewedCode, requireArchitecture) || (requireArchitecture ? validatePlannedFiles(reviewedCode, body.plan) : null);
         if (reviewValidation) throw new Error(`${providerLabel(candidate)} review returned invalid project code: ${reviewValidation}`);
-        return { code: reviewedCode, repairAttempted: reviewResult.changedPaths.length > 0, findings: reviewResult.findings, changedPaths: reviewResult.changedPaths };
+        const reviewModelUsed = modelForTask(getProviderConfig(candidate).models.map((entry) => entry.id), typeof body.model === "string" ? body.model : undefined, getDefaultModel(candidate), "review");
+        return { code: reviewedCode, repairAttempted: reviewResult.changedPaths.length > 0, findings: reviewResult.findings, changedPaths: reviewResult.changedPaths, model: reviewModelUsed };
       });
-      return jsonResponse({ code: reviewed.value.code, repairAttempted: reviewed.value.repairAttempted, findings: reviewed.value.findings, changedPaths: reviewed.value.changedPaths, provider: `${reviewed.provider}:${getDefaultModel(reviewed.provider)}`, mode });
+      return jsonResponse({ code: reviewed.value.code, repairAttempted: reviewed.value.repairAttempted, findings: reviewed.value.findings, changedPaths: reviewed.value.changedPaths, provider: `${reviewed.provider}:${reviewed.value.model}`, requestedProvider: provider, mode });
     }
 
     // build or edit mode
@@ -1675,7 +1677,7 @@ Deno.serve(async (req) => {
       generateCode(providers, candidate, plan, system, stage, existingCode, conversation, { model, temperature, topP, timeoutMs }, contextBrief));
     const generatedCode = generated.value.code;
     const usedProvider = generated.value.provider;
-    const usedProviderName = usedProvider.split(":")[0] as ProviderName;
+    const usedProviderName = generated.provider;
     let code = generatedCode;
 
     const validationError = validateGeneratedCode(code) || (!existingCode ? validatePlannedFiles(code, plan.implementationPlan) : null);
@@ -1688,7 +1690,7 @@ Deno.serve(async (req) => {
     }
     if (!code) return jsonResponse({ error: "Generator returned empty code" }, 502);
 
-    return jsonResponse({ code, plan, provider: usedProvider, mode });
+    return jsonResponse({ code, plan, provider: usedProvider, requestedProvider: provider, mode });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("Appigen pipeline error:", msg);

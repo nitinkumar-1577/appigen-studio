@@ -59,8 +59,12 @@ export function buildDocFromPrompt(prompt: string, code?: string) {
   const runtimeShield = `
 (function(){
   var hasMounted = false;
+  var inspect = false;
+  var hoverEl = null;
+  var selectedEl = null;
+  function post(payload){ try { parent.postMessage(Object.assign({ __appigen: true }, payload), '*'); } catch(e){} }
   function report(kind, message, stack){
-    try { parent.postMessage({ __appigen: true, kind: kind, message: String(message||''), stack: String(stack||'') }, '*'); } catch(e){}
+    post({ kind: kind, message: String(message||''), stack: String(stack||'') });
     var host = document.getElementById('__appigen_err');
     if(!host){
       host = document.createElement('div');
@@ -68,7 +72,7 @@ export function buildDocFromPrompt(prompt: string, code?: string) {
       host.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:99999;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:rgba(127,29,29,.95);color:#fee2e2;border:1px solid rgba(248,113,113,.6);border-radius:10px;padding:12px 14px;max-height:45vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.5);backdrop-filter:blur(8px);';
       document.body && document.body.appendChild(host);
     }
-      host.replaceChildren();
+    host.replaceChildren();
     var heading = document.createElement('div');
     heading.style.cssText = 'font-weight:700;color:#fecaca;margin-bottom:4px';
     heading.textContent = '⚠ Runtime ' + kind;
@@ -102,7 +106,89 @@ export function buildDocFromPrompt(prompt: string, code?: string) {
       report('blank', 'Preview rendered nothing within 2.5s', '');
     }
   }, 2500);
-  window.__appigenMarkMounted = function(){ hasMounted = true; };
+  window.__appigenMarkMounted = function(){ hasMounted = true; post({ kind: 'ready' }); };
+
+  function cssPath(el){
+    if(!el || el.nodeType !== 1) return '';
+    var parts=[];
+    while(el && el.nodeType===1 && el.id !== 'root'){
+      var name = el.nodeName.toLowerCase();
+      if(el.id){ parts.unshift(name + '#' + el.id); break; }
+      var idx = 1, sib = el;
+      while((sib = sib.previousElementSibling)) if(sib.nodeName===el.nodeName) idx++;
+      parts.unshift(name + ':nth-of-type(' + idx + ')');
+      el = el.parentElement;
+    }
+    return parts.join(' > ');
+  }
+  function outline(el, color){
+    if(!el) return;
+    el.__appigenPrevOutline = el.style.outline;
+    el.__appigenPrevOffset = el.style.outlineOffset;
+    el.style.outline = '2px solid ' + color;
+    el.style.outlineOffset = '1px';
+  }
+  function clearOutline(el){
+    if(!el) return;
+    el.style.outline = el.__appigenPrevOutline || '';
+    el.style.outlineOffset = el.__appigenPrevOffset || '';
+  }
+  function describe(el){
+    if(!el || el.nodeType !== 1) return null;
+    var cs = window.getComputedStyle(el);
+    var text = (el.innerText || '').trim().slice(0, 120);
+    return {
+      tag: el.tagName.toLowerCase(),
+      id: el.id || '',
+      className: (typeof el.className === 'string' ? el.className : '').slice(0, 160),
+      text: text,
+      path: cssPath(el),
+      styles: {
+        color: cs.color, backgroundColor: cs.backgroundColor, fontSize: cs.fontSize,
+        fontWeight: cs.fontWeight, padding: cs.padding, margin: cs.margin,
+        textAlign: cs.textAlign, width: cs.width, height: cs.height,
+        borderRadius: cs.borderRadius, display: cs.display
+      }
+    };
+  }
+  function setInspect(on){
+    inspect = !!on;
+    if(!inspect){
+      if(hoverEl){ clearOutline(hoverEl); hoverEl = null; }
+      document.body.style.cursor = '';
+    } else {
+      document.body.style.cursor = 'crosshair';
+    }
+    post({ kind: 'inspect-mode', enabled: inspect });
+  }
+  document.addEventListener('mouseover', function(e){
+    if(!inspect) return;
+    var t = e.target;
+    if(!(t instanceof Element) || t.closest('#__appigen_err')) return;
+    if(hoverEl && hoverEl !== t && hoverEl !== selectedEl) clearOutline(hoverEl);
+    hoverEl = t;
+    if(t !== selectedEl) outline(t, 'rgba(96,165,250,.9)');
+  }, true);
+  document.addEventListener('mouseout', function(e){
+    if(!inspect) return;
+    var t = e.target;
+    if(t && t !== selectedEl) clearOutline(t);
+  }, true);
+  document.addEventListener('click', function(e){
+    if(!inspect) return;
+    var t = e.target;
+    if(!(t instanceof Element) || t.closest('#__appigen_err')) return;
+    e.preventDefault(); e.stopPropagation();
+    if(selectedEl && selectedEl !== t) clearOutline(selectedEl);
+    selectedEl = t;
+    outline(t, 'rgba(167,139,250,1)');
+    post({ kind: 'visual-select', element: describe(t) });
+  }, true);
+  window.addEventListener('message', function(e){
+    var d = e.data || {};
+    if(d && d.__appigenCmd === 'inspect') setInspect(!!d.enabled);
+    if(d && d.__appigenCmd === 'clear-selection'){ if(selectedEl) clearOutline(selectedEl); selectedEl = null; }
+  });
 })();
 `;
 
@@ -165,39 +251,24 @@ export function buildDocFromPrompt(prompt: string, code?: string) {
     return window[key] || lucideExports[key] || window.__appigenIcon(key);
   }});
 
-  var RouterContext = React.createContext({ path: '/' });
-  function BrowserRouter(props){
-    return React.createElement(RouterContext.Provider, { value: { path: '/' } }, props && props.children);
-  }
-  function Routes(props){
-    var children = React.Children.toArray(props && props.children);
-    var selected = children.find(function(child){
-      return child && child.props && (child.props.path === '/' || child.props.index || child.props.path === '*');
-    }) || children[0] || null;
-    return selected && selected.props ? (selected.props.element || selected.props.children || null) : null;
-  }
-  function Route(props){ return props.element || props.children || null; }
-  function Link(props){
-    var rest = Object.assign({}, props || {});
-    var to = rest.to || '#';
-    delete rest.to;
-    return React.createElement('a', Object.assign({ href: String(to) }, rest), props && props.children);
-  }
-  function NavLink(props){ return React.createElement(Link, props, props && props.children); }
-  function Outlet(){ return null; }
+  var RouterContext = React.createContext({ path: '/', navigate: function(){}, params: {} });
   var RouteContext = React.createContext({ params: {} });
   function pathMatch(pattern, pathname){
     var names=[];
     var escaped=String(pattern||'*').split('').map(function(ch){var code=ch.charCodeAt(0);return [36,40,41,42,43,46,63,91,92,93,94,123,124,125].indexOf(code)>=0?'\\\\'+ch:ch;}).join('');
     var regex=new RegExp('^'+escaped.replace(/\\\\\\*|\\*/g,'.*').replace(/:([A-Za-z0-9_]+)/g,function(_,n){names.push(n);return '([^/]+)';})+'/?$');
-    var match=pathname.match(regex); if(!match) return null; var params={}; names.forEach(function(n,i){params[n]=decodeURIComponent(match[i+1]);}); return params;
+    var match=String(pathname||'/').match(regex); if(!match) return null; var params={}; names.forEach(function(n,i){params[n]=decodeURIComponent(match[i+1]);}); return params;
   }
   function BrowserRouter(props){ var pair=React.useState(window.location.pathname), path=pair[0], setPath=pair[1]; React.useEffect(function(){ var pop=function(){setPath(window.location.pathname);}; window.addEventListener('popstate',pop); return function(){window.removeEventListener('popstate',pop);};},[]); var navigate=function(to){var next=typeof to==='number'?null:String(to); if(next===null){window.history.go(to);return;} window.history.pushState({},'',next);setPath(window.location.pathname);}; return React.createElement(RouterContext.Provider,{value:{path:path,navigate:navigate}},props&&props.children); }
   function HashRouter(props){ var pair=React.useState(window.location.hash.slice(1)||'/'), path=pair[0], setPath=pair[1]; React.useEffect(function(){var pop=function(){setPath(window.location.hash.slice(1)||'/');};window.addEventListener('hashchange',pop);return function(){window.removeEventListener('hashchange',pop);};},[]);var navigate=function(to){window.location.hash=String(to);setPath(String(to));};return React.createElement(RouterContext.Provider,{value:{path:path,navigate:navigate}},props&&props.children); }
-  function Routes(props){ var ctx=React.useContext(RouterContext), children=React.Children.toArray(props&&props.children); for(var i=0;i<children.length;i++){var child=children[i];if(child&&child.props){var params=pathMatch(child.props.path|| (child.props.index?ctx.path:null),ctx.path);if(params)return React.createElement(RouteContext.Provider,{value:{params:params}},child.props.element||child.props.children||null);}} return null; }
-  function useNavigate(){return React.useContext(RouterContext).navigate;}
-  function useLocation(){var path=React.useContext(RouterContext).path;return {pathname:path,search:window.location.search,hash:window.location.hash,state:null,key:'appigen'};}
-  function useParams(){return React.useContext(RouteContext).params;}
+  function Routes(props){ var ctx=React.useContext(RouterContext), children=React.Children.toArray(props&&props.children); for(var i=0;i<children.length;i++){var child=children[i];if(child&&child.props){var pattern=child.props.index?ctx.path:(child.props.path==null?'*':child.props.path); var params=pathMatch(pattern,ctx.path);if(params)return React.createElement(RouteContext.Provider,{value:{params:params}},child.props.element||child.props.children||null);}} return null; }
+  function Route(props){ return props.element || props.children || null; }
+  function Link(props){ var rest = Object.assign({}, props || {}); var to = rest.to || '#'; delete rest.to; var ctx=React.useContext(RouterContext); function onClick(e){ if(rest.onClick) rest.onClick(e); if(e.defaultPrevented) return; if(typeof ctx.navigate==='function'){ e.preventDefault(); ctx.navigate(String(to)); } } return React.createElement('a', Object.assign({ href: String(to), onClick:onClick }, rest), props && props.children); }
+  function NavLink(props){ return React.createElement(Link, props, props && props.children); }
+  function Outlet(){ return null; }
+  function useNavigate(){return React.useContext(RouterContext).navigate || function(){};}
+  function useLocation(){var path=React.useContext(RouterContext).path || '/'; return {pathname:path,search:window.location.search||'',hash:window.location.hash||'',state:null,key:'appigen'};}
+  function useParams(){return React.useContext(RouteContext).params || {};}
 
   // ========= Virtual Module System =========
   function showError(msg, stack){ parent.postMessage({ __appigen: true, kind: 'compile', message: msg, stack: stack || '' }, '*'); var pre=document.createElement('pre'); pre.style.cssText='color:hsl(0 75% 60%);background:hsl(0 75% 20%);padding:16px;margin:16px;border-radius:8px;white-space:pre-wrap;font:12px ui-monospace,Menlo,monospace'; pre.textContent='Preview error: '+msg+(stack?'\\n\\n'+stack:''); document.body.appendChild(pre); }

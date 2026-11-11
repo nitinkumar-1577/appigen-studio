@@ -8,6 +8,7 @@ const ALLOWED_PACKAGES = new Set([
   "framer-motion",
   "date-fns",
   "clsx",
+  "@supabase/supabase-js",
 ]);
 
 const EXTENSIONS = [".tsx", ".ts", ".jsx", ".js", ".css"];

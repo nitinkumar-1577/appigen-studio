@@ -115,7 +115,7 @@ export function analyzeIntent(prompt: string, options: { hasExistingProject: boo
   const hasConcreteTarget = /\b(button|page|screen|color|theme|text|title|header|footer|login|form|report|monthly|chart|table|menu|navbar|sidebar|image|icon|font|background|layout|section|card|modal|api|database|auth|error|bug)\b/i.test(lower) || /[.#][a-zA-Z][\w-]*/.test(text);
   let needsClarification = options.hasExistingProject && (intent === "follow_up_modification" || intent === "bug_fixing") && vagueReference && !hasConcreteTarget && !/\b(add|create|build|banao|bana|bnao|lagao|laga)\b/i.test(lower);
   // Unclear fix/change requests like "Isko theek karo" without target -> ask clarification instead of blind build.
-  if (options.hasExistingProject && (intent === "follow_up_modification" || intent === "bug_fixing" || intent === "clarification") && vagueReference && !hasConcreteTarget && /\b(fix|theek|thik|sahi|repair|correct|change|badlo|badal)\b/i.test(lower) && text.split(/\s+/).length <= 6) {
+  if (options.hasExistingProject && (intent === "follow_up_modification" || intent === "bug_fixing") && vagueReference && !hasConcreteTarget && /\b(fix|theek|thik|sahi|repair|correct|change|badlo|badal)\b/i.test(lower) && text.split(/\s+/).length <= 6) {
     needsClarification = true;
     shouldBuild = false;
     intent = "clarification";

@@ -97,6 +97,258 @@ export type Database = {
         }
         Relationships: []
       }
+      anonymous_telemetry: {
+        Row: {
+          created_at: string
+          event_name: string
+          id: string
+        }
+        Insert: {
+          created_at?: string
+          event_name: string
+          id?: string
+        }
+        Update: {
+          created_at?: string
+          event_name?: string
+          id?: string
+        }
+        Relationships: []
+      }
+      user_activity: {
+        Row: {
+          created_at: string
+          detail: string
+          duration_ms: number | null
+          id: string
+          kind: string
+          prompt_characters: number | null
+          title: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          detail: string
+          duration_ms?: number | null
+          id?: string
+          kind: string
+          prompt_characters?: number | null
+          title: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          detail?: string
+          duration_ms?: number | null
+          id?: string
+          kind?: string
+          prompt_characters?: number | null
+          title?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      generated_apps: {
+        Row: {
+          appigen_project_id: string | null
+          backend_mode: string
+          created_at: string
+          id: string
+          name: string
+          owner_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          appigen_project_id?: string | null
+          backend_mode?: string
+          created_at?: string
+          id?: string
+          name?: string
+          owner_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          appigen_project_id?: string | null
+          backend_mode?: string
+          created_at?: string
+          id?: string
+          name?: string
+          owner_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      generated_app_backend_configs: {
+        Row: {
+          config: Json
+          created_at: string
+          dedicated_anon_key_hint: string | null
+          dedicated_project_ref: string | null
+          dedicated_project_url: string | null
+          generated_app_id: string
+          id: string
+          last_health_checked_at: string | null
+          last_health_status: string | null
+          mode: string
+          owner_id: string
+          provisioning_error: string | null
+          provisioning_status: string
+          updated_at: string
+        }
+        Insert: {
+          config?: Json
+          created_at?: string
+          dedicated_anon_key_hint?: string | null
+          dedicated_project_ref?: string | null
+          dedicated_project_url?: string | null
+          generated_app_id: string
+          id?: string
+          last_health_checked_at?: string | null
+          last_health_status?: string | null
+          mode: string
+          owner_id: string
+          provisioning_error?: string | null
+          provisioning_status?: string
+          updated_at?: string
+        }
+        Update: {
+          config?: Json
+          created_at?: string
+          dedicated_anon_key_hint?: string | null
+          dedicated_project_ref?: string | null
+          dedicated_project_url?: string | null
+          generated_app_id?: string
+          id?: string
+          last_health_checked_at?: string | null
+          last_health_status?: string | null
+          mode?: string
+          owner_id?: string
+          provisioning_error?: string | null
+          provisioning_status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      generated_app_data: {
+        Row: {
+          collection: string
+          created_at: string
+          generated_app_id: string
+          id: string
+          owner_id: string
+          record: Json
+          updated_at: string
+        }
+        Insert: {
+          collection: string
+          created_at?: string
+          generated_app_id: string
+          id?: string
+          owner_id: string
+          record?: Json
+          updated_at?: string
+        }
+        Update: {
+          collection?: string
+          created_at?: string
+          generated_app_id?: string
+          id?: string
+          owner_id?: string
+          record?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      generated_app_deployments: {
+        Row: {
+          created_at: string
+          deployment_url: string | null
+          error: string | null
+          generated_app_id: string
+          id: string
+          logs: string | null
+          metadata: Json
+          owner_id: string
+          provider: string
+          provider_deployment_id: string | null
+          repo_full_name: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          deployment_url?: string | null
+          error?: string | null
+          generated_app_id: string
+          id?: string
+          logs?: string | null
+          metadata?: Json
+          owner_id: string
+          provider?: string
+          provider_deployment_id?: string | null
+          repo_full_name?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          deployment_url?: string | null
+          error?: string | null
+          generated_app_id?: string
+          id?: string
+          logs?: string | null
+          metadata?: Json
+          owner_id?: string
+          provider?: string
+          provider_deployment_id?: string | null
+          repo_full_name?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      generated_app_env_vars: {
+        Row: {
+          created_at: string
+          generated_app_id: string
+          id: string
+          is_secret: boolean
+          key: string
+          owner_id: string
+          public_value: string | null
+          secret_ref: string | null
+          target: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          generated_app_id: string
+          id?: string
+          is_secret?: boolean
+          key: string
+          owner_id: string
+          public_value?: string | null
+          secret_ref?: string | null
+          target?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          generated_app_id?: string
+          id?: string
+          is_secret?: boolean
+          key?: string
+          owner_id?: string
+          public_value?: string | null
+          secret_ref?: string | null
+          target?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

@@ -3,10 +3,28 @@ import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 import { brokeredPreviewStorage } from './previewAuthStorage';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+// Default to the project configured in supabase/config.toml so local builds target
+// the real project instead of a non-resolvable placeholder host.
+const DEFAULT_SUPABASE_URL = "https://kdmenojgblikqtuholkn.supabase.co";
+
+const envSupabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
+const envSupabaseKey = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY)?.trim();
+
+export const SUPABASE_URL = envSupabaseUrl || DEFAULT_SUPABASE_URL;
 // Prefer the current project publishable key. Some existing .env files also
 // contain a stale VITE_SUPABASE_ANON_KEY, which can belong to another project.
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
+// Empty fallback keeps the client constructible; calls will fail clearly if unconfigured.
+export const SUPABASE_PUBLISHABLE_KEY = envSupabaseKey || "";
+
+export const isSupabaseEnvConfigured = Boolean(envSupabaseUrl && envSupabaseKey);
+
+export function assertSupabaseFunctionAccess(): void {
+  if (!isSupabaseEnvConfigured) {
+    throw new Error(
+      "Supabase is not configured for this environment. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY in .env (see .env.example), then ensure the Appigen Edge Function is deployed to that Supabase project.",
+    );
+  }
+}
 
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";

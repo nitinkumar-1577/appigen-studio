@@ -20,7 +20,7 @@ export function getExportFiles(code: string): Record<string, string> {
   const files: Record<string, string> = {};
   for (const [path, content] of Object.entries(parsed.files)) {
     const safe = safePath(path);
-    if (!safe || safe.endsWith(".html") && safe === "index.html") continue;
+    if (!safe || (safe.endsWith(".html") && safe === "index.html")) continue;
     files[safe] = content
       .replace(/<script[^>]*>[\s\S]*?__appigen[\s\S]*?<\/script>/gi, "")
       .replace(/^\s*ReactDOM\s*\.\s*createRoot\([\s\S]*?\.render\([\s\S]*?\)\s*;?\s*$/gm, "")
@@ -32,9 +32,19 @@ export function getExportFiles(code: string): Record<string, string> {
   return files;
 }
 
-export async function createRunnableProjectZip({ title, prompt, code }: { title: string; prompt: string; code: string }) {
+export interface ExportBackendOptions {
+  mode?: "shared" | "dedicated";
+  generatedAppId?: string;
+  supabaseUrl?: string | null;
+  supabaseAnonKey?: string | null;
+  publicEnv?: Record<string, string>;
+  envExample?: Record<string, string>;
+}
+
+export async function createRunnableProjectZip({ title, prompt, code, backend }: { title: string; prompt: string; code: string; backend?: ExportBackendOptions }) {
   const zip = new JSZip();
   const files = getExportFiles(code);
+  const needsSupabase = Boolean(backend?.mode) || /@supabase\/supabase-js|generated_app_data|supabase\.from/.test(code);
   const appPath = files["src/App.tsx"] ? "App.tsx" : files["src/App.jsx"] ? "App.jsx" : "main.jsx";
   const entryPath = appPath.endsWith(".tsx") ? "src/main.tsx" : "src/main.jsx";
   const entryExtension = appPath.endsWith(".tsx") ? "tsx" : "jsx";
@@ -59,22 +69,24 @@ createRoot(document.getElementById("root")!).render(<App />);
   exportRoot.file("index.html", `<!doctype html>
 <html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><title>AppiGen app</title></head><body><div id="root"></div><script type="module" src="/src/main.${entryExtension}"></script></body></html>
 `);
+  const dependencies: Record<string, string> = {
+    "date-fns": "4.1.0",
+    "framer-motion": "11.15.0",
+    "lucide-react": "0.468.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-router-dom": "6.30.1",
+    "recharts": "2.15.0",
+    "clsx": "2.1.1",
+  };
+  if (needsSupabase) dependencies["@supabase/supabase-js"] = "2.49.4";
   exportRoot.file("package.json", JSON.stringify({
     name: "appigen-generated-app",
     private: true,
     version: "1.0.0",
     type: "module",
     scripts: { dev: "vite", build: "vite build", preview: "vite preview", typecheck: "tsc --noEmit -p tsconfig.app.json", test: "vitest run" },
-    dependencies: {
-      "date-fns": "4.1.0",
-      "framer-motion": "11.15.0",
-      "lucide-react": "0.468.0",
-      "react": "18.3.1",
-      "react-dom": "18.3.1",
-      "react-router-dom": "6.30.1",
-      "recharts": "2.15.0",
-      "clsx": "2.1.1",
-    },
+    dependencies,
     devDependencies: {
       "@types/react": "18.3.18",
       "@types/react-dom": "18.3.5",
@@ -131,12 +143,92 @@ describe("generated app test setup", () => {
   });
 });
 `);
+
+  // Backend-aware export: include only non-secret/public env hints and never raw private secrets.
+  const envExampleLines: string[] = [];
+  const needsBackendConfig = needsSupabase || Boolean(backend?.mode);
+  if (needsBackendConfig) {
+    envExampleLines.push("# Generated app backend configuration (non-secret/public values only)");
+    envExampleLines.push("# Never commit .env or private secrets. Configure private keys server-side or in your deployment provider's secret store.");
+    envExampleLines.push(`VITE_SUPABASE_URL=${backend?.supabaseUrl ?? ""}`);
+    envExampleLines.push(`VITE_SUPABASE_PUBLISHABLE_KEY=${backend?.supabaseAnonKey ?? ""}`);
+    if (backend?.generatedAppId) envExampleLines.push(`VITE_APPIGEN_GENERATED_APP_ID=${backend.generatedAppId}`);
+    if (backend?.mode) envExampleLines.push(`VITE_APPIGEN_BACKEND_MODE=${backend.mode}`);
+  }
+  const extraEnv = backend?.envExample ?? backend?.publicEnv ?? {};
+  for (const [k, v] of Object.entries(extraEnv)) {
+    if (/secret|token|password|service_role|private/i.test(k)) continue;
+    if (!envExampleLines.some((l) => l.startsWith(`${k}=`))) envExampleLines.push(`${k}=${v ?? ""}`);
+  }
+  if (envExampleLines.length) exportRoot.file(".env.example", envExampleLines.join("\n") + "\n");
+
+  if (backend?.mode === "shared" || /generated_app_data/.test(code)) {
+    exportRoot.file("src/lib/appigenSharedBackend.ts", `import { createClient } from "@supabase/supabase-js";
+
+// Shared-backend integration scaffold for generated apps.
+// Uses AppiGen shared Supabase with strict per-app/per-owner RLS isolation (generated_app_data).
+// Configure public URL/publishable key via environment variables. Never embed service-role/private secrets.
+const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
+export const generatedAppId = import.meta.env.VITE_APPIGEN_GENERATED_APP_ID as string | undefined;
+export const supabase = url && key ? createClient(url, key) : null;
+
+export async function listSharedRecords(collection: string) {
+  if (!supabase || !generatedAppId) throw new Error("Shared backend is not configured (missing Supabase env or generated app id).");
+  const { data: auth } = await supabase.auth.getUser();
+  const ownerId = auth.user?.id;
+  if (!ownerId) throw new Error("Authenticated user required for tenant-isolated shared backend access.");
+  const { data, error } = await supabase.from("generated_app_data").select("id,record,created_at,updated_at").eq("generated_app_id", generatedAppId).eq("owner_id", ownerId).eq("collection", collection).order("updated_at", { ascending: false });
+  if (error) throw error; return data ?? [];
+}
+export async function createSharedRecord(collection: string, record: Record<string, unknown>) {
+  if (!supabase || !generatedAppId) throw new Error("Shared backend is not configured.");
+  const { data: auth } = await supabase.auth.getUser();
+  const ownerId = auth.user?.id; if (!ownerId) throw new Error("Authenticated user required.");
+  const { data, error } = await supabase.from("generated_app_data").insert({ generated_app_id: generatedAppId, owner_id: ownerId, collection, record }).select("id,record,created_at,updated_at").single();
+  if (error) throw error; return data;
+}
+`);
+  }
+
+  const backendReadme = needsBackendConfig ? `
+
+## Backend integration
+- Mode: **${backend?.mode ?? "configured"}** (shared = AppiGen shared Supabase with per-app/per-owner RLS isolation; dedicated = independent Supabase project when provisioned/connected).
+- Configure public values in \`.env\` from \`.env.example\`. Private secrets must be stored server-side / in deployment secret stores and never committed.
+- Shared tenant-isolated CRUD scaffold: \`src/lib/appigenSharedBackend.ts\` (requires authenticated user and applied AppiGen migrations for \`generated_app_data\`).
+- Dedicated provisioning/deployment require external credentials and provider-confirmed execution; this export does not contain service-role keys.
+` : "";
+
   exportRoot.file(".gitignore", "node_modules\ndist\n.env\n.env.*\n!.env.example\n");
-  exportRoot.file("README.md", `# ${title}\n\nGenerated by AppiGen Studio.\n\n## Project structure\n\n- \`src/App.tsx\` — application shell and composition\n- \`src/pages/\` — focused screens\n- \`src/components/\` — reusable interface components\n- \`src/hooks/\` — stateful workflows\n- \`src/lib/\` — domain rules and utilities\n- \`src/styles.css\` — app-specific design system\n\n## Original prompt\n${prompt || "No prompt saved."}\n\n## Run locally\n\`\`\`sh\nnpm install\nnpm run dev\n\`\n\nRun \`npm run typecheck\` to check TypeScript, or \`npm run build\` to create the production bundle.\n`);
+  exportRoot.file("README.md", `# ${title}
+
+Generated by AppiGen Studio.
+
+## Project structure
+
+- \`src/App.tsx\` — application shell and composition
+- \`src/pages/\` — focused screens
+- \`src/components/\` — reusable interface components
+- \`src/hooks/\` — stateful workflows
+- \`src/lib/\` — domain rules and utilities
+- \`src/styles.css\` — app-specific design system
+
+## Original prompt
+${prompt || "No prompt saved."}${backendReadme}
+
+## Run locally
+\`\`\`sh
+npm install
+${envExampleLines.length ? "cp .env.example .env\n" : ""}npm run dev
+\`\`\`
+
+Run \`npm run typecheck\` to check TypeScript, or \`npm run build\` to create the production bundle.
+`);
   return zip.generateAsync({ type: "blob" });
 }
 
-export async function getRunnableProjectFiles(input: { title: string; prompt: string; code: string }): Promise<Record<string, string>> {
+export async function getRunnableProjectFiles(input: { title: string; prompt: string; code: string; backend?: ExportBackendOptions }): Promise<Record<string, string>> {
   const folderName = input.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "appigen-app";
   const archive = await JSZip.loadAsync(await createRunnableProjectZip(input));
   const files: Record<string, string> = {};

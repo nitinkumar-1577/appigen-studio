@@ -2,17 +2,19 @@ import { useEffect, useState } from "react";
 import { X, Github as GithubIcon, Check, Loader2, GitBranch, Lock, Plus } from "lucide-react";
 import { useApp } from "./AppContext";
 import { toast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/integrations/supabase/client";
 import { recordActivity } from "@/lib/appPreferences";
 import { getRunnableProjectFiles } from "@/lib/projects/exportProject";
 import { persistActivity } from "@/lib/projects/projectRepository";
 import { trackAnonymousUsage } from "@/lib/telemetry";
+import { readGeneratedBackendState } from "@/lib/backend/generatedAppBackendStorage";
 
 interface GithubModalProps {
   open: boolean;
   onClose: () => void;
   code: string | null;
   projectTitle: string;
+  projectKey?: string;
 }
 
 interface GithubRepo {
@@ -42,7 +44,7 @@ const apiRequest = async <T,>(token: string, path: string, init: RequestInit = {
   return body as T;
 };
 
-export const GithubModal = ({ open, onClose, code, projectTitle }: GithubModalProps) => {
+export const GithubModal = ({ open, onClose, code, projectTitle, projectKey = "local:current" }: GithubModalProps) => {
   const { session, addNotification } = useApp();
   const token = session?.provider_token;
   const [username, setUsername] = useState("");
@@ -124,7 +126,23 @@ export const GithubModal = ({ open, onClose, code, projectTitle }: GithubModalPr
     if (!target) return;
     setPushing(true);
     try {
-      const safeFiles = Object.entries(await getRunnableProjectFiles({ title: projectTitle, prompt: "", code }));
+      const backendState = readGeneratedBackendState(projectKey);
+      const publicEnv: Record<string, string> = {};
+      for (const v of backendState?.envVars ?? []) {
+        if (!v.isSecret && v.publicValue) publicEnv[v.key] = v.publicValue;
+      }
+      const safeFiles = Object.entries(await getRunnableProjectFiles({
+        title: projectTitle,
+        prompt: "",
+        code,
+        backend: {
+          mode: backendState?.mode ?? "shared",
+          generatedAppId: backendState?.generatedAppId ?? projectKey,
+          supabaseUrl: SUPABASE_URL || undefined,
+          supabaseAnonKey: SUPABASE_PUBLISHABLE_KEY || undefined,
+          publicEnv,
+        },
+      }));
       if (!safeFiles.length) throw new Error("The generated project does not contain any safe files to push.");
 
       const ref = await apiRequest<{ object: { sha: string } }>(token, `/repos/${target.full_name}/git/ref/heads/${encodeURIComponent(target.default_branch)}`);

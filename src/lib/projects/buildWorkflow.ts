@@ -37,7 +37,7 @@ export function validateFileTree(source: string, requiredPaths: string[]): strin
   if (unsafe) return `Unsafe project path: ${unsafe}`;
   const empty = paths.find((path) => !parsed.files[path]?.trim());
   if (empty) return `Project file is empty: ${empty}`;
-  const missing = requiredPaths.filter((path) => !Object.hasOwn(parsed.files, path));
+  const missing = requiredPaths.filter((path) => !Object.prototype.hasOwnProperty.call(parsed.files, path));
   if (missing.length) return `Missing required files: ${missing.join(", ")}`;
   return null;
 }
@@ -100,7 +100,7 @@ export function selectFilesForEdit(source: string, prompt: string, options: Sele
     score: words.reduce((score, word) => score + (`${path} ${content}`.toLowerCase().includes(word) ? 1 : 0), 0),
   })).filter((entry) => entry.score > 0).sort((a, b) => b.score - a.score);
   if (ranked.length) return ranked.slice(0, Math.max(1, Math.min(maxFiles, ranked.length))).map(({ path }) => path);
-  const likely = ["src/App.tsx", "src/App.jsx", "src/styles.css"].filter((path) => Object.hasOwn(parsed.files, path));
+  const likely = ["src/App.tsx", "src/App.jsx", "src/styles.css"].filter((path) => Object.prototype.hasOwnProperty.call(parsed.files, path));
   return likely.length ? uniquePaths(likely, allowed, maxFiles) : [Object.keys(parsed.files)[0]];
 }
 

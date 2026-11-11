@@ -9,6 +9,7 @@ import {
   Settings,
   Palette,
   LoaderCircle,
+  Server,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -21,6 +22,7 @@ export type ViewKey =
   | "apps"
   | "templates"
   | "api"
+  | "backend"
   | "pricing";
 
 const navItems: { key: ViewKey; icon: LucideIcon; label: string }[] = [
@@ -29,6 +31,7 @@ const navItems: { key: ViewKey; icon: LucideIcon; label: string }[] = [
   { key: "apps", icon: AppWindow, label: "My Apps" },
   { key: "templates", icon: LayoutTemplate, label: "Templates" },
   { key: "api", icon: KeyRound, label: "API Settings" },
+  { key: "backend", icon: Server, label: "Backend & Deploy" },
 ];
 
 interface SidebarProps {

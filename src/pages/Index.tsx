@@ -7,6 +7,7 @@ import { MyAppsPage } from "@/components/appigen/pages/MyAppsPage";
 import { TemplatesPage } from "@/components/appigen/pages/TemplatesPage";
 import { ApiSettingsPage } from "@/components/appigen/pages/ApiSettingsPage";
 import { PricingPage } from "@/components/appigen/pages/PricingPage";
+import { BackendDeployPage } from "@/components/appigen/pages/BackendDeployPage";
 import { AuthModal } from "@/components/appigen/AuthModal";
 import { PricingModal } from "@/components/appigen/PricingModal";
 import { SettingsPanel } from "@/components/appigen/SettingsPanel";
@@ -15,13 +16,16 @@ import { GithubModal } from "@/components/appigen/GithubModal";
 import { useApp } from "@/components/appigen/AppContext";
 import { Sparkles, Menu, MessageSquare, Eye, Github as GithubIcon } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import { assertSupabaseFunctionAccess, supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { buildDocFromPrompt } from "@/lib/preview/buildDocFromPrompt";
 import { normalizeFileMarkers } from "@/lib/preview/parseFileMarkers";
 import { validateGeneratedCode, validateGeneratedFile } from "@/lib/preview/validateGeneratedCode";
 import { getFunctionErrorMessage } from "@/lib/supabase/functionError";
 import { createRunnableProjectZip } from "@/lib/projects/exportProject";
+import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/integrations/supabase/client";
+import { readGeneratedBackendState } from "@/lib/backend/generatedAppBackendStorage";
 import { isNewAppPrompt, isProjectConversation } from "@/lib/projects/promptIntent";
 import { formatImplementationPlan } from "@/lib/projects/implementationPlan";
 import { mergeGeneratedFile, orderBuildFiles, runSequentialFileBuild, selectFilesForEdit, validateBuildFileResponse, validateFileTree, type BuildFileProgress } from "@/lib/projects/buildWorkflow";
@@ -32,6 +36,8 @@ import { detectConflicts, formatMemoryForPrompt, updateProjectMemory } from "@/l
 import { clearProjectVersions, createProjectVersion, deleteProject, deleteProjectVersion, loadProject, loadProjectVersions, persistActivity, persistProject, subscribeToProjectSync } from "@/lib/projects/projectRepository";
 import { readAppPreferences, readGenerationSettings, recordActivity } from "@/lib/appPreferences";
 import { trackAnonymousUsage } from "@/lib/telemetry";
+import { analyzeIntent, responseLanguageInstruction } from "@/lib/projects/conversationIntelligence";
+import { attemptsForIssue, buildQualityState, canAttemptRepair, createRepairAttempt, emptyQualityState, finalizeRepairAttempt, MAX_REPAIR_ATTEMPTS_PER_ISSUE, mergeRuntimeError, normalizeReviewFindings, type QualityState, type RepairAttempt, type RuntimeIssue } from "@/lib/projects/qualityEngine";
 
 const VIEW_TITLES: Record<ViewKey, string> = {
   studio: "",
@@ -39,6 +45,7 @@ const VIEW_TITLES: Record<ViewKey, string> = {
   apps: "My Apps",
   templates: "Templates",
   api: "API Settings",
+  backend: "Backend & Deploy",
   pricing: "Pricing & Credits",
 };
 
@@ -101,6 +108,7 @@ const suggestProjectTitle = (promptText: string) => {
 };
 
 const Index = () => {
+  const { user, session, authReady, recoveryPending, clearRecoveryPending, addNotification } = useApp();
   const [initialState] = useState(createInitialStudioState);
   const [isBuilding, setIsBuilding] = useState(false);
   const [isGeneratingApp, setIsGeneratingApp] = useState(false);
@@ -141,8 +149,11 @@ const Index = () => {
   const previousUserRef = useRef(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [mobileStudioTab, setMobileStudioTab] = useState<"chat" | "preview">(initialState.mobileTab);
+  const [qualityState, setQualityState] = useState<QualityState>(emptyQualityState());
+  const [qualityRunning, setQualityRunning] = useState(false);
+  const runtimeIssuesRef = useRef<RuntimeIssue[]>([]);
+  const repairAttemptsRefState = useRef<RepairAttempt[]>([]);
   const showPreview = Boolean(lastCode) || isGeneratingApp;
-  const { user, session, authReady, recoveryPending, clearRecoveryPending, addNotification } = useApp();
   const promptActivityTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
@@ -304,57 +315,174 @@ const Index = () => {
     return () => window.clearTimeout(timeout);
   }, [authReady, user, session?.user.id, projectId, projectTitle, prompt, lastCode, messages]);
 
-  // Phase 9: auto-repair loop. Tracks attempts per code revision.
-  const repairAttemptsRef = useRef(0);
+  const refreshQuality = (overrides: { code?: string | null; reviewFindings?: QualityState["reviewFindings"]; runtimeErrors?: RuntimeIssue[]; repairAttempts?: RepairAttempt[]; previewSummary?: string } = {}) => {
+    const code = overrides.code ?? lastCode ?? "";
+    const runtimeErrors = overrides.runtimeErrors ?? runtimeIssuesRef.current;
+    const repairAttempts = overrides.repairAttempts ?? repairAttemptsRefState.current;
+    const previewFailed = runtimeErrors.some((e) => ["error", "promise", "compile", "render", "blank"].includes(e.kind));
+    const previewHealth = code ? { status: previewFailed ? "failed" as const : (runtimeErrors.length ? "failed" as const : "passed" as const), summary: previewFailed ? "Runtime/preview errors detected from live preview signals." : (runtimeErrors.length ? "Console/resource issues reported by preview runtime." : "No runtime errors reported by preview; basic render signal observed when available."), details: runtimeErrors.slice(0, 5).map((e) => `${e.kind}: ${e.message}`) } : null;
+    const next = buildQualityState({ code, prompt, reviewFindings: overrides.reviewFindings ?? qualityState.reviewFindings, runtimeErrors, repairAttempts, previewHealth });
+    setQualityState(next);
+    return next;
+  };
+
+  const runQualityChecks = async () => {
+    if (!lastCode) {
+      toast({ title: "No project to check", description: "Build or load a project first." });
+      return;
+    }
+    setQualityRunning(true);
+    try {
+      // Deterministic/static checks run in-browser; build/TS/full test execution are reported as unsupported where no toolchain exists.
+      refreshQuality({ code: lastCode });
+      toast({ title: "Quality checks updated", description: "Static validation, structure analysis, and preview/runtime signals evaluated." });
+    } finally {
+      setQualityRunning(false);
+    }
+  };
+
+  const rollbackRepairAttempt = async (attempt: RepairAttempt) => {
+    if (!attempt.beforeCode) return;
+    try {
+      await snapshotCode(lastCode, `Before rollback of repair: ${attempt.issue}`);
+    } catch {
+      // best effort snapshot; user already confirmed rollback
+    }
+    const rolled = repairAttemptsRefState.current.map((a) => a.id === attempt.id ? { ...a, rolledBack: true, summary: `${a.summary} Rolled back by user.` } : a);
+    repairAttemptsRefState.current = rolled;
+    setLastCode(attempt.beforeCode);
+    setWorkingCode(attempt.beforeCode);
+    setDoc(buildDocFromPrompt(prompt, attempt.beforeCode));
+    refreshQuality({ code: attempt.beforeCode, repairAttempts: rolled });
+    toast({ title: "Rolled back", description: "Restored the previous working version for this repair attempt." });
+  };
+
+  const performRepair = async (issue: string, source: "manual" | "auto" | "preview") => {
+    if (!lastCode) return { ok: false as const, reason: "no-code" };
+    if (!canAttemptRepair(repairAttemptsRefState.current, issue)) {
+      const msg = `Repair stopped after ${MAX_REPAIR_ATTEMPTS_PER_ISSUE} attempts for this issue: ${issue}`;
+      const stopped: RepairAttempt = { id: `repair-stop-${Date.now()}`, issue, attempt: MAX_REPAIR_ATTEMPTS_PER_ISSUE, maxAttempts: MAX_REPAIR_ATTEMPTS_PER_ISSUE, at: Date.now(), status: "stopped", changedPaths: [], summary: msg, beforeCode: lastCode };
+      repairAttemptsRefState.current = [...repairAttemptsRefState.current, stopped];
+      refreshQuality({ repairAttempts: repairAttemptsRefState.current });
+      return { ok: false as const, reason: "limit" };
+    }
+    const attemptNo = attemptsForIssue(repairAttemptsRefState.current, issue) + 1;
+    const started = createRepairAttempt(issue, attemptNo, lastCode);
+    repairAttemptsRefState.current = [...repairAttemptsRefState.current, started];
+    refreshQuality({ repairAttempts: repairAttemptsRefState.current });
+    const generationSettings = readGenerationSettings();
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 70_000);
+    try {
+      // Likely root cause (evidence-based hint) to guide targeted repair without speculative claims.
+      const rootCause = issue.toLowerCase().includes("blank") ? "Likely render/mount failure or runtime error preventing output." : issue.toLowerCase().includes("import") ? "Likely broken/missing import or unresolved module reference." : issue.toLowerCase().includes("type") || issue.toLowerCase().includes("undefined") ? "Likely null/undefined access or typing/runtime contract mismatch." : "Likely localized implementation defect related to the reported error.";
+      const projectKey = chatKey;
+      const understanding = lastCode ? understandProject(lastCode, projectId) : null;
+      const memory = readProjectMemory(projectKey);
+      const { data, error } = await supabase.functions.invoke("Appigen", {
+        body: {
+          mode: "repair",
+          provider: generationSettings.provider,
+          model: generationSettings.model,
+          code: lastCode,
+          error: `${issue}\nLikely root cause (hypothesis): ${rootCause}\nRepair constraints: make the smallest targeted fix in affected files only, preserve unrelated working files/features/architecture, do not silently overwrite unrelated files.`,
+          projectUnderstanding: understanding ? formatUnderstandingForPrompt(understanding) : undefined,
+          projectMemory: memory ? formatMemoryForPrompt(memory, understanding) : undefined,
+        },
+        signal: controller.signal,
+      });
+      if (error) throw error;
+      if (typeof data?.code !== "string" || !data.code.trim()) throw new Error("The repair function returned no updated project code.");
+      const repairedCode = normalizeFileMarkers(data.code);
+      const validationError = validateGeneratedCode(repairedCode);
+      if (validationError) throw new Error(`Repair returned an invalid project: ${validationError}`);
+      const changed = computeChangeRecord({ projectKey, before: started.beforeCode || "", after: repairedCode, prompt, reason: `Repair: ${issue}` }).changedPaths;
+      await snapshotCode(started.beforeCode, `Before ${source} repair attempt ${attemptNo}: ${issue}`);
+      const finalized = finalizeRepairAttempt(started, { success: true, afterCode: repairedCode, projectKey, prompt, reason: `Repair (${source}): ${issue}` });
+      repairAttemptsRefState.current = repairAttemptsRefState.current.map((a) => a.id === started.id ? finalized : a);
+      setLastCode(repairedCode);
+      setWorkingCode(repairedCode);
+      setDoc(buildDocFromPrompt(prompt, repairedCode));
+      // re-run relevant checks after repair (static/validation/preview signals available)
+      refreshQuality({ code: repairedCode, repairAttempts: repairAttemptsRefState.current, runtimeErrors: runtimeIssuesRef.current });
+      toast({ title: "Repair applied", description: `Attempt ${attemptNo}/${MAX_REPAIR_ATTEMPTS_PER_ISSUE} updated ${changed.length ? changed.join(", ") : "project"} (validated).` });
+      return { ok: true as const, changedPaths: changed };
+    } catch (e: unknown) {
+      const message = controller.signal.aborted ? "Repair timed out." : await getFunctionErrorMessage(e, "Repair failed.");
+      const finalized = finalizeRepairAttempt(started, { success: false, afterCode: started.beforeCode, projectKey: chatKey, prompt, reason: `Repair failed: ${issue}`, error: message, rolledBack: false });
+      // stop if limit reached (finalizeRepairAttempt marks stopped on last failed attempt)
+      if (finalized.status === "stopped") {
+        finalized.summary = `${finalized.summary} No further attempts for this issue.`;
+      }
+      repairAttemptsRefState.current = repairAttemptsRefState.current.map((a) => a.id === started.id ? finalized : a);
+      refreshQuality({ repairAttempts: repairAttemptsRefState.current });
+      toast({ title: finalized.status === "stopped" ? "Repair stopped" : "Repair attempt failed", description: finalized.status === "stopped" ? `Unresolved after ${MAX_REPAIR_ATTEMPTS_PER_ISSUE} attempts: ${message}` : message, variant: "destructive" });
+      return { ok: false as const, reason: finalized.status };
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  };
+
+  // Phase 9/5: autonomous repair loop with per-issue tracking (max 3), safety and quality updates.
   const lastReportedRef = useRef<string>("");
   const isRepairingRef = useRef(false);
 
-  // Listen for runtime/compile errors from preview iframe and auto-repair
+  // Listen for runtime/preview signals: update quality and trigger autonomous repair (max 3 attempts per issue)
   useEffect(() => {
     const onMsg = async (ev: MessageEvent) => {
       const previewWindow = document.querySelector<HTMLIFrameElement>('iframe[title="AppiGen Sandbox Preview"]')?.contentWindow;
       if (!previewWindow || ev.source !== previewWindow) return;
-      const m = ev.data;
+      const m = ev.data as { __appigen?: boolean; kind?: string; message?: string; stack?: string } | null;
       if (!m || typeof m !== "object" || !m.__appigen) return;
-      const sig = `${m.kind}::${m.message}`;
+      const kind = String(m.kind || "");
+      if (kind === "ready") {
+        // preview became healthy; refresh quality signals without creating fake passes
+        refreshQuality({ runtimeErrors: runtimeIssuesRef.current });
+        return;
+      }
+      if (["error", "compile", "promise", "blank", "render", "console"].includes(kind)) {
+        runtimeIssuesRef.current = mergeRuntimeError(runtimeIssuesRef.current, { kind, message: String(m.message || ""), stack: typeof m.stack === "string" ? m.stack : undefined });
+        refreshQuality({ runtimeErrors: runtimeIssuesRef.current });
+      }
+      if (!["error", "compile", "promise", "blank", "render"].includes(kind)) return;
+      if (!lastCode || isRepairingRef.current) return;
+      const issue = `${kind}: ${String(m.message || "Preview failure").slice(0, 400)}`;
+      const sig = `${kind}::${m.message}`;
       if (sig === lastReportedRef.current) return;
       lastReportedRef.current = sig;
-      if (!lastCode || isRepairingRef.current) return;
-      if (repairAttemptsRef.current >= 2) return; // max 2 auto attempts
-      // Only repair on real failures
-      if (!["error", "compile", "promise", "blank", "render"].includes(m.kind)) return;
-
-      repairAttemptsRef.current += 1;
+      if (!canAttemptRepair(repairAttemptsRefState.current, issue)) return;
       isRepairingRef.current = true;
-      toast({ title: "🔧 Auto-repairing", description: `Attempt ${repairAttemptsRef.current}/2 — ${String(m.message).slice(0, 80)}` });
       try {
-        const { data, error } = await supabase.functions.invoke("Appigen", {
-          body: { mode: "repair", provider: readGenerationSettings().provider, code: lastCode, error: `${m.kind}: ${m.message}\n${m.stack || ""}` },
-        });
-        if (error) throw error;
-        if (data?.code) {
-          const repairedCode = normalizeFileMarkers(data.code);
-          const validationError = validateGeneratedCode(repairedCode);
-          if (validationError) throw new Error(`Repair returned an invalid project: ${validationError}`);
-          await snapshotCode(lastCode, "Before automatic preview repair");
-          lastReportedRef.current = "";
-          setLastCode(repairedCode);
-          setDoc(buildDocFromPrompt(prompt, repairedCode));
-          toast({ title: "✅ Repair applied", description: "Re-rendering preview" });
-        }
-      } catch (e: unknown) {
-        toast({ title: "Auto-repair failed", description: await getFunctionErrorMessage(e, "Please try again."), variant: "destructive" });
+        await performRepair(issue, "preview");
       } finally {
         isRepairingRef.current = false;
+        lastReportedRef.current = "";
       }
     };
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
-  }, [lastCode, prompt]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastCode, prompt, projectId, chatKey]);
 
   const handleDownload = async () => {
     try {
-      const blob = await createRunnableProjectZip({ title: projectTitle, prompt: prompt || messages.filter((m) => m.role === "user").at(-1)?.content || "", code: lastCode || "" });
+      const backendState = readGeneratedBackendState(chatKey);
+      const publicEnv: Record<string, string> = {};
+      for (const v of backendState?.envVars ?? []) {
+        if (!v.isSecret && v.publicValue) publicEnv[v.key] = v.publicValue;
+      }
+      const blob = await createRunnableProjectZip({
+        title: projectTitle,
+        prompt: prompt || messages.filter((m) => m.role === "user").at(-1)?.content || "",
+        code: lastCode || "",
+        backend: {
+          mode: backendState?.mode ?? "shared",
+          generatedAppId: backendState?.generatedAppId ?? (projectId || chatKey),
+          supabaseUrl: SUPABASE_URL || undefined,
+          supabaseAnonKey: SUPABASE_PUBLISHABLE_KEY || undefined,
+          publicEnv,
+        },
+      });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url; a.download = `${slugify(projectTitle)}.zip`;
@@ -380,7 +508,6 @@ const Index = () => {
       toast({ title: "Prompt is empty", description: "Describe the app you want to build first.", variant: "destructive" });
       return;
     }
-    repairAttemptsRef.current = 0;
     lastReportedRef.current = "";
     isRepairingRef.current = false;
     const intent = analyzeIntent(trimmed, { hasExistingProject: Boolean(lastCode) });
@@ -429,8 +556,9 @@ const Index = () => {
     setBuildFiles([]);
     setChangeBaseCode(baseCodeForEdit);
     setWorkingCode(partialBuildRef.current?.prompt === trimmed ? partialBuildRef.current.code : baseCodeForEdit);
-    let buildProvider = generationSettings.provider;
+    let buildProvider: string = generationSettings.provider;
     try {
+      assertSupabaseFunctionAccess();
       if (questionMode) {
         setProgressStage("Understanding request");
         const { data: chatData, error: chatError } = await supabase.functions.invoke("Appigen", {
@@ -624,7 +752,8 @@ const Index = () => {
       });
       if (reviewError) throw reviewError;
       if (typeof reviewData?.code !== "string" || !reviewData.code.trim()) throw new Error("The review stage returned no project source.");
-      if (Array.isArray(reviewData?.findings)) setBuildTimeline((current) => [...current, ...reviewData.findings.filter((finding: unknown): finding is { path: string; issue: string } => Boolean(finding) && typeof finding === "object" && typeof (finding as { path?: unknown }).path === "string" && typeof (finding as { issue?: unknown }).issue === "string").map((finding: { path: string; issue: string }) => `Review finding — ${finding.path}: ${finding.issue}`)]);
+      const aiReviewFindings = normalizeReviewFindings(reviewData?.findings);
+      if (aiReviewFindings.length) setBuildTimeline((current) => [...current, ...aiReviewFindings.map((finding) => `Review finding — ${finding.path}: ${finding.issue}`)]);
       if (reviewData?.repairAttempted && Array.isArray(reviewData?.changedPaths)) setBuildTimeline((current) => [...current, ...reviewData.changedPaths.filter((path: unknown): path is string => typeof path === "string").map((path: string) => `Repaired ${path}`)]);
       generatedCode = normalizeFileMarkers(reviewData.code);
 
@@ -656,11 +785,15 @@ const Index = () => {
       setProgressStage("Updating preview");
       setBuildTimeline((current) => [...current, "Validation passed; updating preview"]);
       generatedPreview = true;
+      runtimeIssuesRef.current = [];
+      repairAttemptsRefState.current = [];
       setLastCode(generatedCode);
       setWorkingCode(generatedCode);
       setDoc(buildDocFromPrompt(trimmed, generatedCode));
       const fileCount = [...generatedCode.matchAll(/^\s*\/\/\s*FILE:/gm)].length || 1;
       const validationSummary = getValidationSummary(Boolean(reviewData?.reviewSkipped), fileCount);
+      const initialQuality = buildQualityState({ code: generatedCode, prompt: trimmed, reviewFindings: aiReviewFindings, runtimeErrors: [], repairAttempts: [], previewHealth: { status: "passed", summary: "Project generated and preview updated (runtime signals pending)." } });
+      setQualityState(initialQuality);
       const finalTitle = editMode
         ? projectTitle !== "Untitled Project" ? projectTitle : suggestProjectTitle(trimmed)
         : suggestProjectTitle(trimmed);
@@ -791,7 +924,7 @@ const Index = () => {
     if (!window.confirm("Start a new project? Your current chat and code will be cleared.")) return;
     abortRef.current?.abort();
     if (chatKey === "local:current") clearLocalVersions(chatKey);
-    setProjectId(null); setProjectTitle("Untitled Project"); setTitleManuallyEdited(false); setPrompt(""); setLastCode(null); setWorkingCode(null); setChangeBaseCode(null); setBuildFiles([]); setBuildTimeline([]); partialBuildRef.current = null; setMessages([]); setVersions([]); setDoc(buildDocFromPrompt("")); setView("studio"); setMobileStudioTab("chat"); setIsGeneratingApp(false); discardProjectDraft();
+    setProjectId(null); setProjectTitle("Untitled Project"); setTitleManuallyEdited(false); setPrompt(""); setLastCode(null); setWorkingCode(null); setChangeBaseCode(null); setBuildFiles([]); setBuildTimeline([]); partialBuildRef.current = null; setMessages([]); setVersions([]); runtimeIssuesRef.current = []; repairAttemptsRefState.current = []; setQualityState(emptyQualityState()); setDoc(buildDocFromPrompt("")); setView("studio"); setMobileStudioTab("chat"); setIsGeneratingApp(false); discardProjectDraft();
   };
 
   const snapshotCode = async (code: string | null, action: string) => {
@@ -817,7 +950,7 @@ const Index = () => {
         toast({ title: "Version snapshot failed", description: error instanceof Error ? error.message : "Could not preserve the current version.", variant: "destructive" });
       });
     }
-    setLastCode(version.code); setPrompt(version.prompt); setDoc(buildDocFromPrompt(version.prompt, version.code)); setVersionMenuOpen(false);
+    setLastCode(version.code); setWorkingCode(version.code); setPrompt(version.prompt); runtimeIssuesRef.current = []; repairAttemptsRefState.current = []; setQualityState(buildQualityState({ code: version.code, prompt: version.prompt })); setDoc(buildDocFromPrompt(version.prompt, version.code)); setVersionMenuOpen(false);
     if (projectId && session?.user.id) {
       void persistProject({ projectId, userId: session.user.id, title: projectTitle, prompt: version.prompt, code: version.code, messages, expectedUpdatedAt: projectUpdatedAt ?? undefined })
         .then(async (savedId) => {
@@ -929,54 +1062,21 @@ const Index = () => {
     }
   };
 
-  const manualFix = async () => {
+  const manualFix = async (issue?: string) => {
     if (!lastCode || manualFixing) return;
+    const repairIssue = (issue && issue.trim()) || "Manual Fix requested: inspect for actual syntax, import, runtime, responsive-layout, and interaction defects. Preserve requested features and design; fix only affected source files.";
     setManualFixing(true);
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 70_000);
     try {
-      const { data, error } = await supabase.functions.invoke("Appigen", {
-        body: {
-          mode: "repair",
-          provider: readGenerationSettings().provider,
-          code: lastCode,
-          error: "Manual Fix requested. Inspect the full project for actual syntax, import, runtime, responsive-layout, and interaction defects. Preserve the user's requested features and visual design. Fix issues in the correct source files; do not replace working features or collapse the project into one file.",
-        },
-        signal: controller.signal,
-      });
-      if (error) throw error;
-      if (typeof data?.code !== "string" || !data.code.trim()) {
-        throw new Error("The repair function returned no updated project code.");
-      }
-      const repairedCode = normalizeFileMarkers(data.code);
-      const validationError = validateGeneratedCode(repairedCode);
-      if (validationError) throw new Error(`The repair returned an invalid project: ${validationError}`);
-      await snapshotCode(lastCode, `Before AI repair: ${prompt || "manual fix"}`);
-      setLastCode(repairedCode);
-      setDoc(buildDocFromPrompt(prompt, repairedCode));
-
-      if (user && projectId && session?.user.id) {
+      const result = await performRepair(repairIssue, "manual");
+      if (result.ok && user && projectId && session?.user.id && lastCode) {
         try {
-          await persistProject({ projectId, userId: session.user.id, title: projectTitle, prompt, code: repairedCode, messages, expectedUpdatedAt: projectUpdatedAt ?? undefined });
-          const authoritative = await loadProject(projectId, session.user.id);
-          setProjectUpdatedAt(authoritative.updated_at);
-          setLastSyncedCode(authoritative.code);
-          lastSyncedPromptRef.current = authoritative.prompt;
-          lastSyncedTitleRef.current = authoritative.title;
-          lastSyncedMessagesRef.current = JSON.stringify(authoritative.messages);
-        } catch (saveError) {
-          toast({ title: "Fix applied, cloud save failed", description: saveError instanceof Error ? saveError.message : "Could not save the repaired project.", variant: "destructive" });
-          return;
+          const authoritativeAfter = await loadProject(projectId, session.user.id).catch(() => null);
+          await persistProject({ projectId, userId: session.user.id, title: projectTitle, prompt, code: (readProjectDraft()?.code as string | null) ?? lastCode, messages, expectedUpdatedAt: authoritativeAfter?.updated_at ?? projectUpdatedAt ?? undefined });
+        } catch {
+          // persistence is best-effort; local/preview state already reflects validated repair
         }
       }
-      toast({ title: "Fix applied", description: "The preview is refreshing. Your previous version is available to restore." });
-    } catch (error: unknown) {
-      const message = controller.signal.aborted
-        ? "AI repair timed out. Your current preview was kept unchanged."
-        : await getFunctionErrorMessage(error, "Please try again.");
-      toast({ title: "Fix failed", description: message, variant: "destructive" });
     } finally {
-      window.clearTimeout(timeout);
       setManualFixing(false);
     }
   };
@@ -1074,79 +1174,164 @@ const Index = () => {
                 </div>}
 
                 <div className={cn("flex min-h-0 flex-1 flex-col lg:flex-row", !showPreview && "justify-center")}>
-                  <section
-                    className={cn(
-                      "min-h-0 min-w-0 overflow-y-auto border-b border-border/60 lg:border-b-0 lg:border-r lg:flex",
-                      showPreview ? "lg:w-[42%]" : "lg:w-full lg:border-r-0",
-                      mobileStudioTab === "chat" ? "flex flex-1 flex-col" : "hidden lg:flex"
-                    )}
-                  >
-                    <PromptPanel
-                      prompt={prompt}
-                      onPromptChange={handlePromptChange}
-                      onBuild={handleBuild}
-                      onDownload={handleDownload}
-                      onStop={stopBuild}
-                      onNewProject={newProject}
-                      isBuilding={isBuilding}
-                      progressStage={progressStage}
-                      buildFiles={buildFiles}
-                      buildTimeline={buildTimeline}
-                      messages={messages}
-                      hasCode={Boolean(lastCode)}
-                    />
-                  </section>
-                  {showPreview && <section
-                    className={cn(
-                      "min-h-0 min-w-0 flex-1 lg:flex",
-                      mobileStudioTab === "preview" ? "flex" : "hidden lg:flex"
-                    )}
-                  >
-                    <PreviewPanel
-                      isBuilding={isBuilding}
-                      doc={doc}
-                      code={lastCode}
-                      workingCode={workingCode}
-                      baseCode={changeBaseCode}
-                      versions={versions}
-                      onRestoreVersion={restoreVersion}
-                      onDeleteVersion={deleteVersion}
-                      onClearVersions={() => void clearVersions()}
-                      onManualFix={manualFix}
-                      fixing={manualFixing}
-                      onCodeChange={(newCode) => {
-                        repairAttemptsRef.current = 0;
-                        lastReportedRef.current = "";
-                        isRepairingRef.current = false;
-                        void (async () => {
-                          try {
-                            await snapshotCode(lastCode, `Before code editor save: ${prompt || "manual edit"}`);
-                          } catch (error) {
-                            toast({ title: "Version snapshot failed", description: error instanceof Error ? error.message : "Could not preserve the current version.", variant: "destructive" });
-                          }
-                          setLastCode(newCode);
-                          setDoc(buildDocFromPrompt(prompt, newCode));
-                          if (user && session?.user.id && projectId) {
-                            try {
-                              await persistProject({ projectId, userId: session.user.id, title: projectTitle, prompt, code: newCode, messages, expectedUpdatedAt: projectUpdatedAt ?? undefined });
-                              const authoritative = await loadProject(projectId, session.user.id);
-                              setProjectUpdatedAt(authoritative.updated_at);
-                              setLastSyncedCode(authoritative.code);
-                              lastSyncedPromptRef.current = authoritative.prompt;
-                              lastSyncedTitleRef.current = authoritative.title;
-                              lastSyncedMessagesRef.current = JSON.stringify(authoritative.messages);
-                            } catch (error) {
-                              toast({
-                                title: "Cloud save failed",
-                                description: error instanceof Error ? error.message : "Could not save the project to your account.",
-                                variant: "destructive",
-                              });
-                            }
-                          }
-                        })();
-                      }}
-                    />
-                  </section>}
+                  {!showPreview ? (
+                    <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto lg:flex lg:w-full">
+                      <PromptPanel
+                        prompt={prompt}
+                        onPromptChange={handlePromptChange}
+                        onBuild={handleBuild}
+                        onDownload={handleDownload}
+                        onStop={stopBuild}
+                        onNewProject={newProject}
+                        isBuilding={isBuilding}
+                        progressStage={progressStage}
+                        buildFiles={buildFiles}
+                        buildTimeline={buildTimeline}
+                        messages={messages}
+                        hasCode={Boolean(lastCode)}
+                      />
+                    </section>
+                  ) : (
+                    <>
+                      <ResizablePanelGroup direction="horizontal" className="hidden min-h-0 flex-1 lg:flex">
+                        <ResizablePanel defaultSize={42} minSize={28} className="min-w-0">
+                          <section className="flex h-full min-h-0 min-w-0 flex-col overflow-y-auto border-r border-border/60">
+                            <PromptPanel
+                              prompt={prompt}
+                              onPromptChange={handlePromptChange}
+                              onBuild={handleBuild}
+                              onDownload={handleDownload}
+                              onStop={stopBuild}
+                              onNewProject={newProject}
+                              isBuilding={isBuilding}
+                              progressStage={progressStage}
+                              buildFiles={buildFiles}
+                              buildTimeline={buildTimeline}
+                              messages={messages}
+                              hasCode={Boolean(lastCode)}
+                            />
+                          </section>
+                        </ResizablePanel>
+                        <ResizableHandle withHandle className="bg-border/60" />
+                        <ResizablePanel defaultSize={58} minSize={32} className="min-w-0">
+                          <section className="flex h-full min-h-0 min-w-0 flex-1">
+                            <PreviewPanel
+                              isBuilding={isBuilding}
+                              doc={doc}
+                              code={lastCode}
+                              workingCode={workingCode}
+                              baseCode={changeBaseCode}
+                              versions={versions}
+                              onRestoreVersion={restoreVersion}
+                              onDeleteVersion={deleteVersion}
+                              onClearVersions={() => void clearVersions()}
+                              onManualFix={manualFix}
+                              fixing={manualFixing}
+                              quality={qualityState}
+                              onRunQuality={() => void runQualityChecks()}
+                              qualityRunning={qualityRunning}
+                              onRollbackRepair={(attempt) => void rollbackRepairAttempt(attempt)}
+                              onCodeChange={(newCode) => {
+                                lastReportedRef.current = "";
+                                isRepairingRef.current = false;
+                                runtimeIssuesRef.current = [];
+                                refreshQuality({ code: newCode, runtimeErrors: [] });
+                                void (async () => {
+                                  try {
+                                    await snapshotCode(lastCode, `Before code editor save: ${prompt || "manual edit"}`);
+                                  } catch (error) {
+                                    toast({ title: "Version snapshot failed", description: error instanceof Error ? error.message : "Could not preserve the current version.", variant: "destructive" });
+                                  }
+                                  setLastCode(newCode);
+                                  setWorkingCode(newCode);
+                                  setDoc(buildDocFromPrompt(prompt, newCode));
+                                  if (user && session?.user.id && projectId) {
+                                    try {
+                                      await persistProject({ projectId, userId: session.user.id, title: projectTitle, prompt, code: newCode, messages, expectedUpdatedAt: projectUpdatedAt ?? undefined });
+                                      const authoritative = await loadProject(projectId, session.user.id);
+                                      setProjectUpdatedAt(authoritative.updated_at);
+                                      setLastSyncedCode(authoritative.code);
+                                      lastSyncedPromptRef.current = authoritative.prompt;
+                                      lastSyncedTitleRef.current = authoritative.title;
+                                      lastSyncedMessagesRef.current = JSON.stringify(authoritative.messages);
+                                    } catch (error) {
+                                      toast({ title: "Cloud save failed", description: error instanceof Error ? error.message : "Could not save the project to your account.", variant: "destructive" });
+                                    }
+                                  }
+                                })();
+                              }}
+                            />
+                          </section>
+                        </ResizablePanel>
+                      </ResizablePanelGroup>
+                      <div className="flex min-h-0 flex-1 flex-col lg:hidden">
+                        <section className={cn("min-h-0 min-w-0 overflow-y-auto border-b border-border/60", mobileStudioTab === "chat" ? "flex flex-1 flex-col" : "hidden")}>
+                          <PromptPanel
+                            prompt={prompt}
+                            onPromptChange={handlePromptChange}
+                            onBuild={handleBuild}
+                            onDownload={handleDownload}
+                            onStop={stopBuild}
+                            onNewProject={newProject}
+                            isBuilding={isBuilding}
+                            progressStage={progressStage}
+                            buildFiles={buildFiles}
+                            buildTimeline={buildTimeline}
+                            messages={messages}
+                            hasCode={Boolean(lastCode)}
+                          />
+                        </section>
+                        <section className={cn("min-h-0 min-w-0 flex-1", mobileStudioTab === "preview" ? "flex" : "hidden")}>
+                          <PreviewPanel
+                            isBuilding={isBuilding}
+                            doc={doc}
+                            code={lastCode}
+                            workingCode={workingCode}
+                            baseCode={changeBaseCode}
+                            versions={versions}
+                            onRestoreVersion={restoreVersion}
+                            onDeleteVersion={deleteVersion}
+                            onClearVersions={() => void clearVersions()}
+                            onManualFix={manualFix}
+                            fixing={manualFixing}
+                            quality={qualityState}
+                            onRunQuality={() => void runQualityChecks()}
+                            qualityRunning={qualityRunning}
+                            onRollbackRepair={(attempt) => void rollbackRepairAttempt(attempt)}
+                            onCodeChange={(newCode) => {
+                              lastReportedRef.current = "";
+                              isRepairingRef.current = false;
+                              runtimeIssuesRef.current = [];
+                              refreshQuality({ code: newCode, runtimeErrors: [] });
+                              void (async () => {
+                                try {
+                                  await snapshotCode(lastCode, `Before code editor save: ${prompt || "manual edit"}`);
+                                } catch (error) {
+                                  toast({ title: "Version snapshot failed", description: error instanceof Error ? error.message : "Could not preserve the current version.", variant: "destructive" });
+                                }
+                                setLastCode(newCode);
+                                setWorkingCode(newCode);
+                                setDoc(buildDocFromPrompt(prompt, newCode));
+                                if (user && session?.user.id && projectId) {
+                                  try {
+                                    await persistProject({ projectId, userId: session.user.id, title: projectTitle, prompt, code: newCode, messages, expectedUpdatedAt: projectUpdatedAt ?? undefined });
+                                    const authoritative = await loadProject(projectId, session.user.id);
+                                    setProjectUpdatedAt(authoritative.updated_at);
+                                    setLastSyncedCode(authoritative.code);
+                                    lastSyncedPromptRef.current = authoritative.prompt;
+                                    lastSyncedTitleRef.current = authoritative.title;
+                                    lastSyncedMessagesRef.current = JSON.stringify(authoritative.messages);
+                                  } catch (error) {
+                                    toast({ title: "Cloud save failed", description: error instanceof Error ? error.message : "Could not save the project to your account.", variant: "destructive" });
+                                  }
+                                }
+                              })();
+                            }}
+                          />
+                        </section>
+                      </div>
+                    </>
+                  )}
                 </div>
               </>
             )}
@@ -1181,9 +1366,11 @@ const Index = () => {
                       setWorkingCode(project.code);
                       setMessages(project.messages);
                       setVersions(projectVersions);
-                      repairAttemptsRef.current = 0;
                       lastReportedRef.current = "";
                       isRepairingRef.current = false;
+                      runtimeIssuesRef.current = [];
+                      repairAttemptsRefState.current = [];
+                      setQualityState(buildQualityState({ code: project.code || "", prompt: project.prompt || "" }));
                       setDoc(buildDocFromPrompt(project.prompt, project.code));
                       setView("studio");
                       setMobileStudioTab("preview");
@@ -1197,6 +1384,7 @@ const Index = () => {
             )}
             {view === "templates" && <TemplatesPage onNavigate={setView} onUseTemplate={(templatePrompt) => { handlePromptChange(templatePrompt); setView("studio"); }} />}
             {view === "api" && <ApiSettingsPage />}
+            {view === "backend" && <BackendDeployPage projectId={projectId} projectTitle={projectTitle} />}
             {view === "pricing" && <PricingPage />}
           </main>
         </div>
@@ -1210,7 +1398,7 @@ const Index = () => {
       />
       <PricingModal open={pricingOpen} onClose={() => setPricingOpen(false)} />
       <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      <GithubModal open={githubOpen} onClose={() => setGithubOpen(false)} code={lastCode} projectTitle={projectTitle} />
+      <GithubModal open={githubOpen} onClose={() => setGithubOpen(false)} code={lastCode} projectTitle={projectTitle} projectKey={chatKey} />
 
       <footer className="flex h-9 shrink-0 items-center justify-between border-t border-border/60 bg-background/60 px-6 text-[11px] text-muted-foreground backdrop-blur-xl">
         <div className="flex items-center gap-3">
