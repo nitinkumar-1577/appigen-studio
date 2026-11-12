@@ -147,7 +147,10 @@ const Index = () => {
   const [manualFixing, setManualFixing] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const previousUserRef = useRef(false);
-  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [workspaceSidebarOpen, setWorkspaceSidebarOpen] = useState(() => {
+    const hasProject = Boolean(initialState.projectId || initialState.code);
+    return !hasProject;
+  });
   const [mobileStudioTab, setMobileStudioTab] = useState<"chat" | "preview">(initialState.mobileTab);
   const [qualityState, setQualityState] = useState<QualityState>(emptyQualityState());
   const [qualityRunning, setQualityRunning] = useState(false);
@@ -155,6 +158,15 @@ const Index = () => {
   const repairAttemptsRefState = useRef<RepairAttempt[]>([]);
   const showPreview = Boolean(lastCode) || isGeneratingApp;
   const promptActivityTimer = useRef<number | undefined>(undefined);
+
+  const navigateView = (next: ViewKey) => {
+    if (next === "studio") {
+      // Keep sidebar state as-is for studio navigation unless caller specifies; opening project flows collapse explicitly.
+    } else {
+      setWorkspaceSidebarOpen(true);
+    }
+    setView(next);
+  };
 
   useEffect(() => {
     if (!isBuilding && !partialBuildRef.current) setWorkingCode(lastCode);
@@ -526,6 +538,10 @@ const Index = () => {
       setVersions([]);
       setProjectTitle(suggestProjectTitle(trimmed));
       setTitleManuallyEdited(false);
+    }
+    if (!questionMode) {
+      setView("studio");
+      setWorkspaceSidebarOpen(false);
     }
     setMobileStudioTab(questionMode ? "chat" : "preview");
     setProgressStage("Understanding request");
@@ -924,7 +940,7 @@ const Index = () => {
     if (!window.confirm("Start a new project? Your current chat and code will be cleared.")) return;
     abortRef.current?.abort();
     if (chatKey === "local:current") clearLocalVersions(chatKey);
-    setProjectId(null); setProjectTitle("Untitled Project"); setTitleManuallyEdited(false); setPrompt(""); setLastCode(null); setWorkingCode(null); setChangeBaseCode(null); setBuildFiles([]); setBuildTimeline([]); partialBuildRef.current = null; setMessages([]); setVersions([]); runtimeIssuesRef.current = []; repairAttemptsRefState.current = []; setQualityState(emptyQualityState()); setDoc(buildDocFromPrompt("")); setView("studio"); setMobileStudioTab("chat"); setIsGeneratingApp(false); discardProjectDraft();
+    setProjectId(null); setProjectTitle("Untitled Project"); setTitleManuallyEdited(false); setPrompt(""); setLastCode(null); setWorkingCode(null); setChangeBaseCode(null); setBuildFiles([]); setBuildTimeline([]); partialBuildRef.current = null; setMessages([]); setVersions([]); runtimeIssuesRef.current = []; repairAttemptsRefState.current = []; setQualityState(emptyQualityState()); setDoc(buildDocFromPrompt("")); setView("studio"); setMobileStudioTab("chat"); setIsGeneratingApp(false); setWorkspaceSidebarOpen(true); discardProjectDraft();
   };
 
   const snapshotCode = async (code: string | null, action: string) => {
@@ -988,6 +1004,7 @@ const Index = () => {
     setView("studio");
     setMobileStudioTab("chat");
     setIsGeneratingApp(false);
+    setWorkspaceSidebarOpen(true);
   };
 
   const deleteVersion = async (version: LocalProjectVersion) => {
@@ -1089,28 +1106,34 @@ const Index = () => {
     );
   }
 
+  const sidebarOverlay = view === "studio" && (Boolean(projectId) || Boolean(lastCode) || isGeneratingApp || messages.length > 0);
+
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
       <div className="flex flex-1 overflow-hidden">
         <Sidebar
           active={view}
-          onChange={setView}
+          onChange={navigateView}
           onOpenSettings={() => setSettingsOpen(true)}
           onOpenSignIn={() => setAuthOpen(true)}
           onOpenPricing={() => setPricingOpen(true)}
           isBuilding={isBuilding}
           progressStage={progressStage}
-          mobileOpen={mobileNavOpen}
-          onMobileClose={() => setMobileNavOpen(false)}
+          overlay={sidebarOverlay}
+          open={workspaceSidebarOpen}
+          onOpenChange={setWorkspaceSidebarOpen}
         />
 
         <div className="flex flex-1 flex-col overflow-hidden min-w-0">
           <header className="relative z-30 flex h-14 sm:h-16 shrink-0 items-center justify-between gap-2 border-b border-border/60 bg-background/40 px-3 sm:px-6 backdrop-blur-xl">
             <div className="flex min-w-0 items-center gap-2 sm:gap-3">
               <button
-                onClick={() => setMobileNavOpen(true)}
-                aria-label="Open menu"
-                className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-smooth hover:bg-secondary hover:text-foreground md:hidden"
+                onClick={() => setWorkspaceSidebarOpen(true)}
+                aria-label="Open workspace navigation"
+                className={cn(
+                  "flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-smooth hover:bg-secondary hover:text-foreground",
+                  !sidebarOverlay && "md:hidden",
+                )}
               >
                 <Menu className="h-5 w-5" />
               </button>
@@ -1335,10 +1358,10 @@ const Index = () => {
                 </div>
               </>
             )}
-            {view === "dashboard" && <DashboardPage userId={session?.user.id ?? null} onNavigate={setView} onOpenSignIn={() => setAuthOpen(true)} />}
+            {view === "dashboard" && <DashboardPage userId={session?.user.id ?? null} onNavigate={navigateView} onOpenSignIn={() => setAuthOpen(true)} />}
             {view === "apps" && (
               <MyAppsPage
-                onNavigate={setView}
+                onNavigate={navigateView}
                 onOpenSignIn={() => setAuthOpen(true)}
                 onOpenProject={(p) => {
                   if (!session?.user.id) {
@@ -1373,6 +1396,7 @@ const Index = () => {
                       setQualityState(buildQualityState({ code: project.code || "", prompt: project.prompt || "" }));
                       setDoc(buildDocFromPrompt(project.prompt, project.code));
                       setView("studio");
+                      setWorkspaceSidebarOpen(false);
                       setMobileStudioTab("preview");
                       toast({ title: "Project loaded", description: project.title });
                     } catch (error) {
@@ -1382,7 +1406,7 @@ const Index = () => {
                 }}
               />
             )}
-            {view === "templates" && <TemplatesPage onNavigate={setView} onUseTemplate={(templatePrompt) => { handlePromptChange(templatePrompt); setView("studio"); }} />}
+            {view === "templates" && <TemplatesPage onNavigate={navigateView} onUseTemplate={(templatePrompt) => { handlePromptChange(templatePrompt); setView("studio"); setWorkspaceSidebarOpen(true); }} />}
             {view === "api" && <ApiSettingsPage />}
             {view === "backend" && <BackendDeployPage projectId={projectId} projectTitle={projectTitle} />}
             {view === "pricing" && <PricingPage />}
