@@ -18,11 +18,11 @@ describe("AppiGen preferences", () => {
   });
 
   it("persists appearance and model preferences across reloads", () => {
-    saveAppPreferences({ ...DEFAULT_PREFERENCES, theme: "system", density: "Compact", autoDraft: false, provider: "deepseek", model: "openai/gpt-oss-20b" });
-    saveGenerationSettings({ ...DEFAULT_GENERATION_SETTINGS, provider: "deepseek", model: "openai/gpt-oss-20b" });
+    saveAppPreferences({ ...DEFAULT_PREFERENCES, theme: "system", density: "Compact", autoDraft: false, provider: "groq", model: "openai/gpt-oss-20b" });
+    saveGenerationSettings({ ...DEFAULT_GENERATION_SETTINGS, provider: "groq", model: "openai/gpt-oss-20b" });
 
-    expect(readAppPreferences()).toMatchObject({ theme: "system", density: "Compact", autoDraft: false, provider: "deepseek", model: "openai/gpt-oss-20b" });
-    expect(readGenerationSettings()).toMatchObject({ provider: "deepseek", model: "openai/gpt-oss-20b" });
+    expect(readAppPreferences()).toMatchObject({ theme: "system", density: "Compact", autoDraft: false, provider: "groq", model: "openai/gpt-oss-20b" });
+    expect(readGenerationSettings()).toMatchObject({ provider: "groq", model: "openai/gpt-oss-20b" });
     expect(localStorage.getItem("appigen.preferences.v1")).not.toContain("API_KEY");
     expect(localStorage.getItem("appigen.generation-settings.v1")).not.toContain("API_KEY");
   });

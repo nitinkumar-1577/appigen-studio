@@ -1,4 +1,4 @@
-export const PROVIDER_NAMES = ["groq", "deepseek", "openrouter", "gemini", "openai", "nvidia"] as const;
+export const PROVIDER_NAMES = ["groq", "nvidia", "gemini"] as const;
 export const ACTIVE_PROVIDER_NAMES = PROVIDER_NAMES;
 export type ProviderName = (typeof PROVIDER_NAMES)[number];
 
@@ -31,6 +31,7 @@ export interface ProviderConfig {
 }
 
 export const PROVIDER_CATALOG: Record<ProviderName, ProviderConfig> = {
+
   groq: {
     name: "groq",
     label: "Groq",
@@ -43,60 +44,43 @@ export const PROVIDER_CATALOG: Record<ProviderName, ProviderConfig> = {
     supportsModelListing: true,
     protocol: "openai",
   },
-  deepseek: {
-    name: "deepseek",
-    label: "DeepSeek",
-    secretNames: ["DEEPSEEK-API-KEY", "DEEPSEEK_API_KEY"],
-    baseUrl: "https://api.deepseek.com",
-    models: [
-      { id: "deepseek-flash", label: "DeepSeek Flash" },
-      { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro", default: true },
-    ],
-    supportsModelListing: true,
-    protocol: "openai",
-  },
-  openrouter: {
-    name: "openrouter",
-    label: "OpenRouter",
-    secretNames: ["OPENROUTER_API_KEY"],
-    baseUrl: "https://openrouter.ai/api/v1",
-    models: [{ id: "openai/gpt-4o-mini", label: "OpenAI GPT-4o Mini", default: true }],
-    supportsModelListing: true,
-    protocol: "openai",
-  },
+
+
   gemini: {
     name: "gemini",
     label: "Gemini",
     secretNames: ["GEMINI_API_KEY"],
     baseUrl: "https://generativelanguage.googleapis.com/v1beta",
-    models: [{ id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", default: true }],
+    models: [
+      { id: "gemini-3.8-flash", label: "Gemini 3.8 Flash", default: true },
+      { id: "gemini-3.6-flash", label: "Gemini 3.6 Flash" },
+      { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
+      { id: "gemini-3.1-flash-lite", label: "Gemini 3.1 Flash Lite" },
+    ],
     supportsModelListing: true,
     protocol: "gemini",
   },
-  openai: {
-    name: "openai",
-    label: "OpenAI",
-    secretNames: ["OPENAI_API_KEY"],
-    baseUrl: "https://api.openai.com/v1",
-    models: [{ id: "gpt-4o-mini", label: "GPT-4o Mini", default: true }],
-    supportsModelListing: true,
-    protocol: "openai",
-  },
+
   nvidia: {
     name: "nvidia",
     label: "NVIDIA NIM",
     secretNames: ["NVIDIA_API_KEY"],
     baseUrl: "https://integrate.api.nvidia.com/v1",
     models: [
-      { id: "mistralai/mistral-large-4-1t-a52b", label: "Mistral Large 4 1T A52B", default: true },
+      { id: "nvidia/nemotron-3.5-lightning-30b-a3b", label: "Nemotron 3.5 Lightning 30B", default: true },
+      { id: "nvidia/llama-3.1-nemotron-51b-instruct", label: "Nemotron 51B" },
+      { id: "nvidia/nemotron-4-340b-instruct", label: "Nemotron 4 340B" },
+      { id: "nvidia/mistral-nemo-minitron-8b-8k-instruct", label: "Mistral Nemo Minitron 8B" },
     ],
     supportsModelListing: true,
     protocol: "openai",
   },
 };
 
+export const DEFAULT_PROVIDER: ProviderName = "groq";
+
 export function getProvider(value: unknown): ProviderName {
-  return PROVIDER_NAMES.includes(value as ProviderName) ? value as ProviderName : "groq";
+  return ACTIVE_PROVIDER_NAMES.includes(value as ProviderName) ? value as ProviderName : DEFAULT_PROVIDER;
 }
 
 export function getProviderConfig(provider: ProviderName): ProviderConfig {

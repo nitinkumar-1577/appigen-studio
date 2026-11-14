@@ -56,10 +56,12 @@ export const loadProject = async (projectId: string, userId: string): Promise<St
     code: Object.keys(fileMap).length && !parsedCode ? formatFileMarkers(fileMap) : data.code,
     files,
     messages: Array.isArray(data.messages)
-      ? data.messages.filter((entry): entry is ChatMessage =>
-        typeof entry === "object" && entry !== null && !Array.isArray(entry) &&
-        (entry.role === "user" || entry.role === "assistant") &&
-        typeof entry.content === "string" && typeof entry.timestamp === "number")
+      ? (data.messages as unknown[]).filter((entry): entry is ChatMessage => {
+        if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return false;
+        const message = entry as Record<string, unknown>;
+        return (message.role === "user" || message.role === "assistant")
+          && typeof message.content === "string" && typeof message.timestamp === "number";
+      })
       : [],
   };
 };
@@ -231,6 +233,15 @@ export const loadProjectActivity = async (userId: string): Promise<ActivityEntry
     ...(entry.duration_ms === null ? {} : { durationMs: entry.duration_ms }),
     ...(entry.prompt_characters === null ? {} : { promptCharacters: entry.prompt_characters }),
   }));
+};
+
+export const persistProjectThumbnail = async (projectId: string, userId: string, thumbnail: string): Promise<void> => {
+  const { error } = await supabase.from("projects")
+    .update({ thumbnail })
+    .eq("id", projectId)
+    .eq("user_id", userId)
+    .is("deleted_at", null);
+  if (error) throw error;
 };
 
 export const loadProjectVersions = async (projectId: string, userId: string): Promise<LocalProjectVersion[]> => {

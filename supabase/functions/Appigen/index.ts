@@ -15,6 +15,7 @@ import {
   getProvider,
   getProviderConfig,
   PROVIDER_NAMES,
+  ACTIVE_PROVIDER_NAMES,
   secretNamesFor,
   classifyProviderStatus,
   type ProviderName,
@@ -87,7 +88,10 @@ CODE RULES:
 - Implement every explicitly requested feature and expose requested results in the UI; do not leave calculated outputs implicit in internal state or omit named summary metrics.
 - Before returning, check that each requested control, calculation, edge case, and visible result is represented in the generated app.
 - Include loading, empty, and error states where relevant.
-- Build a distinctive, polished visual design that fits the user's app and prompt. Define app-specific design tokens and custom CSS in src/styles.css; use Tailwind for layout and utility styling where useful. Avoid generic dashboard/card boilerplate unless requested.
+- Build a distinctive, polished visual design that fits the user's app and prompt.
+- Make the first viewport feel like a finished professional product: intentional page composition, strong typography hierarchy, balanced whitespace, layered backgrounds, a clear primary action, and a coherent accent palette. Never default to a blank white page or a pile of identical cards.
+- Implement the whole requested flow, not just its appearance: working navigation, buttons, forms, filters, menus, tabs, validation, state updates, and meaningful loading/empty/error/success feedback. Never use dead links or decorative controls.
+- When imagery materially improves the product, commerce, travel, food, or editorial app, include real subject-matched image URLs, descriptive alt text, lazy loading, and a graceful fallback; never leave image slots empty. Never invent or guess image CDN IDs. Use only these pre-verified Unsplash IDs when they match the subject: home/furniture/interiors photo-1600210492486-724fe5c67fb0, photo-1600607687939-ce8a6c25118c, photo-1616486338812-3dadae4b4ace, photo-1555041469-a586c61ea9bc, photo-1505693416388-ac5ce068fe85, photo-1615874694520-474822394e73; fashion photo-1483985988355-763728e1935b, photo-1515886657613-9f3515b0c78f; food photo-1504674900247-0877df9cc836, photo-1540189549336-e6e99c3679fe, photo-1476224203421-9ac39bcb3327; technology photo-1519389950473-47ba0277781c, photo-1518770660439-4636190af475. Use https://images.unsplash.com/{id}?auto=format&fit=crop&w=1200&q=80. Never reuse a stationery photo for furniture, food, fashion, or technology. If no subject-matched verified ID exists, use a designed gradient/illustration rather than a random photo. Define app-specific design tokens and custom CSS in src/styles.css; use Tailwind for layout and utility styling where useful. Avoid generic dashboard/card boilerplate unless requested.
 - Match the visual language to the product domain: games need a deliberate board/playfield, clear player identity, readable turns/status, and controls that fit the play area; dashboards need information hierarchy and usable dense data; editorial and commerce apps need their own appropriate composition.
 - Treat the design plan as a build requirement. For board games, draw the recognizable complete board with its real geometry, colored regions, paths, safe/home areas, and visible pieces; do not replace the board with a generic row/column list. For action games, make a substantial playfield with visible actors, obstacles, and feedback.
 - Before returning, perform a requirement-by-requirement product review. Every requested control must cause a meaningful state change; game turns and legal moves must be represented by real domain rules, not decorative button states.
@@ -237,22 +241,39 @@ function isMultiFile(src: string): boolean {
   return /^\s*\/\/\s*FILE:/m.test(src || "");
 }
 
-function validatePlannedFiles(source: string, implementationPlan: unknown): string | null {
-  const expected = isRecord(implementationPlan) && Array.isArray(implementationPlan.fileBlueprint)
-    ? implementationPlan.fileBlueprint
-      .filter((file): file is Record<string, unknown> => isRecord(file) && typeof file.path === "string")
-      .map((file) => file.path as string)
-    : [];
-  if (!expected.length) return "The implementation plan has no project file blueprint.";
-  const actual = new Set([...source.matchAll(/^\s*\/\/\s*FILE:\s*([^\n]+)\s*$/gm)].map((match) => match[1].trim()));
-  const essential = expected.filter((path) => /src\/App\.(tsx|jsx)$/.test(path) || /src\/styles\.css$/.test(path));
-  const missingEssential = essential.filter((path) => !actual.has(path));
-  if (missingEssential.length) return `The generated project is missing essential planned files: ${missingEssential.join(", ")}.`;
+export function validatePlannedFiles(
+  source: string,
+  implementationPlan: unknown,
+): string | null {
+  const expected =
+    isRecord(implementationPlan) &&
+    Array.isArray(implementationPlan.fileBlueprint)
+      ? implementationPlan.fileBlueprint
+          .filter(
+            (file): file is Record<string, unknown> =>
+              isRecord(file) && typeof file.path === "string",
+          )
+          .map((file) => file.path as string)
+      : [];
+
+  if (!expected.length) {
+    return "The implementation plan has no project file blueprint.";
+  }
+
+  const actual = new Set(
+    [...source.matchAll(/^\s*\/\/\s*FILE:\s*([^\n]+)\s*$/gm)].map(
+      (match) => match[1].trim(),
+    ),
+  );
+
   const missing = expected.filter((path) => !actual.has(path));
-  if (missing.length && missing.length === expected.length) return `The generated project is missing planned files: ${missing.join(", ")}.`;
+
+  if (missing.length) {
+    return `The generated project is missing planned files: ${missing.join(", ")}.`;
+  }
+
   return null;
 }
-
 
 
 export function providerRequestBody(provider: ProviderName, body: Record<string, unknown>) {
@@ -279,7 +300,7 @@ export function providerRequestBody(provider: ProviderName, body: Record<string,
       },
     };
   }
-  if (provider === "deepseek" || provider === "nvidia") {
+  if (provider === "nvidia") {
     const { max_completion_tokens: maxCompletionTokens, ...compatibleBody } = body;
     return { ...compatibleBody, max_tokens: body.max_tokens ?? maxCompletionTokens, stream: false };
   }
@@ -305,9 +326,10 @@ async function completeChat(
         ? `${config.baseUrl}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`
         : `${config.baseUrl}/chat/completions`;
       const requestBody = providerRequestBody(provider, body);
+      const headers: Record<string, string> = { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" };
       res = await fetch(url, {
         method: "POST",
-        headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(requestBody),
         signal: controller.signal,
       });
@@ -662,8 +684,8 @@ export function relevantProjectSource(source: string, prompt: string): string {
 }
 
 export function outputTokenBudget(provider: ProviderName, inputCharacters = 0): number {
-  if (provider === "groq") return Math.min(3000, Math.max(1000, Math.ceil(inputCharacters / 3)));
-  if (provider === "nvidia") return 4096;
+  if (provider === "groq") return Math.min(12000, Math.max(4000, Math.ceil(inputCharacters / 2)));
+  if (provider === "nvidia") return Math.min(8192, Math.max(4096, Math.ceil(inputCharacters / 2)));
   if (provider === "gemini") return 16000;
   return 12000;
 }
@@ -706,6 +728,8 @@ function enhanceAndPlan(_apiKey: string, userPrompt: string, stage?: string, exi
 
   return {
     enhancedPrompt,
+    title: spec.purpose.slice(0, 80),
+    explanation: spec.purpose.slice(0, 400),
     appType: spec.category,
     pages: arch.pages.map((file) => file.path),
     components: arch.components.map((file) => `${file.path} — ${file.purpose}`),
@@ -717,12 +741,16 @@ function enhanceAndPlan(_apiKey: string, userPrompt: string, stage?: string, exi
     _intent: { goal: spec.purpose, appType: spec.category, domain: spec.category, complexity: spec.complexity },
     _requirements: { functional: spec.functionalFeatures, nonFunctional: implementationPlan.qualityChecks, edgeCases: spec.edgeCases, uxStates: spec.errorHandling },
     _architecture: arch,
-    implementationPlan,
+    implementationPlan: {
+      ...implementationPlan,
+      title: spec.purpose.slice(0, 80),
+      explanation: spec.purpose.slice(0, 400),
+    },
   };
 }
 
 
-type ContextBrief = { understandingText: string; memoryText: string; changeText: string };
+type ContextBrief = { understandingText: string; memoryText: string; changeText: string; followUpText: string };
 
 function projectContextBrief(existingCode: string | undefined, prompt: string, body: Record<string, unknown>): ContextBrief {
   const understandingText = typeof body.projectUnderstanding === "string" && body.projectUnderstanding.trim()
@@ -735,7 +763,8 @@ function projectContextBrief(existingCode: string | undefined, prompt: string, b
       })() : "");
   const memoryText = typeof body.projectMemory === "string" ? String(body.projectMemory).slice(0, 6000) : "";
   const changeText = typeof body.changeSummary === "string" ? String(body.changeSummary).slice(0, 3000) : "";
-  return { understandingText, memoryText, changeText };
+  const followUpText = typeof body.followUp === "string" ? String(body.followUp).slice(0, 1200) : "";
+  return { understandingText, memoryText, changeText, followUpText };
 }
 
 function responseLanguageContract(body: Record<string, unknown>): string {
@@ -749,7 +778,7 @@ function responseLanguageContract(body: Record<string, unknown>): string {
 function modelForTask(configured: string[], preferred: string | undefined, fallback: string, role: "planning" | "coding" | "review" | "chat" | "repair", complexity?: string): string {
   if (preferred && configured.includes(preferred)) return preferred;
   const wantSmart = role === "planning" || role === "review" || complexity === "complex";
-  const smart = configured.find((m) => /120b|pro|large|4o(?!-mini)|flash-thinking|reason/i.test(m) && !/mini|20b/i.test(m));
+  const smart = configured.find((m) => /120b|pro|large|4o(?!-mini)|flash-thinking|reason|gpt-5|opus|sonnet/i.test(m) && !/mini|20b|flash(?!-thinking)/i.test(m));
   const fast = configured.find((m) => /mini|20b|flash(?!-thinking)/i.test(m)) ?? configured[0];
   if (wantSmart && smart) return smart;
   if (fast) return fast;
@@ -770,8 +799,8 @@ async function createModelAssistedPlan(providers: Providers, preferred: Provider
         top_p: 1,
         max_completion_tokens: 1600,
         messages: [
-          { role: "system", content: `Refine an adaptive software implementation plan. ${responseLanguageContract({ responseLanguage: context?.responseLanguage })} Return strict JSON only with keys: intent, steps, designDirection, qualityChecks, fileBlueprint, assumptions, clarificationNeeded. fileBlueprint is an ordered array of {path,purpose}. Do not invent or remove explicit requirements. Keep fileBlueprint proportional to product complexity and include only necessary files. Do not generate source code.` },
-          { role: "user", content: `Original request:\n${prompt}\n\nDetected intent: ${context?.intent ?? "build"}\n\nProject understanding:\n${context?.understandingText || "(none)"}\n\nProject memory:\n${context?.memoryText || "(none)"}\n\nRecent changes:\n${context?.changeText || "(none)"}\n\nRecent conversation:\n${conversation.slice(-6).map((turn) => `${turn.role}: ${turn.content}`).join("\n") || "(none)"}\n\nExisting files/source:\n${(existingCode ?? "(new project)").slice(0, 10000)}\n\nDeterministic plan (authoritative specification/requirements/traceability):\n${JSON.stringify({ intent: fallback.intent, requirements: fallback.requirements, requirementTrace: fallback.requirementTrace, specification: fallback.specification, architecture: fallback.architecture, fileBlueprint: fallback.fileBlueprint, assumptions: fallback.assumptions, clarificationNeeded: fallback.clarificationNeeded })}` },
+          { role: "system", content: `Refine an adaptive software implementation plan. ${responseLanguageContract({ responseLanguage: context?.responseLanguage })} Return strict JSON only with keys: title, explanation, intent, steps, designDirection, qualityChecks, fileBlueprint, assumptions, clarificationNeeded. title is a short product name (2-5 words, no quotes, no "App" suffix unless natural). explanation is one or two sentences describing what will be built and why. fileBlueprint is an ordered array of {path,purpose}. Do not invent or remove explicit requirements. Keep fileBlueprint proportional to product complexity and include only necessary files. Do not generate source code.` },
+          { role: "user", content: `Original request:\n${prompt}\n\nDetected intent: ${context?.intent ?? "build"}\n\nProject understanding:\n${context?.understandingText || "(none)"}\n\nProject memory:\n${context?.memoryText || "(none)"}\n\nRecent changes:\n${context?.changeText || "(none)"}\n\nFollow-up context (resolve references to previous work):\n${context?.followUpText || "(none)"}\n\nRecent conversation:\n${conversation.slice(-6).map((turn) => `${turn.role}: ${turn.content}`).join("\n") || "(none)"}\n\nExisting files/source:\n${(existingCode ?? "(new project)").slice(0, 10000)}\n\nDeterministic plan (authoritative specification/requirements/traceability):\n${JSON.stringify({ intent: fallback.intent, requirements: fallback.requirements, requirementTrace: fallback.requirementTrace, specification: fallback.specification, architecture: fallback.architecture, fileBlueprint: fallback.fileBlueprint, assumptions: fallback.assumptions, clarificationNeeded: fallback.clarificationNeeded })}` },
         ],
       }, { retries: 0, timeoutMs: Math.min(18000, timeoutMs) });
       const text = extractChatCompletionCode(response, providerLabel(candidate), planModel).trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
@@ -807,6 +836,8 @@ async function createModelAssistedPlan(providers: Providers, preferred: Provider
     }));
     return {
       ...fallback,
+      title: typeof candidate.title === "string" && candidate.title.trim() ? candidate.title.trim().replace(/^["']|["']$/g, "").slice(0, 80) : fallback.title,
+      explanation: typeof candidate.explanation === "string" && candidate.explanation.trim() ? candidate.explanation.trim().slice(0, 400) : fallback.explanation,
       intent: typeof candidate.intent === "string" ? candidate.intent.slice(0, 300) : fallback.intent,
       steps: implementationSteps.map((step) => `${step.title}: ${step.description}`),
       implementationSteps,
@@ -1047,22 +1078,12 @@ export function createItem(title) {
 
 export interface Providers {
   groqKey?: string;
-  deepseekKey?: string;
-  openrouterKey?: string;
-  geminiKey?: string;
-  openaiKey?: string;
   nvidiaKey?: string;
+  geminiKey?: string;
 }
 
 const providerKey = (providers: Providers, provider: ProviderName) =>
-  ({
-    groq: providers.groqKey,
-    deepseek: providers.deepseekKey,
-    openrouter: providers.openrouterKey,
-    gemini: providers.geminiKey,
-    openai: providers.openaiKey,
-    nvidia: providers.nvidiaKey,
-  }[provider]);
+  ({ groq: providers.groqKey, nvidia: providers.nvidiaKey, gemini: providers.geminiKey }[provider]);
 
 function configuredSecret(name: string, fallbackName?: string): string | undefined {
   return Deno.env.get(name) || (fallbackName ? Deno.env.get(fallbackName) : undefined) || undefined;
@@ -1073,11 +1094,8 @@ type ConversationTurn = { role: "user" | "assistant"; content: string };
 function readProviderKeys(): Providers {
   return {
     groqKey: configuredSecret("GROQ_API_KEY"),
-    deepseekKey: configuredSecret("DEEPSEEK-API-KEY", "DEEPSEEK_API_KEY"),
-    openrouterKey: configuredSecret("OPENROUTER_API_KEY"),
-    geminiKey: configuredSecret("GEMINI_API_KEY"),
-    openaiKey: configuredSecret("OPENAI_API_KEY"),
     nvidiaKey: configuredSecret("NVIDIA_API_KEY"),
+    geminiKey: configuredSecret("GEMINI_API_KEY"),
   };
 }
 
@@ -1130,11 +1148,10 @@ async function testProvider(provider: ProviderName, apiKey?: string) {
   const authUrl = config.protocol === "gemini"
     ? `${config.baseUrl}/models?key=${encodeURIComponent(apiKey)}`
     : `${config.baseUrl}/models`;
-  const auth = await fetchProviderResource(provider, apiKey, authUrl, {
-    headers: config.protocol === "gemini"
-      ? { "Content-Type": "application/json" }
-      : { "Authorization": `Bearer ${apiKey}` },
-  });
+  const authHeaders: Record<string, string> = config.protocol === "gemini"
+    ? { "Content-Type": "application/json" }
+    : { "Authorization": `Bearer ${apiKey}` };
+  const auth = await fetchProviderResource(provider, apiKey, authUrl, { headers: authHeaders });
   result.authentication = { status: auth.status, detail: auth.detail };
 
   if (auth.response?.ok) {
@@ -1435,7 +1452,7 @@ async function answerProjectQuestion(
 export function providerFallbackOrder(providers: Providers, requested: ProviderName): ProviderName[] {
   // Preserve the user's explicit choice first; try known free-tier providers
   // before the other configured providers during automatic fallback.
-  const fallbackPriority: readonly ProviderName[] = ["gemini", "groq", "nvidia", "deepseek", "openrouter", "openai"];
+  const fallbackPriority: readonly ProviderName[] = ACTIVE_PROVIDER_NAMES;
   return [requested, ...fallbackPriority.filter((candidate) => candidate !== requested)]
     .filter((candidate, index, list) => Boolean(providerKey(providers, candidate)) && list.indexOf(candidate) === index);
 }
@@ -1480,6 +1497,7 @@ async function generateBuildFile(providers: Providers, requestedProvider: Provid
     projectUnderstanding: typeof body.projectUnderstanding === "string" ? body.projectUnderstanding.slice(0, 6000) : "",
     projectMemory: typeof body.projectMemory === "string" ? body.projectMemory.slice(0, 5000) : "",
     changeSummary: typeof body.changeSummary === "string" ? body.changeSummary.slice(0, 3000) : "",
+    followUp: typeof body.followUp === "string" ? body.followUp.slice(0, 1200) : "",
   };
   const requested = typeof body.provider === "string" ? getProvider(body.provider) : requestedProvider;
   const modelHint = typeof body.model === "string" ? body.model : undefined;
@@ -1497,7 +1515,7 @@ async function generateBuildFile(providers: Providers, requestedProvider: Provid
       reasoning_effort: "low",
       messages: [
         { role: "system", content: `You are AppiGen's file-by-file implementation agent. Generate exactly one complete source file. Return strict JSON only: {"path":"${path}","content":"..."}. No markdown, no other files, no prose. Preserve the user's requested behavior and established project architecture. Ensure syntactically complete code, resolve imports against the provided file tree, and do not use placeholders. Keep user-facing text/content aligned with the user's request language and script when applicable.` },
-        { role: "user", content: `${responseLanguageContract(body)}\nIntent: ${typeof body.intent === "string" ? body.intent : "build"}\n\nOriginal user prompt (authoritative):\n${prompt}\n\nTarget file: ${path}\nPurpose: ${purpose}\n\nComplete requirements and traceability:\n${JSON.stringify(context.requirements)}\n\nProject file tree:\n${context.fileTree.join("\n")}\n\nProject understanding:\n${context.projectUnderstanding || "(none)"}\n\nProject memory (project-scoped):\n${context.projectMemory || "(none)"}\n\nRecent change tracking:\n${context.changeSummary || "(none)"}\n\nExisting source relevant to this target:\n${context.existingSource}\n\nPreviously generated implementation context:\n${context.implementationContext}\n\nArchitecture/specification decisions:\n${context.architecture}` },
+        { role: "user", content: `${responseLanguageContract(body)}\nIntent: ${typeof body.intent === "string" ? body.intent : "build"}\n\nOriginal user prompt (authoritative):\n${prompt}\n\nTarget file: ${path}\nPurpose: ${purpose}\n\nComplete requirements and traceability:\n${JSON.stringify(context.requirements)}\n\nProject file tree:\n${context.fileTree.join("\n")}\n\nProject understanding:\n${context.projectUnderstanding || "(none)"}\n\nProject memory (project-scoped):\n${context.projectMemory || "(none)"}\n\nRecent change tracking:\n${context.changeSummary || "(none)"}\n\nFollow-up context (resolve references to previous work):\n${context.followUp || "(none)"}\n\nExisting source relevant to this target:\n${context.existingSource}\n\nPreviously generated implementation context:\n${context.implementationContext}\n\nArchitecture/specification decisions:\n${context.architecture}` },
       ],
     }, { retries: 0, timeoutMs: Math.min(candidate === "nvidia" ? 105000 : FAST_GENERATION_TIMEOUT_MS, timeoutMs) });
     const raw = extractChatCompletionCode(response, providerLabel(candidate), model).trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");

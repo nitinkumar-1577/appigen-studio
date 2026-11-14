@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { ImperativePanelGroupHandle } from "react-resizable-panels";
 import { Sidebar, type ViewKey } from "@/components/appigen/Sidebar";
 import { PromptPanel } from "@/components/appigen/PromptPanel";
 import { PreviewPanel } from "@/components/appigen/PreviewPanel";
@@ -29,15 +30,47 @@ import { readGeneratedBackendState } from "@/lib/backend/generatedAppBackendStor
 import { isNewAppPrompt, isProjectConversation } from "@/lib/projects/promptIntent";
 import { formatImplementationPlan } from "@/lib/projects/implementationPlan";
 import { mergeGeneratedFile, orderBuildFiles, runSequentialFileBuild, selectFilesForEdit, validateBuildFileResponse, validateFileTree, type BuildFileProgress } from "@/lib/projects/buildWorkflow";
-import { clearLocalVersions, clearProjectChangeRecords, clearProjectMemory, deleteLocalVersion, discardProjectDraft, readProjectChangeRecords, readProjectDraft, readProjectMemory, writeLocalVersion, writeProjectChangeRecord, writeProjectDraft, writeProjectMemory, writeProjectMessages, type ChatMessage, type LocalProjectVersion } from "@/lib/projects/projectStorage";
+import { clearLocalVersions, clearProjectChangeRecords, clearProjectMemory, deleteLocalVersion, discardProjectDraft, readProjectChangeRecords, readProjectDraft, readLocalVersionsForProject, readProjectMemory, writeLocalVersion, writeProjectChangeRecord, writeProjectDraft, writeProjectMemory, writeProjectMessages, type ChatMessage, type LocalProjectVersion } from "@/lib/projects/projectStorage";
 import { computeChangeRecord, formatChangeRecord } from "@/lib/projects/changeTracking";
 import { formatUnderstandingForPrompt, understandProject } from "@/lib/projects/projectUnderstanding";
 import { detectConflicts, formatMemoryForPrompt, updateProjectMemory } from "@/lib/projects/projectMemory";
-import { clearProjectVersions, createProjectVersion, deleteProject, deleteProjectVersion, loadProject, loadProjectVersions, persistActivity, persistProject, subscribeToProjectSync } from "@/lib/projects/projectRepository";
+import { clearProjectVersions, createProjectVersion, deleteProject, deleteProjectVersion, loadProject, loadProjectVersions, persistActivity, persistProject, persistProjectThumbnail, subscribeToProjectSync } from "@/lib/projects/projectRepository";
 import { readAppPreferences, readGenerationSettings, recordActivity } from "@/lib/appPreferences";
 import { trackAnonymousUsage } from "@/lib/telemetry";
-import { analyzeIntent, responseLanguageInstruction } from "@/lib/projects/conversationIntelligence";
-import { attemptsForIssue, buildQualityState, canAttemptRepair, createRepairAttempt, emptyQualityState, finalizeRepairAttempt, MAX_REPAIR_ATTEMPTS_PER_ISSUE, mergeRuntimeError, normalizeReviewFindings, type QualityState, type RepairAttempt, type RuntimeIssue } from "@/lib/projects/qualityEngine";
+import { analyzeIntent, intentSummary, isVagueNewAppPrompt, resolveFollowUp, responseLanguageInstruction } from "@/lib/projects/conversationIntelligence";
+import { createActivityId, type BuildActivity } from "@/lib/projects/conversationActivity";
+import { attemptsForIssue, buildQualityState, canAttemptRepair, createRepairAttempt, emptyQualityState, finalizeRepairAttempt, MAX_REPAIR_ATTEMPTS_PER_ISSUE, mergeRuntimeError, normalizeReviewFindings, type CheckStatus, type QualityState, type RepairAttempt, type RuntimeIssue } from "@/lib/projects/qualityEngine";
+
+const SPLIT_STORAGE_KEY = "appigen.studio.split.v1";
+const DEFAULT_SPLIT_RATIO = 30;
+const clampSplitRatio = (value: number) => Math.min(45, Math.max(20, Math.round(value)));
+export const shouldAutoHideSidebar = (isGenerating: boolean, wasGenerating: boolean) => isGenerating && !wasGenerating;
+
+export const requiresClarification = (prompt: string, hasExistingCode: boolean) => !hasExistingCode && isVagueNewAppPrompt(prompt);
+
+const CLARIFY_NEW_APP = "I can build that, but I need one more detail first: what should the app or page be? For example a todo app, an expense tracker, or a landing page, and who it is for. Tell me that and I will start building.";
+
+export function resolveSplitDrop(layout: number[], startLayout: number[], lastRatio: number): number[] {
+  const [chat, preview] = layout;
+  if (chat <= 6) return [0, 100];
+  if (preview <= 6) return [100, 0];
+  const ratio = clampSplitRatio(chat);
+  if (startLayout.length === 2 && (startLayout[0] <= 6 || startLayout[1] <= 6)) {
+    const restored = clampSplitRatio(lastRatio);
+    return [restored, 100 - restored];
+  }
+  return [ratio, 100 - ratio];
+}
+
+const readSplitRatio = () => {
+  try {
+    const value = Number(localStorage.getItem(SPLIT_STORAGE_KEY));
+    if (Number.isFinite(value) && value >= 20 && value <= 45) return value;
+  } catch {
+    // Storage may be unavailable; fall back to the default split.
+  }
+  return DEFAULT_SPLIT_RATIO;
+};
 
 const VIEW_TITLES: Record<ViewKey, string> = {
   studio: "",
@@ -78,6 +111,11 @@ export const removePromptConversationBlocks = (messages: ChatMessage[], promptTe
     if (!removing) result.push(message);
   }
   return result;
+};
+
+export const resolveProjectTitle = (options: { editMode: boolean; planTitle?: string; fallback: string; currentTitle: string }) => {
+  if (options.editMode) return options.currentTitle && options.currentTitle !== "Untitled Project" ? options.currentTitle : options.fallback;
+  return options.planTitle?.trim() || options.fallback;
 };
 
 const suggestProjectTitle = (promptText: string) => {
@@ -126,6 +164,15 @@ const Index = () => {
   const [changeBaseCode, setChangeBaseCode] = useState<string | null>(null);
   const [projectId, setProjectId] = useState<string | null>(initialState.projectId);
   const [projectUpdatedAt, setProjectUpdatedAt] = useState<string | null>(null);
+  const [projectThumbnail, setProjectThumbnail] = useState<string | null>(null);
+  const handleThumbnailCapture = (thumbnail: string) => {
+    setProjectThumbnail((current) => current ?? thumbnail);
+    if (projectId && session?.user?.id) {
+      void persistProjectThumbnail(projectId, session.user.id, thumbnail).catch((error) => {
+        console.warn("Project thumbnail could not be saved", error);
+      });
+    }
+  };
   const [lastSyncedCode, setLastSyncedCode] = useState<string | null>(null);
   const lastSyncedPromptRef = useRef<string | null>(null);
   const lastSyncedTitleRef = useRef<string | null>(null);
@@ -144,27 +191,46 @@ const Index = () => {
   const [buildTimeline, setBuildTimeline] = useState<string[]>([]);
   const partialBuildRef = useRef<{ prompt: string; code: string; completedPaths: string[] } | null>(null);
   const [versionMenuOpen, setVersionMenuOpen] = useState(false);
-  const [manualFixing, setManualFixing] = useState(false);
+  const [previewRuntime, setPreviewRuntime] = useState<{ status: "idle" | "pending" | "mounted" | "error"; message?: string; errorKind?: string }>({ status: "idle" });
   const abortRef = useRef<AbortController | null>(null);
+  const promptInputRef = useRef<HTMLTextAreaElement>(null);
   const previousUserRef = useRef(false);
-  const [workspaceSidebarOpen, setWorkspaceSidebarOpen] = useState(() => {
-    const hasProject = Boolean(initialState.projectId || initialState.code);
-    return !hasProject;
-  });
+  const [sidebarPinned, setSidebarPinned] = useState(true);
+  const [sidebarHidden, setSidebarHidden] = useState(false);
+  const [sidebarOverlayOpen, setSidebarOverlayOpen] = useState(false);
+  const [splitRatio, setSplitRatio] = useState(readSplitRatio);
+  const splitGroupRef = useRef<ImperativePanelGroupHandle>(null);
+  const lastSplitRatioRef = useRef(splitRatio);
+  const dragStartLayoutRef = useRef<number[]>([]);
+  const [activityStartedAt, setActivityStartedAt] = useState<number | undefined>(undefined);
+  const [activityExplanation, setActivityExplanation] = useState<string | undefined>(undefined);
+  const buildFilesRef = useRef<BuildFileProgress[]>([]);
+  const buildTimelineRef = useRef<string[]>([]);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [mobileStudioTab, setMobileStudioTab] = useState<"chat" | "preview">(initialState.mobileTab);
   const [qualityState, setQualityState] = useState<QualityState>(emptyQualityState());
   const [qualityRunning, setQualityRunning] = useState(false);
+  const [manualFixing, setManualFixing] = useState(false);
   const runtimeIssuesRef = useRef<RuntimeIssue[]>([]);
   const repairAttemptsRefState = useRef<RepairAttempt[]>([]);
+  const pendingBuildRef = useRef<{ title: string; provider: string; editMode: boolean; validationSummary: string; changeSummary?: string; memoryNote?: string } | null>(null);
   const showPreview = Boolean(lastCode) || isGeneratingApp;
   const promptActivityTimer = useRef<number | undefined>(undefined);
 
-  const navigateView = (next: ViewKey) => {
-    if (next === "studio") {
-      // Keep sidebar state as-is for studio navigation unless caller specifies; opening project flows collapse explicitly.
-    } else {
-      setWorkspaceSidebarOpen(true);
+  const hasAppWorkspace = isGeneratingApp || Boolean(lastCode);
+  const wasGeneratingRef = useRef(false);
+  useEffect(() => {
+    // Only an actual build/edit steps the sidebar aside. Questions, explanations,
+    // planning and normal conversation keep it visible.
+    if (shouldAutoHideSidebar(isGeneratingApp, wasGeneratingRef.current)) {
+      setSidebarPinned(false);
+      setSidebarHidden(true);
+      setSidebarOverlayOpen(false);
     }
+    wasGeneratingRef.current = isGeneratingApp;
+  }, [isGeneratingApp]);
+
+  const navigateView = (next: ViewKey) => {
     setView(next);
   };
 
@@ -259,6 +325,7 @@ const Index = () => {
           return;
         }
         setProjectTitle(remote.title);
+        setTitleManuallyEdited(remote.title !== "Untitled Project");
         setPrompt(remote.prompt);
         setLastCode(remote.code);
         setLastSyncedCode(remote.code);
@@ -327,13 +394,20 @@ const Index = () => {
     return () => window.clearTimeout(timeout);
   }, [authReady, user, session?.user.id, projectId, projectTitle, prompt, lastCode, messages]);
 
-  const refreshQuality = (overrides: { code?: string | null; reviewFindings?: QualityState["reviewFindings"]; runtimeErrors?: RuntimeIssue[]; repairAttempts?: RepairAttempt[]; previewSummary?: string } = {}) => {
+  const refreshQuality = (overrides: { code?: string | null; reviewFindings?: QualityState["reviewFindings"]; runtimeErrors?: RuntimeIssue[]; repairAttempts?: RepairAttempt[]; previewStatus?: "idle" | "pending" | "mounted" | "error"; previewSummary?: string } = {}) => {
     const code = overrides.code ?? lastCode ?? "";
     const runtimeErrors = overrides.runtimeErrors ?? runtimeIssuesRef.current;
     const repairAttempts = overrides.repairAttempts ?? repairAttemptsRefState.current;
-    const previewFailed = runtimeErrors.some((e) => ["error", "promise", "compile", "render", "blank"].includes(e.kind));
-    const previewHealth = code ? { status: previewFailed ? "failed" as const : (runtimeErrors.length ? "failed" as const : "passed" as const), summary: previewFailed ? "Runtime/preview errors detected from live preview signals." : (runtimeErrors.length ? "Console/resource issues reported by preview runtime." : "No runtime errors reported by preview; basic render signal observed when available."), details: runtimeErrors.slice(0, 5).map((e) => `${e.kind}: ${e.message}`) } : null;
-    const next = buildQualityState({ code, prompt, reviewFindings: overrides.reviewFindings ?? qualityState.reviewFindings, runtimeErrors, repairAttempts, previewHealth });
+    const status = overrides.previewStatus ?? previewRuntime.status;
+    let previewSummary = overrides.previewSummary ?? "";
+    if (!previewSummary) {
+      if (status === "mounted") previewSummary = "Preview mounted successfully (live runtime mount verified).";
+      else if (status === "error") previewSummary = "Preview runtime error reported (live verification failed).";
+      else if (status === "pending") previewSummary = "Static/project validation passed. Live preview mount/runtime verification pending.";
+      else previewSummary = "Live preview verification not started.";
+    }
+    const previewCheckStatus: CheckStatus = status === "mounted" ? "passed" : status === "error" ? "failed" : status === "pending" ? "running" : "idle";
+    const next = buildQualityState({ code, prompt, reviewFindings: overrides.reviewFindings ?? qualityState.reviewFindings, runtimeErrors, repairAttempts, previewHealth: { status: previewCheckStatus, summary: previewSummary } });
     setQualityState(next);
     return next;
   };
@@ -439,7 +513,42 @@ const Index = () => {
   const lastReportedRef = useRef<string>("");
   const isRepairingRef = useRef(false);
 
-  // Listen for runtime/preview signals: update quality and trigger autonomous repair (max 3 attempts per issue)
+  const handlePreviewRuntime = (event: { kind: "ready" | "error"; message?: string; stack?: string; errorKind?: string }) => {
+    if (event.kind === "ready") {
+      setPreviewRuntime({ status: "mounted" });
+      const hadErrors = runtimeIssuesRef.current.some((e) => ["error", "promise", "compile", "render", "blank"].includes(e.kind));
+      refreshQuality({ runtimeErrors: runtimeIssuesRef.current, previewStatus: hadErrors ? "error" : "mounted", previewSummary: hadErrors ? "Preview mounted but runtime issues were reported." : "Preview mounted successfully (live runtime mount verified)." });
+      const pending = pendingBuildRef.current;
+      if (pending) {
+        pendingBuildRef.current = null;
+        setBuildTimeline((current) => [...current, "Live preview mounted successfully"]);
+        setMessages((current) => {
+          const idx = [...current].reverse().findIndex((m) => m.role === "assistant" && m.content.includes("Live preview verification: pending"));
+          if (idx === -1) return current;
+          const real = current.length - 1 - idx;
+          return current.map((m, i) => i === real ? { ...m, content: m.content.replace(/\n\nLive preview verification: pending[^\n]*/g, "\n\nLive preview verification: mounted successfully.") } : m);
+        });
+        toast({ title: pending.editMode ? "Preview verified" : "App ready", description: `${pending.title} mounted in preview.` });
+      }
+      return;
+    }
+    const kind = event.errorKind || "error";
+    const msg = String(event.message || "Preview runtime error");
+    runtimeIssuesRef.current = mergeRuntimeError(runtimeIssuesRef.current, { kind, message: msg, stack: event.stack });
+    setPreviewRuntime({ status: "error", message: msg, errorKind: kind });
+    refreshQuality({ runtimeErrors: runtimeIssuesRef.current, previewStatus: "error", previewSummary: `Preview runtime ${kind}: ${msg}` });
+    if (["error", "promise", "compile", "render", "blank"].includes(kind)) {
+      setBuildTimeline((current) => [...current, `Preview ${kind}: ${msg.slice(0, 120)}`]);
+      if (pendingBuildRef.current) {
+        setMessages((current) => current.map((message, index) => {
+          if (index !== current.length - 1 || message.role !== "assistant" || !message.content.includes("Live preview verification: pending")) return message;
+          return { ...message, content: message.content.replace(/Live preview verification: pending[^\n]*/g, `Live preview verification: failed (${kind}: ${msg.slice(0, 160)}).`) };
+        }));
+      }
+    }
+  };
+
+  // Autonomous targeted repair on preview/runtime failures (max 3 attempts per issue). Runtime state is reported via handlePreviewRuntime.
   useEffect(() => {
     const onMsg = async (ev: MessageEvent) => {
       const previewWindow = document.querySelector<HTMLIFrameElement>('iframe[title="AppiGen Sandbox Preview"]')?.contentWindow;
@@ -447,15 +556,6 @@ const Index = () => {
       const m = ev.data as { __appigen?: boolean; kind?: string; message?: string; stack?: string } | null;
       if (!m || typeof m !== "object" || !m.__appigen) return;
       const kind = String(m.kind || "");
-      if (kind === "ready") {
-        // preview became healthy; refresh quality signals without creating fake passes
-        refreshQuality({ runtimeErrors: runtimeIssuesRef.current });
-        return;
-      }
-      if (["error", "compile", "promise", "blank", "render", "console"].includes(kind)) {
-        runtimeIssuesRef.current = mergeRuntimeError(runtimeIssuesRef.current, { kind, message: String(m.message || ""), stack: typeof m.stack === "string" ? m.stack : undefined });
-        refreshQuality({ runtimeErrors: runtimeIssuesRef.current });
-      }
       if (!["error", "compile", "promise", "blank", "render"].includes(kind)) return;
       if (!lastCode || isRepairingRef.current) return;
       const issue = `${kind}: ${String(m.message || "Preview failure").slice(0, 400)}`;
@@ -524,15 +624,33 @@ const Index = () => {
     isRepairingRef.current = false;
     const intent = analyzeIntent(trimmed, { hasExistingProject: Boolean(lastCode) });
     const editMode = Boolean(lastCode) && !isNewAppPrompt(trimmed);
-    const questionMode = !intent.shouldBuild;
+    const clarifyFirst = requiresClarification(trimmed, Boolean(lastCode));
+    const questionMode = !intent.shouldBuild || clarifyFirst;
     const generationSettings = readGenerationSettings();
     const buildStartedAt = Date.now();
+    const activityId = createActivityId();
+    let planTitleApplied = "";
+    setActivityStartedAt(buildStartedAt);
+    const explanationText = intentSummary(intent.intent);
+    setActivityExplanation(explanationText);
+    let resolvedExplanation = explanationText;
+    buildFilesRef.current = [];
+    buildTimelineRef.current = [];
     const baseMessages = editMode ? messages : [];
     const submitted: ChatMessage = { role: "user", content: trimmed, timestamp: Date.now() };
     const nextMessages = [...baseMessages, submitted];
     let buildMessages = nextMessages;
     let versionsAfterBuild = versions;
     setMessages(nextMessages);
+    if (clarifyFirst) {
+      setMessages([...nextMessages, { role: "assistant", content: CLARIFY_NEW_APP, timestamp: Date.now() }]);
+      setPrompt("");
+      setActivityStartedAt(undefined);
+      setActivityExplanation(undefined);
+      setBuildTimeline([]);
+      toast({ title: "Add a little detail", description: "Name the app or page you want and I will start building." });
+      return;
+    }
     if (!editMode) {
       versionsAfterBuild = [];
       setVersions([]);
@@ -541,17 +659,24 @@ const Index = () => {
     }
     if (!questionMode) {
       setView("studio");
-      setWorkspaceSidebarOpen(false);
     }
     setMobileStudioTab(questionMode ? "chat" : "preview");
-    setProgressStage("Understanding request");
-    setBuildTimeline(["Understanding the request", `Intent: ${intent.intent} (${intent.responseLanguage})`]);
+    setProgressStage("Planning");
+    setBuildTimeline(["Planning implementation", `Request type: ${intent.intent}`]);
     const projectKey = chatKey;
     const baseCodeForEdit = lastCode;
     const understanding = (editMode || Boolean(baseCodeForEdit)) && baseCodeForEdit ? understandProject(baseCodeForEdit, projectId) : null;
     const existingMemory = (editMode || Boolean(baseCodeForEdit)) ? readProjectMemory(projectKey) : null;
     const recentChanges = (editMode || Boolean(baseCodeForEdit)) ? readProjectChangeRecords(projectKey) : [];
     const recentChangeSummary = recentChanges[0] ? formatChangeRecord(recentChanges[0]) : "";
+    const followUp = resolveFollowUp(trimmed, {
+      hasExistingProject: Boolean(baseCodeForEdit),
+      recentFiles: recentChanges.flatMap((record) => record.changedPaths),
+      lastAssistantMessage: [...messages].reverse().find((message) => message.role === "assistant" && message.kind !== "activity")?.content,
+    });
+    const followUpText = followUp.referencesPrevious
+      ? `Follow-up references: ${followUp.undo ? "revert the previous change; " : ""}${followUp.mentionedFiles.length ? `target files: ${followUp.mentionedFiles.join(", ")}` : "the previous change"}${followUp.previousFileContext ? `\nPrevious assistant summary: ${followUp.previousFileContext}` : ""}`
+      : "";
     const memoryPreview = (editMode || Boolean(baseCodeForEdit)) ? updateProjectMemory({ existing: existingMemory, projectKey, projectId, title: projectTitle, understanding, messages: nextMessages, prompt: trimmed }) : null;
     if (understanding) setBuildTimeline((current) => [...current, `Understood project: ${understanding.architectureSummary}`]);
     if (memoryPreview?.conflicts.length) setBuildTimeline((current) => [...current, `Potential conflicts detected: ${memoryPreview.conflicts[0]}`]);
@@ -576,7 +701,7 @@ const Index = () => {
     try {
       assertSupabaseFunctionAccess();
       if (questionMode) {
-        setProgressStage("Understanding request");
+        setProgressStage("Planning");
         const { data: chatData, error: chatError } = await supabase.functions.invoke("Appigen", {
           body: {
             mode: "chat",
@@ -652,6 +777,7 @@ const Index = () => {
           changeSummary: recentChangeSummary,
           responseLanguage: intent.responseLanguage,
           intent: intent.intent,
+          followUp: followUpText,
         },
         signal: controller.signal,
       });
@@ -659,6 +785,11 @@ const Index = () => {
       const implementationPlan = planData?.plan?.implementationPlan as Record<string, unknown> | undefined;
       const planSummary = formatImplementationPlan(implementationPlan);
       if (!planSummary) throw new Error("The deployed Appigen Edge Function does not support the planning route.");
+      const planDetails = planData?.plan?.implementationPlan as { title?: unknown; explanation?: unknown } | undefined;
+      const planTitle = typeof planDetails?.title === "string" ? planDetails.title.trim().slice(0, 80) : "";
+      const planExplanation = typeof planDetails?.explanation === "string" ? planDetails.explanation.trim().slice(0, 400) : "";
+      if (planExplanation) { resolvedExplanation = planExplanation; setActivityExplanation(planExplanation); }
+      if (!editMode && planTitle && !titleManuallyEdited) { planTitleApplied = planTitle; setProjectTitle(planTitle); }
       buildMessages = [...nextMessages, { role: "assistant", content: planSummary, timestamp: Date.now() }];
       setMessages(buildMessages);
       setBuildTimeline((current) => [...current, "Implementation plan ready"]);
@@ -708,6 +839,7 @@ const Index = () => {
               temperature: generationSettings.temperature, topP: generationSettings.topP,
               responseLanguage: intent.responseLanguage,
               intent: intent.intent,
+              followUp: followUpText,
             },
             signal: controller.signal,
           });
@@ -722,7 +854,11 @@ const Index = () => {
         },
         merge: (source, file, result) => mergeGeneratedFile(source, file.path, result.content),
         onProgress: (event, source, completedPaths) => {
-          setBuildFiles((current) => current.map((item) => item.path === event.path ? { ...item, ...event } : item));
+          setBuildFiles((current) => {
+            const next = current.map((item) => item.path === event.path ? { ...item, ...event } : item);
+            buildFilesRef.current = next;
+            return next;
+          });
           if (event.status === "generating") {
             setBuildTimeline((current) => [...current, `Creating ${event.path}`]);
             setProgressStage(`Generating ${event.path}`);
@@ -778,16 +914,21 @@ const Index = () => {
       const validationError = validateFileTree(generatedCode, requiredPaths) || validateGeneratedCode(generatedCode, !editMode);
       if (validationError) throw new Error(`The reviewed project is invalid: ${validationError}`);
       partialBuildRef.current = null;
+      let activityVersionId: string | undefined;
       if (editMode && lastCode) {
         const snapshot: LocalProjectVersion = { id: crypto.randomUUID(), code: lastCode, prompt: trimmed, createdAt: Date.now() };
-        versionsAfterBuild = [snapshot, ...versions].slice(0, 50);
+        const nextVersion: LocalProjectVersion = { id: crypto.randomUUID(), code: generatedCode, prompt: trimmed, createdAt: Date.now() };
+        versionsAfterBuild = [nextVersion, snapshot, ...versions].slice(0, 50);
         setVersions(versionsAfterBuild);
         writeLocalVersion(chatKey, snapshot);
+        writeLocalVersion(chatKey, nextVersion);
+        activityVersionId = nextVersion.id;
         if (user && projectId) {
           const { data: auth } = await supabase.auth.getUser();
           if (auth.user) {
             try {
               await createProjectVersion({ projectId, userId: auth.user.id, code: lastCode, prompt: trimmed, id: snapshot.id });
+              await createProjectVersion({ projectId, userId: auth.user.id, code: generatedCode, prompt: trimmed, id: nextVersion.id });
             } catch (versionError) {
               toast({
                 title: "Version saved locally",
@@ -803,16 +944,9 @@ const Index = () => {
       generatedPreview = true;
       runtimeIssuesRef.current = [];
       repairAttemptsRefState.current = [];
-      setLastCode(generatedCode);
-      setWorkingCode(generatedCode);
-      setDoc(buildDocFromPrompt(trimmed, generatedCode));
       const fileCount = [...generatedCode.matchAll(/^\s*\/\/\s*FILE:/gm)].length || 1;
       const validationSummary = getValidationSummary(Boolean(reviewData?.reviewSkipped), fileCount);
-      const initialQuality = buildQualityState({ code: generatedCode, prompt: trimmed, reviewFindings: aiReviewFindings, runtimeErrors: [], repairAttempts: [], previewHealth: { status: "passed", summary: "Project generated and preview updated (runtime signals pending)." } });
-      setQualityState(initialQuality);
-      const finalTitle = editMode
-        ? projectTitle !== "Untitled Project" ? projectTitle : suggestProjectTitle(trimmed)
-        : suggestProjectTitle(trimmed);
+      const finalTitle = resolveProjectTitle({ editMode, planTitle: planTitleApplied, fallback: suggestProjectTitle(trimmed), currentTitle: projectTitle });
       if (finalTitle !== projectTitle) setProjectTitle(finalTitle);
 
       const changeRecord = (editMode || baseCodeForEdit)
@@ -835,7 +969,46 @@ const Index = () => {
       });
       writeProjectMemory(projectKey, updatedMemory);
       const memoryNote = updatedMemory.conflicts.length ? `\n\nPotential decision conflicts detected (preserved for review): ${updatedMemory.conflicts.join("; ")}` : "";
-      const completedMessages = [...buildMessages, { role: "assistant" as const, content: editMode ? `Project updated. ${validationSummary}${changeRecord ? `\n\n${formatChangeRecord(changeRecord)}` : ""}${memoryNote} Your previous version is available to restore.` : `Your app is ready in Preview. ${validationSummary}`, timestamp: Date.now() }];
+      pendingBuildRef.current = { title: finalTitle, provider: buildProvider, editMode, validationSummary, ...(changeRecord ? { changeSummary: formatChangeRecord(changeRecord) } : {}), ...(memoryNote ? { memoryNote } : {}) };
+      const initialQuality = buildQualityState({
+        code: generatedCode,
+        prompt: trimmed,
+        reviewFindings: aiReviewFindings,
+        runtimeErrors: [],
+        repairAttempts: [],
+        previewHealth: { status: "running", summary: "Static/project validation passed. Awaiting live preview mount/runtime verification (pending)." },
+      });
+      setQualityState(initialQuality);
+      setPreviewRuntime({ status: "pending" });
+      setLastCode(generatedCode);
+      setWorkingCode(generatedCode);
+      setDoc(buildDocFromPrompt(trimmed, generatedCode));
+      if (!editMode) {
+        const initialVersion: LocalProjectVersion = { id: crypto.randomUUID(), code: generatedCode, prompt: trimmed, createdAt: Date.now() };
+        versionsAfterBuild = [initialVersion];
+        setVersions(versionsAfterBuild);
+        activityVersionId = initialVersion.id;
+      }
+      const activityFiles = buildFilesRef.current.length ? buildFilesRef.current : uniqueFiles.map((file) => ({ path: file.path, purpose: file.purpose, status: "completed" as const }));
+      const activityTimeline = buildTimelineRef.current;
+      const finalActivity: BuildActivity = {
+        id: activityId,
+        status: "success",
+        title: editMode ? "Updated your project" : "Built your project",
+        stage: validationSummary,
+        files: activityFiles,
+        timeline: activityTimeline,
+        startedAt: buildStartedAt,
+        endedAt: Date.now(),
+        versionId: activityVersionId,
+        provider: buildProvider,
+        validation: [validationSummary, `Validation passed for ${fileCount} source file${fileCount === 1 ? "" : "s"}`],
+        errors: [],
+      };
+      const activityMessage: ChatMessage = { role: "assistant", content: finalActivity.title, kind: "activity", title: finalActivity.title, explanation: resolvedExplanation, activity: finalActivity, timestamp: Date.now() };
+      const completedMessages = [...buildMessages, { role: "assistant" as const, content: editMode
+        ? `Project updated. ${validationSummary}${changeRecord ? `\n\n${formatChangeRecord(changeRecord)}` : ""}${memoryNote}\n\nLive preview verification: pending (awaiting successful mount). I will report runtime errors if detected. Your previous version is available to restore.`
+        : `Project generated. ${validationSummary}\n\nLive preview verification: pending (awaiting successful mount). I will report runtime errors if detected.`, timestamp: Date.now() }, activityMessage];
       setMessages(completedMessages);
       setPrompt("");
 
@@ -859,7 +1032,7 @@ const Index = () => {
             const authoritative = await loadProject(savedId, uid);
             setProjectUpdatedAt(authoritative.updated_at);
             if (!editMode) {
-              const initialVersion = await createProjectVersion({ projectId: savedId, userId: uid, code: generatedCode, prompt: trimmed });
+              const initialVersion = await createProjectVersion({ projectId: savedId, userId: uid, code: generatedCode, prompt: trimmed, id: activityVersionId });
               setVersions([initialVersion]);
               writeLocalVersion(savedId, initialVersion);
             }
@@ -878,28 +1051,53 @@ const Index = () => {
         }
       } else {
         setProgressStage("Saving");
+        if (!editMode && activityVersionId) {
+          const initialVersion: LocalProjectVersion = { id: activityVersionId, code: generatedCode, prompt: trimmed, createdAt: Date.now() };
+          versionsAfterBuild = [initialVersion];
+          setVersions(versionsAfterBuild);
+          writeLocalVersion(chatKey, initialVersion);
+        }
         writeProjectDraft({ projectId: null, title: finalTitle, prompt: trimmed, code: generatedCode, messages: completedMessages, versions: versionsAfterBuild, updatedAt: Date.now() });
         setBuildTimeline((current) => [...current, "Saved local project draft"]);
       }
 
-      addNotification({ kind: "build", title: "App Built Successfully", description: finalTitle });
+      addNotification({ kind: "build", title: editMode ? "Project updated" : "Project generated", description: `${finalTitle} · preview verification pending` });
       void trackAnonymousUsage("build_completed").catch((error: unknown) => console.warn("Anonymous usage telemetry could not be recorded:", error));
       saveActivity({
         kind: editMode ? "edit" : "build",
-        title: editMode ? "App updated successfully" : "App built successfully",
+        title: editMode ? "Project updated (verification pending)" : "Project generated (verification pending)",
         detail: `${finalTitle} · ${buildProvider}`,
         durationMs: Date.now() - buildStartedAt,
         promptCharacters: trimmed.length,
       });
       toast({
-        title: "✨ Build successful",
-        description: user ? `Saved: "${finalTitle}"` : `Sign in to save: "${finalTitle}"`,
+        title: editMode ? "Project updated" : "Project generated",
+        description: "Static/project validation passed. Awaiting live preview verification; errors will be reported if detected.",
       });
     } catch (err: unknown) {
       if ((err instanceof Error && err.name === "AbortError") || controller.signal.aborted) {
-        setBuildFiles((current) => current.map((file) => file.status === "generating" || file.status === "validating" ? { ...file, status: "failed", error: "Build stopped by user" } : file));
-        setMessages((current) => [...current, { role: "assistant", content: `Build stopped. Completed files are kept and this prompt can resume safely.`, timestamp: Date.now() }]);
-        toast({ title: "Build stopped", description: "Your prompt is still here; you can try again." });
+        const stoppedFiles = buildFilesRef.current.map((file) => file.status === "generating" || file.status === "validating" || file.status === "queued" || file.status === "retrying" ? { ...file, status: "failed" as const, error: "Stopped by user" } : file);
+        buildFilesRef.current = stoppedFiles;
+        setBuildFiles(stoppedFiles);
+        const stoppedSummary = `${stoppedFiles.filter((file) => file.status === "completed").length}/${stoppedFiles.length} files completed`;
+        const stoppedActivity: BuildActivity = {
+          id: activityId,
+          status: "stopped",
+          title: "Stopped by user",
+          stage: `${stoppedSummary}; remaining files were not generated.`,
+          files: stoppedFiles,
+          timeline: [...buildTimelineRef.current, "Stopped by user"],
+          startedAt: buildStartedAt,
+          endedAt: Date.now(),
+          provider: buildProvider,
+          validation: [],
+          errors: [],
+        };
+        setMessages((current) => [...current,
+          { role: "assistant", content: `Build stopped by you. ${stoppedSummary}. Completed files are kept and this prompt can resume safely.`, timestamp: Date.now() },
+          { role: "assistant", content: stoppedActivity.title, kind: "activity", title: stoppedActivity.title, explanation: resolvedExplanation, activity: stoppedActivity, timestamp: Date.now() },
+        ]);
+        toast({ title: "Build stopped", description: `Stopped after ${stoppedSummary}. Your prompt is still here; you can try again.` });
         return;
       }
       setBuildFiles((current) => current.map((file) => file.status === "generating" || file.status === "validating" ? { ...file, status: "failed", error: err instanceof Error ? err.message : "Generation failed" } : file));
@@ -913,14 +1111,38 @@ const Index = () => {
       const msg = staleGenerator
         ? `The deployed Appigen Edge Function is outdated or returned a generic project. Deploy the latest function before building again. Your prompt and current preview were kept unchanged.${errorMessage.includes("generated project is invalid") ? ` Validation: ${errorMessage.replace("The generated project is invalid: ", "")}` : ""}`
         : errorMessage;
-      setMessages((current) => [...current, { role: "assistant", content: `Build failed: ${msg}`, timestamp: Date.now() }]);
+      const failedFiles = buildFilesRef.current.map((file) => file.status === "generating" || file.status === "validating" || file.status === "queued" || file.status === "retrying" ? { ...file, status: "failed" as const, error: file.error ?? msg } : file);
+      buildFilesRef.current = failedFiles;
+      const failedActivity: BuildActivity = {
+        id: activityId,
+        status: "error",
+        title: "Build unsuccessful",
+        stage: msg,
+        files: failedFiles,
+        timeline: [...buildTimelineRef.current, `Failed: ${msg}`],
+        startedAt: buildStartedAt,
+        endedAt: Date.now(),
+        provider: buildProvider,
+        validation: [],
+        errors: [msg],
+      };
+      setMessages((current) => [...current,
+        { role: "assistant", content: `Build failed: ${msg}`, timestamp: Date.now() },
+        { role: "assistant", content: failedActivity.title, kind: "activity", title: failedActivity.title, explanation: resolvedExplanation, activity: failedActivity, timestamp: Date.now() },
+      ]);
       toast({ title: staleGenerator ? "Generator update required" : "Build failed", description: msg, variant: "destructive" });
     } finally {
       abortRef.current = null;
       setIsBuilding(false);
       setIsGeneratingApp(false);
-      setProgressStage("Understanding request");
+      setProgressStage("Planning");
       if (!generatedPreview && !lastCode) setMobileStudioTab("chat");
+      // Return the caret to the prompt once the build settles, even if the
+      // workspace layout remounted the chat panel during generation.
+      window.setTimeout(() => {
+        const desktop = window.matchMedia("(min-width: 768px)").matches;
+        if (desktop || mobileStudioTab === "chat") promptInputRef.current?.focus();
+      }, 0);
     }
   };
 
@@ -940,7 +1162,7 @@ const Index = () => {
     if (!window.confirm("Start a new project? Your current chat and code will be cleared.")) return;
     abortRef.current?.abort();
     if (chatKey === "local:current") clearLocalVersions(chatKey);
-    setProjectId(null); setProjectTitle("Untitled Project"); setTitleManuallyEdited(false); setPrompt(""); setLastCode(null); setWorkingCode(null); setChangeBaseCode(null); setBuildFiles([]); setBuildTimeline([]); partialBuildRef.current = null; setMessages([]); setVersions([]); runtimeIssuesRef.current = []; repairAttemptsRefState.current = []; setQualityState(emptyQualityState()); setDoc(buildDocFromPrompt("")); setView("studio"); setMobileStudioTab("chat"); setIsGeneratingApp(false); setWorkspaceSidebarOpen(true); discardProjectDraft();
+    setProjectId(null); setProjectTitle("Untitled Project"); setTitleManuallyEdited(false); setPrompt(""); setLastCode(null); setWorkingCode(null); setChangeBaseCode(null); setBuildFiles([]); setBuildTimeline([]); partialBuildRef.current = null; setMessages([]); setVersions([]); runtimeIssuesRef.current = []; repairAttemptsRefState.current = []; setQualityState(emptyQualityState()); setDoc(buildDocFromPrompt("")); setView("studio"); setMobileStudioTab("chat"); setIsGeneratingApp(false); discardProjectDraft();
   };
 
   const snapshotCode = async (code: string | null, action: string) => {
@@ -983,6 +1205,34 @@ const Index = () => {
     toast({ title: "Version restored" });
   };
 
+  const resolveActivityCode = useCallback((versionId: string) =>
+    versions.find((version) => version.id === versionId)?.code
+    ?? readLocalVersionsForProject(chatKey).find((version) => version.id === versionId)?.code
+    ?? null, [versions, chatKey]);
+
+  const previewActivity = (activity: BuildActivity) => {
+    const code = activity.versionId ? resolveActivityCode(activity.versionId) : null;
+    if (!code) {
+      toast({ title: "Preview unavailable", description: "The source snapshot for this activity is no longer stored.", variant: "destructive" });
+      return;
+    }
+    setDoc(buildDocFromPrompt(activity.stage || projectTitle, code));
+    setMobileStudioTab("preview");
+  };
+
+  const restoreActivityVersion = (versionId: string) => {
+    const version = versions.find((item) => item.id === versionId)
+      ?? readLocalVersionsForProject(chatKey).find((item) => item.id === versionId);
+    if (!version) {
+      toast({ title: "Version not found", description: "This activity's snapshot is no longer available.", variant: "destructive" });
+      return;
+    }
+    restoreVersion(version);
+  };
+
+  const updateMessage = (timestamp: number, patch: Partial<ChatMessage>) =>
+    setMessages((current) => current.map((message) => message.timestamp === timestamp ? { ...message, ...patch } : message));
+
   const resetDeletedProject = () => {
     clearLocalVersions(chatKey);
     writeProjectMessages(chatKey, []);
@@ -1004,7 +1254,6 @@ const Index = () => {
     setView("studio");
     setMobileStudioTab("chat");
     setIsGeneratingApp(false);
-    setWorkspaceSidebarOpen(true);
   };
 
   const deleteVersion = async (version: LocalProjectVersion) => {
@@ -1098,6 +1347,79 @@ const Index = () => {
     }
   };
 
+  const isDesktop = () => typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches;
+
+  const toggleSidebar = () => {
+    if (!isDesktop()) {
+      setMobileSidebarOpen((open) => !open);
+      return;
+    }
+    if (hasAppWorkspace) {
+      setSidebarOverlayOpen((open) => !open);
+      return;
+    }
+    if (sidebarHidden) {
+      setSidebarHidden(false);
+      setSidebarPinned(true);
+      return;
+    }
+    setSidebarHidden(true);
+  };
+
+  const persistSplitRatio = (value: number) => {
+    const clamped = clampSplitRatio(value);
+    lastSplitRatioRef.current = clamped;
+    setSplitRatio(clamped);
+    try {
+      localStorage.setItem(SPLIT_STORAGE_KEY, String(clamped));
+    } catch {
+      // Split persistence is best-effort when storage is unavailable.
+    }
+  };
+
+  const handleSplitLayout = (layout: number[]) => {
+    const [chat, preview] = layout;
+    if (chat > 6 && preview > 6) persistSplitRatio(chat);
+  };
+
+  const handleSplitDragging = (dragging: boolean) => {
+    const group = splitGroupRef.current;
+    if (!group) return;
+    if (dragging) {
+      dragStartLayoutRef.current = group.getLayout();
+      return;
+    }
+    group.setLayout(resolveSplitDrop(group.getLayout(), dragStartLayoutRef.current, lastSplitRatioRef.current));
+  };
+
+
+  useEffect(() => { buildFilesRef.current = buildFiles; }, [buildFiles]);
+  useEffect(() => { buildTimelineRef.current = buildTimeline; }, [buildTimeline]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "[") return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName?.toLowerCase();
+      const isTypingTarget = tag === "input" || tag === "textarea" || tag === "select" || Boolean(target?.isContentEditable);
+      if (isTypingTarget) return;
+      e.preventDefault();
+      if (!isDesktop()) {
+        setMobileSidebarOpen((open) => !open);
+      } else if (hasAppWorkspace) {
+        setSidebarOverlayOpen((open) => !open);
+      } else if (sidebarHidden) {
+        setSidebarHidden(false);
+        setSidebarPinned(true);
+      } else {
+        setSidebarHidden(true);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [hasAppWorkspace, sidebarHidden]);
+
   if (!authReady || (user && accountProjectLoading)) {
     return (
       <div className="flex h-dvh items-center justify-center bg-background text-sm text-muted-foreground">
@@ -1106,37 +1428,36 @@ const Index = () => {
     );
   }
 
-  const sidebarOverlay = view === "studio" && (Boolean(projectId) || Boolean(lastCode) || isGeneratingApp || messages.length > 0);
-
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
-      <div className="flex flex-1 overflow-hidden">
+      <div className="relative flex flex-1 overflow-hidden">
         <Sidebar
           active={view}
           onChange={navigateView}
           onOpenSettings={() => setSettingsOpen(true)}
           onOpenSignIn={() => setAuthOpen(true)}
           onOpenPricing={() => setPricingOpen(true)}
-          isBuilding={isBuilding}
-          progressStage={progressStage}
-          overlay={sidebarOverlay}
-          open={workspaceSidebarOpen}
-          onOpenChange={setWorkspaceSidebarOpen}
+          pinned={sidebarPinned}
+          hidden={sidebarHidden}
+          overlayOpen={sidebarOverlayOpen}
+          onOverlayOpenChange={setSidebarOverlayOpen}
+          mobileOpen={mobileSidebarOpen}
+          onMobileOpenChange={setMobileSidebarOpen}
         />
 
         <div className="flex flex-1 flex-col overflow-hidden min-w-0">
           <header className="relative z-30 flex h-14 sm:h-16 shrink-0 items-center justify-between gap-2 border-b border-border/60 bg-background/40 px-3 sm:px-6 backdrop-blur-xl">
             <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-              <button
-                onClick={() => setWorkspaceSidebarOpen(true)}
-                aria-label="Open workspace navigation"
-                className={cn(
-                  "flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-smooth hover:bg-secondary hover:text-foreground",
-                  !sidebarOverlay && "md:hidden",
-                )}
-              >
-                <Menu className="h-5 w-5" />
-              </button>
+              {view === "studio" && hasAppWorkspace && (
+  <button
+    onClick={toggleSidebar}
+    aria-label="Open sidebar"
+    title="Open sidebar"
+    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-smooth hover:bg-secondary hover:text-foreground"
+  >
+    <Menu className="h-4 w-4" />
+  </button>
+)}
               {view === "studio" ? (
                 <h1 className="max-w-[18ch] sm:max-w-[40ch] truncate font-display text-sm sm:text-base font-semibold text-foreground">{projectTitle}</h1>
               ) : (
@@ -1212,13 +1533,23 @@ const Index = () => {
                         buildTimeline={buildTimeline}
                         messages={messages}
                         hasCode={Boolean(lastCode)}
+                        workingCode={workingCode}
+                        inputRef={promptInputRef}
+                        activityStartedAt={activityStartedAt}
+                        activityExplanation={activityExplanation}
+                        resolveActivityCode={resolveActivityCode}
+                        onPreviewActivity={previewActivity}
+                        onRestoreActivity={restoreActivityVersion}
+                        onMessageFeedback={(timestamp, feedback) => updateMessage(timestamp, { feedback })}
+                        onToggleBookmark={(timestamp) => setMessages((current) => current.map((message) => message.timestamp === timestamp ? { ...message, bookmarked: !message.bookmarked } : message))}
+                        onRetryBuild={() => void handleBuild()}
                       />
                     </section>
                   ) : (
                     <>
-                      <ResizablePanelGroup direction="horizontal" className="hidden min-h-0 flex-1 lg:flex">
-                        <ResizablePanel defaultSize={42} minSize={28} className="min-w-0">
-                          <section className="flex h-full min-h-0 min-w-0 flex-col overflow-y-auto border-r border-border/60">
+                      <ResizablePanelGroup ref={splitGroupRef} direction="horizontal" className="hidden min-h-0 flex-1 lg:flex" onLayout={handleSplitLayout}>
+                        <ResizablePanel id="studio-chat" order={1} defaultSize={splitRatio} minSize={0} collapsedSize={0} collapsible className="min-w-0">
+                          <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-r border-border/60">
                             <PromptPanel
                               prompt={prompt}
                               onPromptChange={handlePromptChange}
@@ -1232,11 +1563,21 @@ const Index = () => {
                               buildTimeline={buildTimeline}
                               messages={messages}
                               hasCode={Boolean(lastCode)}
+                              workingCode={workingCode}
+                              inputRef={promptInputRef}
+                              activityStartedAt={activityStartedAt}
+                              activityExplanation={activityExplanation}
+                              resolveActivityCode={resolveActivityCode}
+                              onPreviewActivity={previewActivity}
+                              onRestoreActivity={restoreActivityVersion}
+                              onMessageFeedback={(timestamp, feedback) => updateMessage(timestamp, { feedback })}
+                              onToggleBookmark={(timestamp) => setMessages((current) => current.map((message) => message.timestamp === timestamp ? { ...message, bookmarked: !message.bookmarked } : message))}
+                              onRetryBuild={() => void handleBuild()}
                             />
                           </section>
                         </ResizablePanel>
-                        <ResizableHandle withHandle className="bg-border/60" />
-                        <ResizablePanel defaultSize={58} minSize={32} className="min-w-0">
+                        <ResizableHandle withHandle onDragging={handleSplitDragging} className="w-1.5 bg-border/70 transition-colors hover:bg-primary/50" />
+                        <ResizablePanel id="studio-preview" order={2} defaultSize={100 - splitRatio} minSize={0} collapsedSize={0} collapsible className="min-w-0">
                           <section className="flex h-full min-h-0 min-w-0 flex-1">
                             <PreviewPanel
                               isBuilding={isBuilding}
@@ -1250,10 +1591,8 @@ const Index = () => {
                               onClearVersions={() => void clearVersions()}
                               onManualFix={manualFix}
                               fixing={manualFixing}
-                              quality={qualityState}
-                              onRunQuality={() => void runQualityChecks()}
-                              qualityRunning={qualityRunning}
-                              onRollbackRepair={(attempt) => void rollbackRepairAttempt(attempt)}
+                              onPreviewRuntime={handlePreviewRuntime}
+                              onThumbnailCapture={handleThumbnailCapture}
                               onCodeChange={(newCode) => {
                                 lastReportedRef.current = "";
                                 isRepairingRef.current = false;
@@ -1288,7 +1627,7 @@ const Index = () => {
                         </ResizablePanel>
                       </ResizablePanelGroup>
                       <div className="flex min-h-0 flex-1 flex-col lg:hidden">
-                        <section className={cn("min-h-0 min-w-0 overflow-y-auto border-b border-border/60", mobileStudioTab === "chat" ? "flex flex-1 flex-col" : "hidden")}>
+                        <section className={cn("min-h-0 min-w-0 overflow-hidden border-b border-border/60", mobileStudioTab === "chat" ? "flex flex-1 flex-col" : "hidden")}>
                           <PromptPanel
                             prompt={prompt}
                             onPromptChange={handlePromptChange}
@@ -1302,6 +1641,16 @@ const Index = () => {
                             buildTimeline={buildTimeline}
                             messages={messages}
                             hasCode={Boolean(lastCode)}
+                            workingCode={workingCode}
+                            inputRef={promptInputRef}
+                            activityStartedAt={activityStartedAt}
+                            activityExplanation={activityExplanation}
+                            resolveActivityCode={resolveActivityCode}
+                            onPreviewActivity={previewActivity}
+                            onRestoreActivity={restoreActivityVersion}
+                            onMessageFeedback={(timestamp, feedback) => updateMessage(timestamp, { feedback })}
+                            onToggleBookmark={(timestamp) => setMessages((current) => current.map((message) => message.timestamp === timestamp ? { ...message, bookmarked: !message.bookmarked } : message))}
+                            onRetryBuild={() => void handleBuild()}
                           />
                         </section>
                         <section className={cn("min-h-0 min-w-0 flex-1", mobileStudioTab === "preview" ? "flex" : "hidden")}>
@@ -1317,10 +1666,8 @@ const Index = () => {
                             onClearVersions={() => void clearVersions()}
                             onManualFix={manualFix}
                             fixing={manualFixing}
-                            quality={qualityState}
-                            onRunQuality={() => void runQualityChecks()}
-                            qualityRunning={qualityRunning}
-                            onRollbackRepair={(attempt) => void rollbackRepairAttempt(attempt)}
+                            onPreviewRuntime={handlePreviewRuntime}
+                            onThumbnailCapture={handleThumbnailCapture}
                             onCodeChange={(newCode) => {
                               lastReportedRef.current = "";
                               isRepairingRef.current = false;
@@ -1396,7 +1743,6 @@ const Index = () => {
                       setQualityState(buildQualityState({ code: project.code || "", prompt: project.prompt || "" }));
                       setDoc(buildDocFromPrompt(project.prompt, project.code));
                       setView("studio");
-                      setWorkspaceSidebarOpen(false);
                       setMobileStudioTab("preview");
                       toast({ title: "Project loaded", description: project.title });
                     } catch (error) {
@@ -1406,7 +1752,7 @@ const Index = () => {
                 }}
               />
             )}
-            {view === "templates" && <TemplatesPage onNavigate={navigateView} onUseTemplate={(templatePrompt) => { handlePromptChange(templatePrompt); setView("studio"); setWorkspaceSidebarOpen(true); }} />}
+            {view === "templates" && <TemplatesPage onNavigate={navigateView} onUseTemplate={(templatePrompt) => { handlePromptChange(templatePrompt); setView("studio"); }} />}
             {view === "api" && <ApiSettingsPage />}
             {view === "backend" && <BackendDeployPage projectId={projectId} projectTitle={projectTitle} />}
             {view === "pricing" && <PricingPage />}

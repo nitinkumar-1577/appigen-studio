@@ -75,7 +75,26 @@ describe("MyAppsPage account visibility", () => {
     expect(screen.getByText(/in the studio to generate your first app/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Start a project" })).toBeInTheDocument();
   });
+it("displays the saved project thumbnail in its preview card", async () => {
+  mocks.loadProjects.mockResolvedValue([
+    {
+      ...projectFor("user-a", "Visual app"),
+      thumbnail: "https://example.com/preview.png",
+    },
+  ]);
 
+  render(<MyAppsPage onNavigate={vi.fn()} onOpenSignIn={vi.fn()} />);
+
+  const thumbnail = await screen.findByRole("img", {
+    name: "Visual app preview",
+  });
+
+  expect(thumbnail).toHaveAttribute(
+    "src",
+    "https://example.com/preview.png",
+  );
+  expect(thumbnail).toHaveAttribute("loading", "lazy");
+});
   it("renames a saved project from My Apps", async () => {
     render(<MyAppsPage onNavigate={vi.fn()} onOpenSignIn={vi.fn()} />);
     await waitFor(() => expect(screen.getByText("User A app")).toBeInTheDocument());

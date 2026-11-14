@@ -12,6 +12,7 @@ const ALLOWED_PACKAGES = new Set([
 ]);
 
 const EXTENSIONS = [".tsx", ".ts", ".jsx", ".js", ".css"];
+const SOURCE_EXTENSIONS = [".tsx", ".ts", ".jsx", ".js"];
 
 function bracketsBalanced(source: string): boolean {
   const stack: string[] = [];
@@ -80,7 +81,7 @@ function parseFiles(source: string): Map<string, string> | null {
   return files;
 }
 
-function resolveLocalImport(fromPath: string, specifier: string, files: Map<string, string>): boolean {
+function resolveLocalImportPath(fromPath: string, specifier: string, files: Map<string, string>): string | null {
   let target = specifier.startsWith("@/")
     ? `src/${specifier.slice(2)}`
     : specifier.startsWith("/")
@@ -95,9 +96,14 @@ function resolveLocalImport(fromPath: string, specifier: string, files: Map<stri
   }
   target = parts.join("/");
 
-  return files.has(target) ||
-    EXTENSIONS.some((extension) => files.has(target + extension)) ||
-    EXTENSIONS.some((extension) => files.has(`${target}/index${extension}`));
+  if (files.has(target)) return target;
+  for (const extension of EXTENSIONS) if (files.has(target + extension)) return target + extension;
+  for (const extension of SOURCE_EXTENSIONS) if (files.has(`${target}/index${extension}`)) return `${target}/index${extension}`;
+  return null;
+}
+
+function resolveLocalImport(fromPath: string, specifier: string, files: Map<string, string>): boolean {
+  return resolveLocalImportPath(fromPath, specifier, files) !== null;
 }
 
 function isImportedBy(targetPath: string, fromPath: string, source: string): boolean {
@@ -120,6 +126,127 @@ function isImportedBy(targetPath: string, fromPath: string, source: string): boo
     value === specifier ||
     value === `@/${targetPath.slice(4).replace(/\.(tsx?|jsx?)$/, "")}`,
   );
+}
+
+function stripCommentsAndStrings(source: string): string {
+  let out = "";
+  let quote: string | null = null;
+  let template = false;
+  let lineComment = false;
+  let blockComment = false;
+  for (let i = 0; i < source.length; i++) {
+    const char = source[i];
+    const next = source[i + 1];
+    if (lineComment) { if (char === "\n") { lineComment = false; out += "\n"; } else out += " "; continue; }
+    if (blockComment) { if (char === "*" && next === "/") { blockComment = false; out += "  "; i++; } else out += char === "\n" ? "\n" : " "; continue; }
+    if (quote) { if (char === "\\") { out += "  "; i++; } else if (char === quote) { quote = null; out += " "; } else out += char === "\n" ? "\n" : " "; continue; }
+    if (template) { if (char === "\\") { out += "  "; i++; } else if (char === "`") { template = false; out += " "; } else out += char === "\n" ? "\n" : char; continue; }
+    if (char === "/" && next === "/") { lineComment = true; out += "  "; i++; }
+    else if (char === "/" && next === "*") { blockComment = true; out += "  "; i++; }
+    else if (char === '"' || char === "'") { quote = char; out += " "; }
+    else if (char === "`") { template = true; out += " "; }
+    else out += char;
+  }
+  return out;
+}
+
+interface ModuleExports { hasDefault: boolean; named: Set<string>; all: boolean }
+interface ImportBinding { defaultName?: string; namespace?: boolean; named: string[] }
+
+function analyzeExports(content: string): ModuleExports {
+  const src = stripCommentsAndStrings(content);
+  const named = new Set<string>();
+  let hasDefault = /\bexport\s+default\b/.test(src) || /\bexport\s*\{[^}]*\bdefault\b(?:\s+as\s+\w+)?[^}]*\}/.test(src);
+  for (const m of src.matchAll(/\bexport\s+(?:async\s+)?(?:function|class|const|let|var|enum|interface|type)\s+([A-Za-z_$][\w$]*)/g)) named.add(m[1]);
+  for (const m of src.matchAll(/\bexport\s*\{([^}]*)\}/g)) {
+    const from = /\bfrom\s*["'][^"']+["']/.test(src.slice(m.index ?? 0, (m.index ?? 0) + m[0].length + 40));
+    for (const part of m[1].split(",")) {
+      const trimmed = part.trim(); if (!trimmed) continue;
+      const bits = trimmed.split(/\s+as\s+/i).map((s) => s.trim()).filter(Boolean);
+      if (!bits.length) continue;
+      const exported = (bits[1] ?? bits[0]).replace(/^type\s+/, "");
+      if (exported === "default") hasDefault = true;
+      else if (exported && !from) named.add(exported);
+      else if (exported && from) named.add(exported);
+    }
+  }
+  return { hasDefault, named, all: /\bexport\s+\*/.test(src) };
+}
+
+function parseImportBindings(clause: string): ImportBinding {
+  const c = clause.trim();
+  const binding: ImportBinding = { named: [] };
+  if (!c) return binding;
+  if (/^\*\s+as\s+/.test(c)) { binding.namespace = true; return binding; }
+  const namedMatch = c.match(/\{([^}]*)\}/);
+  if (namedMatch) {
+    for (const part of namedMatch[1].split(",")) {
+      const trimmed = part.trim(); if (!trimmed) continue;
+      const bits = trimmed.split(/\s+as\s+/i).map((s) => s.trim());
+      const imported = (bits[0] ?? "").replace(/^type\s+/, "");
+      if (imported) binding.named.push(imported);
+    }
+    const before = c.slice(0, namedMatch.index).replace(/,\s*$/, "").trim();
+    if (before && !before.startsWith("{")) binding.defaultName = before.replace(/^type\s+/, "");
+  } else {
+    const first = c.split(",")[0]?.trim() ?? "";
+    if (first.startsWith("* as ")) binding.namespace = true;
+    else if (first) binding.defaultName = first.replace(/^type\s+/, "");
+  }
+  return binding;
+}
+
+function validateCrossFileImports(path: string, content: string, files: Map<string, string>, exportCache: Map<string, ModuleExports>): string | null {
+  const importRe = /\bimport\s+(?:type\s+)?([\s\S]*?)\bfrom\s*["']([^"']+)["']/g;
+  for (const m of content.matchAll(importRe)) {
+    const clause = m[1] ?? "";
+    const specifier = m[2] ?? "";
+    // Guard against malformed capture spanning side-effect/adjacent import statements
+    if (/;\s*import\b/.test(clause) || /^\s*["']/.test(clause)) continue;
+    if (!(specifier.startsWith(".") || specifier.startsWith("@/") || specifier.startsWith("/"))) continue;
+    const resolved = resolveLocalImportPath(path, specifier, files);
+    if (!resolved) return `Generated file ${path} imports missing module "${specifier}".`;
+    if (!SOURCE_EXTENSIONS.some((ext) => resolved.endsWith(ext))) continue;
+    const targetContent = files.get(resolved) ?? "";
+    let mod = exportCache.get(resolved);
+    if (!mod) { mod = analyzeExports(targetContent); exportCache.set(resolved, mod); }
+    if (mod.all) continue; // export * - cannot prove absence
+    const binding = parseImportBindings(clause);
+    if (binding.namespace) continue;
+    if (binding.defaultName && !mod.hasDefault) {
+      return `Generated file ${path} default-imports "${binding.defaultName}" from "${specifier}", but ${resolved} has no default export.`;
+    }
+    for (const name of binding.named) {
+      if (name === "default") {
+        if (!mod.hasDefault) return `Generated file ${path} imports default as named from "${specifier}", but ${resolved} has no default export.`;
+        continue;
+      }
+      if (!mod.named.has(name)) {
+        return `Generated file ${path} imports "${name}" from "${specifier}", but ${resolved} does not export "${name}".`;
+      }
+    }
+  }
+  return null;
+}
+
+
+function findPlaceholderFile(files: Map<string, string>): string | null {
+  for (const [path, content] of files) {
+    if (!/\.(tsx|jsx)$/.test(path)) continue;
+    if (!/^src\/(?:pages|components)\//.test(path)) continue;
+    const stripped = stripCommentsAndStrings(content)
+      .replace(/^\s*import\s[^;\n]*;?/gm, "")
+      .replace(/^\s*export\s+(?:default\s+)?(?:type|interface)\s[^\n]*/gm, "")
+      .replace(/\bexport\s+default\s+/g, "")
+      .replace(/\bexport\s+/g, "")
+      .trim();
+    const jsxElements = (stripped.match(/<[A-Za-z][\w.]*/g) ?? []).length;
+    const placeholderCue = /(?:TODO|FIXME|lorem ipsum|coming soon|generated app|your content here)/i.test(content);
+    if ((jsxElements === 0 && (placeholderCue || stripped.length < 40)) || (placeholderCue && jsxElements <= 1)) {
+      return `Generated file ${path} is an empty placeholder with no real UI.`;
+    }
+  }
+  return null;
 }
 
 export function validateGeneratedCode(source: string, requireArchitecture = false): string | null {
@@ -164,6 +291,7 @@ export function validateGeneratedCode(source: string, requireArchitecture = fals
     }
   }
 
+  const exportCache = new Map<string, ModuleExports>();
   for (const [path, content] of files) {
     if (!content) return `Generated file ${path} is empty.`;
     if (!bracketsBalanced(content)) return `Generated file ${path} has unbalanced brackets or an unclosed string.`;
@@ -181,10 +309,17 @@ export function validateGeneratedCode(source: string, requireArchitecture = fals
     }
   }
 
+  for (const [path, content] of files) {
+    const cross = validateCrossFileImports(path, content, files, exportCache);
+    if (cross) return cross;
+  }
+
   const entry = files.get(entryPath)!;
   if (!/\bexport\s+default\b|\bexport\s*\{[^}]*\bdefault\b[^}]*\}/s.test(entry)) {
     return `${entryPath} must default-export the root App component.`;
   }
+  const placeholder = findPlaceholderFile(files);
+  if (placeholder) return placeholder;
   return null;
 }
 

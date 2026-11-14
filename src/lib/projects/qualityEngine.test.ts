@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { analyzeProjectStructure, attemptsForIssue, buildQualityState, canAttemptRepair, createRepairAttempt, finalizeRepairAttempt, issueSignature, MAX_REPAIR_ATTEMPTS_PER_ISSUE, mergeRuntimeError, normalizeReviewFindings, runStaticQualityChecks, suggestTestsForGeneratedApp } from "./qualityEngine";
+import type { QualityCheck } from "./qualityEngine";
+import { analyzeProjectStructure, attemptsForIssue, buildQualityState, canAttemptRepair, computeOverall, createRepairAttempt, finalizeRepairAttempt, issueSignature, MAX_REPAIR_ATTEMPTS_PER_ISSUE, mergeRuntimeError, normalizeReviewFindings, runStaticQualityChecks, suggestTestsForGeneratedApp } from "./qualityEngine";
+const makeCheck = (status: QualityCheck["status"]): QualityCheck => ({ id: status, label: status, category: "validation", status, summary: status });
 
 const APP = `// FILE: src/App.tsx
 import "./styles.css";
@@ -9,6 +11,44 @@ export default function App(){ return <main><h1>Hello</h1><button>Go</button></m
 body{margin:0;}`;
 
 describe("qualityEngine", () => {
+    it("does not report passed when all checks are unsupported or skipped", () => {
+    expect(
+      computeOverall(
+        [
+          makeCheck("unsupported"),
+          makeCheck("skipped"),
+        ],
+        [],
+        [],
+      ),
+    ).toBe("unsupported");
+  });
+
+  it("does not report passed when supported and unsupported checks are mixed", () => {
+    expect(
+      computeOverall(
+        [
+          makeCheck("passed"),
+          makeCheck("unsupported"),
+        ],
+        [],
+        [],
+      ),
+    ).toBe("unsupported");
+  });
+
+  it("reports passed when all checks pass", () => {
+    expect(
+      computeOverall(
+        [
+          makeCheck("passed"),
+          makeCheck("passed"),
+        ],
+        [],
+        [],
+      ),
+    ).toBe("passed");
+  });
   it("analyzes project structure and detects missing tests", () => {
     const s = analyzeProjectStructure(APP);
     expect(s.files).toContain("src/App.tsx");

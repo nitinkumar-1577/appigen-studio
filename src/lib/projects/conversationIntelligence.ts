@@ -132,3 +132,67 @@ export function analyzeIntent(prompt: string, options: { hasExistingProject: boo
 export function languageName(language: ResponseLanguage) {
   return language === "hi" ? "Hindi (Devanagari)" : language === "hinglish" ? "Hinglish (Roman Hindi)" : "English";
 }
+
+const INTENT_UNDERSTANDING: Record<ConversationIntent, string> = {
+  general_conversation: "You are starting a conversation about the project",
+  question: "You are asking a question about the project",
+  explanation: "You want an explanation of how something works",
+  app_planning: "You want to plan a new app before building it",
+  new_app_creation: "You want to build a new app from your description",
+  existing_project_edit: "You want to change the existing project",
+  follow_up_modification: "You want to apply a follow-up change to the existing project",
+  bug_fixing: "You want a bug fixed in the existing project",
+  clarification: "I need a clearer target before changing the project",
+  undo_revert: "You want to revert the previous change",
+  feature_discussion: "You want to discuss a feature before implementing it",
+};
+
+export function intentSummary(intent: ConversationIntent): string {
+  return INTENT_UNDERSTANDING[intent] ?? INTENT_UNDERSTANDING.general_conversation;
+}
+
+export interface FollowUpContext {
+  hasExistingProject: boolean;
+  recentFiles?: string[];
+  lastAssistantMessage?: string;
+}
+
+export interface FollowUpResolution {
+  referencesPrevious: boolean;
+  undo: boolean;
+  mentionedFiles: string[];
+  previousFileContext: string | null;
+}
+
+const FOLLOW_UP_REFERENCE = /\b(previous|last|earlier|same|that change|this change|above|pichla|pichle|pichli|pehle wala|pehle wale|us wale|wapis|wapas)\b/i;
+const UNDO_CUE = /\b(undo|revert|rollback|roll back|restore|previous version|pehle jaisa|wapas wapas)\b/i;
+
+export function resolveFollowUp(prompt: string, context: FollowUpContext): FollowUpResolution {
+  const text = prompt.toLowerCase();
+  const mentionedFiles = (context.recentFiles ?? []).filter((path) => {
+    const base = path.split("/").pop()?.toLowerCase() ?? "";
+    const stem = base.replace(/\.[^.]+$/, "");
+    const spaced = stem.replace(/[-_]/g, " ");
+    return stem.length > 2 && (text.includes(base) || text.includes(stem) || text.includes(spaced));
+  });
+  const undo = UNDO_CUE.test(text);
+  return {
+    referencesPrevious: undo || mentionedFiles.length > 0 || FOLLOW_UP_REFERENCE.test(text),
+    undo,
+    mentionedFiles,
+    previousFileContext: context.lastAssistantMessage?.trim().slice(0, 600) || null,
+  };
+}
+
+const APP_NOUN = /\b(app|application|website|web ?site|page|screen|game|dashboard|store|shop|portfolio|blog|tracker|chat|tool|calculator|todo|expense|report|system|portal|platform|site|landing|form|login|signup)\b/i;
+const VAGUE_REFERENCE = /(?:^|\b)(?:isko|usko|isey|ise|this|that|it)\b[\s!.,]*(?:bnao|banao|banado|bna|build|create|make|design|develop|generate|implement)\b|\b(?:build|create|make|design|bnao|banao|banado|bna|develop|generate|implement)\b[\s!.,]*(?:isko|usko|isey|ise|this|that|it|ye|wo)\b/i;
+
+export function isVagueNewAppPrompt(prompt: string): boolean {
+  const text = prompt.trim();
+  if (!text) return false;
+  const words = text.split(/\s+/).filter(Boolean);
+  if (APP_NOUN.test(text)) return false;
+  if (/(?:^|\b)(?:isko|usko|isey|ise|this|that|it)\b/i.test(text)) return true;
+  if (VAGUE_REFERENCE.test(text) && words.length <= 6) return true;
+  return words.length <= 2 && /\b(build|create|make|design|bnao|banao|banado|bna|develop|generate)\b/i.test(text);
+}

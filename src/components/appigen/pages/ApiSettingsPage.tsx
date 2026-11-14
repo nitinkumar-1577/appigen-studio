@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   AI_PROVIDERS,
   modelsForProvider,
+  providerLabel,
   readAppPreferences,
   readGenerationSettings,
   saveAppPreferences,
@@ -88,7 +89,7 @@ export const ApiSettingsPage = () => {
             <div>
               <label htmlFor="api-provider" className="mb-2 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">Provider</label>
               <select id="api-provider" value={settings.provider} onChange={(e) => { const provider = e.target.value as GenerationSettings["provider"]; update({ provider, model: modelsForProvider(provider)[0] }); }} className="w-full rounded-lg border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground focus:border-primary focus:outline-none">
-                {AI_PROVIDERS.map((provider) => <option key={provider} value={provider}>{provider === "nvidia" ? "NVIDIA NIM" : provider.charAt(0).toUpperCase() + provider.slice(1)}</option>)}
+                {AI_PROVIDERS.map((provider) => <option key={provider} value={provider}>{providerLabel(provider)}</option>)}
               </select>
               <label htmlFor="api-model" className="mb-2 mt-4 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">Model</label>
               <select id="api-model" value={modelsForProvider(settings.provider).includes(settings.model) ? settings.model : modelsForProvider(settings.provider)[0]} onChange={(e) => update({ model: e.target.value as GenerationSettings["model"] })} className="w-full rounded-lg border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground focus:border-primary focus:outline-none">

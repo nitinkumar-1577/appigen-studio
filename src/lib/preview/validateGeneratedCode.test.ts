@@ -92,6 +92,44 @@ export default function App() { return <Header />; }`))
       .toContain('imports missing module "./components/Header"');
   });
 
+  it("detects cross-file export/import mismatches (generic synthetic modules)", () => {
+    const missingDefault = `// FILE: src/App.tsx
+import Widget from "./components/Widget";
+export default function App() { return <Widget />; }
+
+// FILE: src/components/Widget.tsx
+export function Widget() { return <div />; }`;
+    expect(validateGeneratedCode(missingDefault)).toContain("has no default export");
+
+    const missingNamed = `// FILE: src/App.tsx
+import { MissingThing } from "./lib/utils";
+export default function App() { return <main>{String(MissingThing)}</main>; }
+
+// FILE: src/lib/utils.ts
+export const PresentThing = 1;`;
+    expect(validateGeneratedCode(missingNamed)).toContain('does not export "MissingThing"');
+
+    const incorrectNamed = `// FILE: src/App.tsx
+import { helper as run } from "./lib/utils";
+export default function App() { return <main>{run()}</main>; }
+
+// FILE: src/lib/utils.ts
+export function helperTwo() { return 1; }`;
+    expect(validateGeneratedCode(incorrectNamed)).toContain('does not export "helper"');
+
+    const validCrossFile = `// FILE: src/App.tsx
+import { helper } from "./lib/utils";
+import Card from "./components/Card";
+export default function App() { return <Card value={helper()} />; }
+
+// FILE: src/lib/utils.ts
+export function helper() { return 1; }
+
+// FILE: src/components/Card.tsx
+export default function Card(props: { value: number }) { return <div>{props.value}</div>; }`;
+    expect(validateGeneratedCode(validCrossFile)).toBeNull();
+  });
+
   it("rejects unsupported packages and malformed source", () => {
     expect(validateGeneratedCode(`// FILE: src/App.tsx
 import { useState } from "react";
@@ -112,5 +150,35 @@ export default function App() { return <main />; }`))
     expect(validateGeneratedCode(`function App() { return <main>Ready</main>; }
 ReactDOM.createRoot(document.getElementById("root")).render(<App />);`))
       .toBeNull();
+  });
+});
+
+describe("placeholder detection", () => {
+  it("rejects components that render an empty shell", () => {
+    const source = `// FILE: src/App.tsx
+import "./styles.css";
+import Home from "./pages/Home";
+export default function App() { return <Home />; }
+
+// FILE: src/styles.css
+body { margin: 0; }
+
+// FILE: src/pages/Home.tsx
+export default function Home() { return null; }`;
+    expect(validateGeneratedCode(source, true)).toContain("empty placeholder");
+  });
+
+  it("rejects files with only placeholder copy", () => {
+    const source = `// FILE: src/App.tsx
+import "./styles.css";
+import Home from "./pages/Home";
+export default function App() { return <Home />; }
+
+// FILE: src/styles.css
+body { margin: 0; }
+
+// FILE: src/pages/Home.tsx
+export default function Home() { const title = "Your content here"; return <main>{title}</main>; }`;
+    expect(validateGeneratedCode(source, true)).toContain("empty placeholder");
   });
 });

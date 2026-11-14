@@ -10,6 +10,8 @@ Configure the existing Supabase Edge Function secrets, then deploy the
 function:
 
 ```sh
+# Lovable AI is the default provider. Lovable Cloud manages LOVABLE_API_KEY for the project.
+supabase secrets set LOVABLE_API_KEY=your-lovable-api-key --project-ref your-project-ref
 supabase secrets set GROQ_API_KEY=your-groq-api-key --project-ref your-project-ref
 supabase secrets set 'DEEPSEEK-API-KEY'=your-deepseek-api-key --project-ref your-project-ref
 supabase secrets set OPENROUTER_API_KEY=your-openrouter-api-key --project-ref your-project-ref
@@ -19,8 +21,11 @@ supabase secrets set NVIDIA_API_KEY=your-nvidia-api-key --project-ref your-proje
 supabase functions deploy Appigen --project-ref your-project-ref
 ```
 
-Groq remains the default provider and uses the selected GPT-OSS 20B or 120B
-model. DeepSeek uses `deepseek-chat`; OpenRouter, Gemini, OpenAI, and NVIDIA NIM
+Lovable AI is the default provider and uses the managed server-side
+`LOVABLE_API_KEY` through `https://ai.gateway.lovable.dev/v1`; its default model
+is `google/gemini-3.8-flash` with `openai/gpt-5.5` available. When the Lovable
+key is absent, Groq remains the first fallback (GPT-OSS 20B or 120B).
+DeepSeek uses `deepseek-chat`; OpenRouter, Gemini, OpenAI, and NVIDIA NIM
 are also supported. NVIDIA NIM includes
 `mistralai/mistral-large-4-1t-a52b`. If a selected provider is unavailable,
 generation and repair can try another configured provider without exposing
@@ -28,7 +33,7 @@ credentials. The provider selection, system-instruction, temperature, top-P,
 and safety settings are sent with build requests; provider credentials,
 endpoints, and model configuration remain in the Edge Function.
 
-The Edge Function reads the exact configured names `GEMINI_API_KEY`,
+The Edge Function reads the exact configured names `LOVABLE_API_KEY`, `GEMINI_API_KEY`,
 `OPENROUTER_API_KEY`, `GROQ_API_KEY`, `OPENAI_API_KEY`, `DEEPSEEK-API-KEY`, and
 `NVIDIA_API_KEY`. `DEEPSEEK_API_KEY` is accepted only as a backward-compatible
 fallback; no secret rename is required. They are never included in frontend

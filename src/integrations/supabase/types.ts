@@ -354,7 +354,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_appigen_usage_metrics: {
+        Args: Record<PropertyKey, never>
+        Returns: { apps_created: number; prompt_characters: number; average_build_time_ms: number | null; completed_builds: number }[]
+      }
     }
     Enums: {
       [_ in never]: never

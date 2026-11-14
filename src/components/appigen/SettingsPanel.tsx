@@ -6,6 +6,7 @@ import {
   applyAppPreferences,
   AI_PROVIDERS,
   modelsForProvider,
+  providerLabel,
   readAppPreferences,
   readGenerationSettings,
   saveAppPreferences,
@@ -82,7 +83,7 @@ export const SettingsPanel = ({ open, onClose }: SettingsPanelProps) => {
 
           <Section title="Default Model" hint="The model selected for new builds">
             <select value={preferences.provider} onChange={(e) => { const provider = e.target.value as AppPreferences["provider"]; update({ provider, model: modelsForProvider(provider)[0] }); }} className="w-full rounded-xl border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
-              {AI_PROVIDERS.map((provider) => <option key={provider} value={provider}>{provider === "nvidia" ? "NVIDIA NIM" : provider.charAt(0).toUpperCase() + provider.slice(1)}</option>)}
+              {AI_PROVIDERS.map((provider) => <option key={provider} value={provider}>{providerLabel(provider)}</option>)}
             </select>
             <select value={modelsForProvider(preferences.provider).includes(preferences.model) ? preferences.model : modelsForProvider(preferences.provider)[0]} onChange={(e) => update({ model: e.target.value as AppPreferences["model"] })} className="w-full rounded-xl border border-border bg-background/60 px-3 py-2.5 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
               {modelsForProvider(preferences.provider).map((model) => <option key={model} value={model}>{model}</option>)}

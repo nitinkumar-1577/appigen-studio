@@ -12,7 +12,7 @@ describe("Appigen v126 provider and review behavior", () => {
   let isProviderUnavailable: (error: unknown) => boolean;
   let relevantProjectSource: (source: string, prompt: string) => string;
   let outputTokenBudget: (provider: string, inputCharacters?: number) => number;
-
+  let validatePlannedFiles: (source: string, plan: unknown) => string | null;
   beforeAll(async () => {
     (globalThis as typeof globalThis & {
       Deno?: { env: { get: () => undefined }; serve: ReturnType<typeof vi.fn> };
@@ -20,13 +20,56 @@ describe("Appigen v126 provider and review behavior", () => {
       env: { get: () => undefined },
       serve: vi.fn(),
     };
-    ({ providerErrorCode, providerErrorMetadata, incrementalReviewResponse, splitPromptIntoChunks, mergeProjectFiles, providerRequestBody, providerFallbackOrder, executeProviderFailover, isProviderUnavailable, relevantProjectSource, outputTokenBudget } = await import("./index.ts"));
+  ({ providerErrorCode, providerErrorMetadata, incrementalReviewResponse, splitPromptIntoChunks, mergeProjectFiles, providerRequestBody, providerFallbackOrder, executeProviderFailover, isProviderUnavailable, relevantProjectSource, outputTokenBudget, validatePlannedFiles } = await import("./index.ts"));
+  });
+  it("rejects generation when any planned file is missing", () => {
+    const plan = {
+      fileBlueprint: [
+        { path: "src/App.tsx" },
+        { path: "src/styles.css" },
+        { path: "src/pages/HomePage.tsx" },
+      ],
+    };
+
+    const source = [
+      "// FILE: src/App.tsx",
+      "export default function App() { return null; }",
+      "// FILE: src/styles.css",
+      "body { margin: 0; }",
+    ].join("\n");
+
+    expect(validatePlannedFiles(source, plan)).toContain(
+      "src/pages/HomePage.tsx",
+    );
   });
 
+  it("passes when every planned file is generated", () => {
+    const plan = {
+      fileBlueprint: [
+        { path: "src/App.tsx" },
+        { path: "src/styles.css" },
+      ],
+    };
+
+    const source = [
+      "// FILE: src/App.tsx",
+      "export default function App() { return null; }",
+      "// FILE: src/styles.css",
+      "body { margin: 0; }",
+    ].join("\n");
+
+    expect(validatePlannedFiles(source, plan)).toBeNull();
+  });
+
+  it("rejects an empty implementation file blueprint", () => {
+    expect(validatePlannedFiles("", { fileBlueprint: [] })).toContain(
+      "no project file blueprint",
+    );
+  });
   it("preserves provider output budgets for per-file generation", () => {
-    expect(outputTokenBudget("groq", 100)).toBe(1000);
-    expect(outputTokenBudget("groq", 9000)).toBe(3000);
-    expect(outputTokenBudget("nvidia", 9000)).toBe(4096);
+    expect(outputTokenBudget("groq", 100)).toBe(4000);
+    expect(outputTokenBudget("groq", 9000)).toBe(4500);
+    expect(outputTokenBudget("nvidia", 9000)).toBe(4500);
   });
 
   it("classifies Groq token-limit HTTP 413 responses as rate limited", () => {
@@ -65,7 +108,7 @@ describe("Appigen v126 provider and review behavior", () => {
 
   it("maps provider-specific output token parameters", () => {
       const body = { messages: [], max_completion_tokens: 1234 };
-      expect(providerRequestBody("deepseek", body)).toMatchObject({ max_tokens: 1234 });
+      expect(providerRequestBody("nvidia", body)).toMatchObject({ max_tokens: 1234 });
       const nvidiaBody = providerRequestBody("nvidia", body);
       expect(nvidiaBody).toMatchObject({ max_tokens: 1234, stream: false });
       expect(nvidiaBody).not.toHaveProperty("max_completion_tokens");
@@ -73,23 +116,17 @@ describe("Appigen v126 provider and review behavior", () => {
       expect(providerRequestBody("gemini", body)).toMatchObject({ generationConfig: { maxOutputTokens: 1234 } });
   });
 
-  it("tries the selected configured provider before alternatives", () => {
-    expect(providerFallbackOrder({
-      groqKey: "groq",
-      deepseekKey: "deepseek",
-      openrouterKey: "router",
-    }, "deepseek")).toEqual(["deepseek", "groq", "openrouter"]);
+  it("sends Groq requests through the OpenAI-compatible gateway shape", () => {
+    const body = { messages: [], max_completion_tokens: 1234, reasoning_effort: "low", include_reasoning: false };
+    const groqBody = providerRequestBody("groq", body);
+    expect(groqBody).toMatchObject({ max_completion_tokens: 1234, stream: false, include_reasoning: false });
   });
 
-  it("uses Groq first and NVIDIA second for configured failover", () => {
-    expect(providerFallbackOrder({
-      groqKey: "groq",
-      nvidiaKey: "nvidia",
-    }, "groq")).toEqual(["groq", "nvidia"]);
-    expect(providerFallbackOrder({
-      groqKey: "groq",
-      nvidiaKey: "nvidia",
-    }, "nvidia")).toEqual(["nvidia", "groq"]);
+  it("fails over only across the three active providers", () => {
+    expect(providerFallbackOrder({ groqKey: "groq", nvidiaKey: "nvidia", geminiKey: "gemini" }, "groq"))
+      .toEqual(["groq", "nvidia", "gemini"]);
+    expect(providerFallbackOrder({ groqKey: "groq", nvidiaKey: "nvidia" }, "nvidia"))
+      .toEqual(["nvidia", "groq"]);
   });
 
   it("keeps a successful primary result without calling fallback", async () => {
@@ -145,9 +182,9 @@ describe("Appigen v126 provider and review behavior", () => {
     expect(metadata).not.toContain(apiKey);
   });
 
-  it("tries configured free-tier fallbacks before metered alternatives", () => {
-    expect(providerFallbackOrder({ groqKey: "groq", geminiKey: "gemini", deepseekKey: "deepseek" }, "groq"))
-      .toEqual(["groq", "gemini", "deepseek"]);
+  it("tries only the configured active providers during fallback", () => {
+    expect(providerFallbackOrder({ groqKey: "groq", nvidiaKey: "nvidia", geminiKey: "gemini" }, "groq"))
+      .toEqual(["groq", "nvidia", "gemini"]);
   });
 
   it("includes relative import dependencies in large-project context", () => {

@@ -1,22 +1,18 @@
 export const GENERATION_MODELS = [
   "openai/gpt-oss-20b",
   "openai/gpt-oss-120b",
-  "deepseek-flash",
-  "deepseek-v4-pro",
-  "openai/gpt-4o-mini",
-  "gemini-2.5-flash",
-  "gpt-4o-mini",
-  "mistralai/mistral-large-4-1t-a52b",
+  "gemini-3.8-flash",
+  "nvidia/nemotron-3.5-lightning-30b-a3b",
+  "nvidia/llama-3.1-nemotron-51b-instruct",
+  "nvidia/nemotron-4-340b-instruct",
+  "nvidia/mistral-nemo-minitron-8b-8k-instruct",
 ] as const;
-export const AI_PROVIDERS = ["groq", "deepseek", "openrouter", "gemini", "openai", "nvidia"] as const;
+export const AI_PROVIDERS = ["groq", "nvidia", "gemini"] as const;
 export type AiProvider = (typeof AI_PROVIDERS)[number];
 export const PROVIDER_MODELS: Record<AiProvider, readonly GenerationSettings["model"][]> = {
   groq: ["openai/gpt-oss-20b", "openai/gpt-oss-120b"],
-  deepseek: ["deepseek-flash", "deepseek-v4-pro"],
-  openrouter: ["openai/gpt-4o-mini"],
-  gemini: ["gemini-2.5-flash"],
-  openai: ["gpt-4o-mini"],
-  nvidia: ["mistralai/mistral-large-4-1t-a52b"],
+  nvidia: ["nvidia/nemotron-3.5-lightning-30b-a3b", "nvidia/llama-3.1-nemotron-51b-instruct", "nvidia/nemotron-4-340b-instruct", "nvidia/mistral-nemo-minitron-8b-8k-instruct"],
+  gemini: ["gemini-3.8-flash"],
 };
 
 export type AppTheme = "dark" | "light" | "system";
@@ -51,6 +47,13 @@ export interface ActivityEntry {
   promptCharacters?: number;
 }
 
+export const DEFAULT_PROVIDER: AiProvider = "groq";
+
+export function providerLabel(provider: AiProvider): string {
+  if (provider === "nvidia") return "NVIDIA NIM";
+  return provider.charAt(0).toUpperCase() + provider.slice(1);
+}
+
 export function modelsForProvider(provider: AiProvider): readonly GenerationSettings["model"][] {
   return PROVIDER_MODELS[provider];
 }
@@ -59,8 +62,13 @@ const PREFERENCES_KEY = "appigen.preferences.v1";
 const GENERATION_KEY = "appigen.generation-settings.v1";
 const ACTIVITY_PREFIX = "appigen.activity.v1.";
 
-export const DEFAULT_SYSTEM_INSTRUCTIONS =
+const LEGACY_DEFAULT_SYSTEM_INSTRUCTIONS =
   "You are an expert product designer and full-stack engineer. Generate clean, accessible, production-ready React + Tailwind code.";
+export const DEFAULT_SYSTEM_INSTRUCTIONS = `You are an expert product designer and full-stack engineer. Build a complete, polished, responsive product—not a generic mockup.
+Design: choose a visual direction that fits the product; use a deliberate color palette, typography scale, spacing system, layered backgrounds, and strong hierarchy. Avoid empty white pages, repetitive generic cards, and unfinished placeholders.
+Visual assets: for commerce, food, travel, lifestyle, portfolios, and landing pages, include relevant high-quality images with descriptive alt text, consistent crops, responsive sizing, and graceful fallbacks. Do not invent image CDN IDs or leave broken image slots.
+Functionality: every button, link, menu, tab, filter, form, and control must perform its stated action. Use real state, validation, useful feedback, working navigation, and loading/empty/success/error states. No dead links or console.log stubs.
+Engineering: use semantic accessible React + TypeScript, reusable components, correct imports, stable keys, responsive layouts, and clear separation of data, behavior, and presentation. Preserve every explicit requirement. Never add AppiGen branding to generated products. Review the full flow for runtime, type, and layout errors before returning code.`;
 
 export const DEFAULT_PREFERENCES: AppPreferences = {
   theme: "dark",
@@ -94,7 +102,7 @@ export function readAppPreferences(): AppPreferences {
   return {
     ...parsed,
     theme: ["dark", "light", "system"].includes(parsed.theme) ? parsed.theme : "dark",
-    provider: AI_PROVIDERS.includes(parsed.provider) ? parsed.provider : "groq",
+    provider: AI_PROVIDERS.includes(parsed.provider) ? parsed.provider : DEFAULT_PROVIDER,
     model: GENERATION_MODELS.includes(parsed.model) ? parsed.model : DEFAULT_PREFERENCES.model,
     density: ["Comfortable", "Compact", "Spacious"].includes(parsed.density) ? parsed.density : "Comfortable",
   };
@@ -114,10 +122,10 @@ export function readGenerationSettings(): GenerationSettings {
   const parsed = readObject<GenerationSettings>(GENERATION_KEY, DEFAULT_GENERATION_SETTINGS);
   return {
     ...parsed,
-    provider: AI_PROVIDERS.includes(parsed.provider) ? parsed.provider : "groq",
+    provider: AI_PROVIDERS.includes(parsed.provider) ? parsed.provider : DEFAULT_PROVIDER,
     model: GENERATION_MODELS.includes(parsed.model) ? parsed.model : DEFAULT_GENERATION_SETTINGS.model,
     systemInstructions: typeof parsed.systemInstructions === "string"
-      ? parsed.systemInstructions.slice(0, 4000)
+      ? (parsed.systemInstructions.trim() === LEGACY_DEFAULT_SYSTEM_INSTRUCTIONS ? DEFAULT_SYSTEM_INSTRUCTIONS : parsed.systemInstructions.slice(0, 4000))
       : DEFAULT_SYSTEM_INSTRUCTIONS,
     temperature: Number.isFinite(parsed.temperature) ? Math.min(2, Math.max(0, parsed.temperature)) : 0.7,
     topP: Number.isFinite(parsed.topP) ? Math.min(1, Math.max(0, parsed.topP)) : 0.95,

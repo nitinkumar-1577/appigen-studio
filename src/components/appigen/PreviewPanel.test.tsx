@@ -9,7 +9,7 @@ vi.mock("@monaco-editor/react", () => ({
 }));
 
 describe("PreviewPanel", () => {
-  it("opens version history and restores/deletes through the history area", () => {
+  it("opens versions and restores/deletes through the versions area", () => {
     const onDeleteVersion = vi.fn();
     render(
       <PreviewPanel
@@ -26,25 +26,35 @@ describe("PreviewPanel", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "History (1)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Versions (1)" }));
 
     expect(screen.getByText("Build another app")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Delete version Build another app" }));
     expect(onDeleteVersion).toHaveBeenCalledWith(expect.objectContaining({ id: "version-1" }));
   });
 
-  it("shows added, modified, and unchanged project files in Changes", () => {
-    const baseCode = "// FILE: src/App.tsx\nexport default function App() { return <main>Old</main>; }\n\n// FILE: src/lib/keep.ts\nexport const keep = true;";
-    const code = "// FILE: src/App.tsx\nexport default function App() { return <main>New</main>; }\n\n// FILE: src/lib/keep.ts\nexport const keep = true;\n\n// FILE: src/lib/new.ts\nexport const added = true;";
-    render(<PreviewPanel isBuilding={false} doc="" code={code} baseCode={baseCode} onCodeChange={vi.fn()} versions={[]} onRestoreVersion={vi.fn()} onDeleteVersion={vi.fn()} onClearVersions={vi.fn()} onManualFix={vi.fn()} fixing={false} />);
-    expect(screen.queryByText("GitHub Push")).not.toBeInTheDocument();
-    expect(screen.queryByText("Versions (0)")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Changes" }));
-    expect(screen.getByText("src/App.tsx")).toBeInTheDocument();
-    expect(screen.getByText("modified")).toBeInTheDocument();
-    expect(screen.getByText("unchanged")).toBeInTheDocument();
-    expect(screen.getByText("added")).toBeInTheDocument();
-    expect(screen.getByText(/New/)).toBeInTheDocument();
+  it("shows only preview, code, and versions tabs", () => {
+    render(
+      <PreviewPanel
+        isBuilding={false}
+        doc=""
+        code="export default function App(){ return <main>Hi</main>; }"
+        baseCode=""
+        onCodeChange={vi.fn()}
+        versions={[]}
+        onRestoreVersion={vi.fn()}
+        onDeleteVersion={vi.fn()}
+        onClearVersions={vi.fn()}
+        onManualFix={vi.fn()}
+        fixing={false}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Preview" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Code" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Versions (0)" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Changes/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Quality/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /History/i })).not.toBeInTheDocument();
   });
 
   it("shows generated app layers, including the app stylesheet, in Code view", () => {
@@ -164,7 +174,7 @@ main { color: red; }`;
     expect(screen.getByText("Your generated app will appear here")).toBeInTheDocument();
   });
 
-  it("shows responsive device preview controls and one reload control", () => {
+  it("shows a single preview without device controls", () => {
     render(
       <PreviewPanel
         isBuilding={false}
@@ -179,13 +189,10 @@ main { color: red; }`;
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Desktop" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Tablet" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Mobile" })).toBeInTheDocument();
-    expect(screen.getByTitle("AppiGen Sandbox Preview")).toHaveStyle({ width: "100%" });
-    fireEvent.click(screen.getByRole("button", { name: "Tablet" }));
-    expect(screen.getByRole("button", { name: "Tablet" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByTitle("AppiGen Sandbox Preview")).toHaveStyle({ width: "768px" });
+    expect(screen.queryByRole("button", { name: "Desktop" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Tablet" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Mobile" })).not.toBeInTheDocument();
+    expect(screen.getByTitle("AppiGen Sandbox Preview")).toHaveClass("h-full", "w-full");
     expect(screen.getAllByTitle("Reload preview")).toHaveLength(1);
   });
 });

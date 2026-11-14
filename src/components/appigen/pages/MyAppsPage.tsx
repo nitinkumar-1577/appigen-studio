@@ -193,15 +193,32 @@ export const MyAppsPage = ({ onNavigate, onOpenSignIn, onOpenProject }: MyAppsPa
                   className="glass group overflow-hidden rounded-xl shadow-soft transition-smooth hover:shadow-elevated hover:-translate-y-0.5"
                 >
                   <button
-                    onClick={() => onOpenProject?.(a)}
-                    className="relative block h-32 w-full overflow-hidden text-left"
-                    style={{ background: `linear-gradient(135deg, hsl(${hue} 70% 30%), hsl(${(hue + 30) % 360} 80% 18%))` }}
-                  >
-                    <div className="absolute inset-0 bg-[radial-gradient(60%_60%_at_50%_30%,rgba(255,255,255,0.18),transparent_70%)]" />
-                    <div className="absolute bottom-2 right-2 rounded-md bg-black/40 px-2 py-0.5 text-[10px] font-mono text-white/80 backdrop-blur">
-                      AI Build
-                    </div>
-                  </button>
+  onClick={() => onOpenProject?.(a)}
+  className="relative block h-44 w-full overflow-hidden text-left"
+  style={{
+    background: `linear-gradient(135deg, hsl(${hue} 70% 30%), hsl(${(hue + 30) % 360} 80% 18%))`,
+  }}
+>
+  {a.thumbnail && (
+    <img
+      src={a.thumbnail}
+      alt={`${a.title} preview`}
+      loading="lazy"
+      className="absolute inset-0 h-full w-full object-cover object-top"
+      onError={(event) => {
+        event.currentTarget.style.display = "none";
+      }}
+    />
+  )}
+
+  {!a.thumbnail && (
+    <div className="absolute inset-0 bg-[radial-gradient(60%_60%_at_50%_30%,rgba(255,255,255,0.18),transparent_70%)]" />
+  )}
+
+  <div className="absolute bottom-2 right-2 rounded-md bg-black/50 px-2 py-1 text-[10px] font-medium text-white backdrop-blur">
+    Preview
+  </div>
+</button>
                   <div className="space-y-3 p-4">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">

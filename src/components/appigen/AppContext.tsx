@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import type { Session, User as SupaUser } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { applyAppPreferences, readAppPreferences } from "@/lib/appPreferences";
+import { NOTIFICATION_RETENTION_MS, retainRecentNotifications } from "@/lib/notifications";
 
 export type User = { name: string; email: string; avatarUrl?: string | null };
 
@@ -89,7 +90,14 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [recoveryPending, setRecoveryPending] = useState(false);
 
   const [notifications, setNotifications] = useState<AppNotification[]>(() => {
-    try { const v = localStorage.getItem(LS.notif); return v ? JSON.parse(v) : []; } catch { return []; }
+    try {
+      const stored: unknown = JSON.parse(localStorage.getItem(LS.notif) || "[]");
+      if (!Array.isArray(stored)) return [];
+      const valid = stored.filter((item): item is AppNotification => Boolean(item) && typeof item === "object" &&
+        typeof item.id === "string" && typeof item.title === "string" && typeof item.description === "string" &&
+        typeof item.read === "boolean" && typeof item.createdAt === "number" && typeof item.kind === "string");
+      return retainRecentNotifications(valid);
+    } catch { return []; }
   });
   const [accent, setAccentState] = useState<string>(() => {
     try { return localStorage.getItem(LS.accent) || "purple"; } catch { return "purple"; }
@@ -134,12 +142,17 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     };
   }, []);
 
-  useEffect(() => { localStorage.setItem(LS.notif, JSON.stringify(notifications)); }, [notifications]);
+  useEffect(() => { localStorage.setItem(LS.notif, JSON.stringify(retainRecentNotifications(notifications))); }, [notifications]);
+  useEffect(() => {
+    if (!notifications.length) return;
+    const oldest = notifications.reduce((min, item) => Math.min(min, item.createdAt), Number.POSITIVE_INFINITY);
+    const delay = Math.max(0, oldest + NOTIFICATION_RETENTION_MS - Date.now());
+    const timer = window.setTimeout(() => setNotifications((current) => retainRecentNotifications(current)), delay + 25);
+    return () => window.clearTimeout(timer);
+  }, [notifications]);
   const addNotification = useCallback<AppContextValue["addNotification"]>((n) => {
-    setNotifications((prev) => [
-      { ...n, id: crypto.randomUUID(), read: false, createdAt: Date.now() },
-      ...prev,
-    ].slice(0, 30));
+    const now = Date.now();
+    setNotifications((prev) => retainRecentNotifications([{ ...n, id: crypto.randomUUID(), read: false, createdAt: now }, ...prev], now));
   }, []);
 
   const value: AppContextValue = {

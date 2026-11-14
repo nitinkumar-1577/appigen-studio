@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { analyzeIntent, detectResponseLanguage, responseLanguageInstruction } from "./conversationIntelligence";
+import { analyzeIntent, detectResponseLanguage, intentSummary, responseLanguageInstruction } from "./conversationIntelligence";
 
 describe("conversation intelligence", () => {
   it("detects Hindi Devanagari and answers without build", () => {
@@ -64,5 +64,47 @@ describe("conversation intelligence", () => {
     expect(responseLanguageInstruction("hi")).toContain("Devanagari");
     expect(responseLanguageInstruction("hinglish")).toContain("Roman");
     expect(responseLanguageInstruction("en")).toContain("English");
+  });
+});
+
+describe("intentSummary", () => {
+  it("describes what the user asked for in a short sentence", () => {
+    expect(intentSummary("new_app_creation")).toContain("new app");
+    expect(intentSummary("existing_project_edit")).toContain("existing project");
+    expect(intentSummary("bug_fixing")).toContain("bug");
+  });
+});
+
+describe("follow-up resolution", () => {
+  it("detects previous-file and undo references", async () => {
+    const { resolveFollowUp } = await import("./conversationIntelligence");
+    const undo = resolveFollowUp("Pichla change undo karo", { hasExistingProject: true, recentFiles: ["src/App.tsx"] });
+    expect(undo.undo).toBe(true);
+    expect(undo.referencesPrevious).toBe(true);
+
+    const fileRef = resolveFollowUp("Ab isme image add karo", { hasExistingProject: true, recentFiles: ["src/components/Hero.tsx"] });
+    expect(fileRef.referencesPrevious).toBe(false);
+    expect(fileRef.mentionedFiles).toEqual([]);
+
+    const named = resolveFollowUp("Hero.tsx me image add karo", { hasExistingProject: true, recentFiles: ["src/components/Hero.tsx"] });
+    expect(named.mentionedFiles).toEqual(["src/components/Hero.tsx"]);
+    expect(named.referencesPrevious).toBe(true);
+  });
+});
+
+describe("vague new-app prompts", () => {
+  it("asks for clarification when there is no target or context", async () => {
+    const { isVagueNewAppPrompt } = await import("./conversationIntelligence");
+    expect(isVagueNewAppPrompt("bnao isko")).toBe(true);
+    expect(isVagueNewAppPrompt("design karo")).toBe(true);
+    expect(isVagueNewAppPrompt("build it")).toBe(true);
+    expect(isVagueNewAppPrompt("")).toBe(false);
+  });
+
+  it("does not block prompts that name a product", async () => {
+    const { isVagueNewAppPrompt } = await import("./conversationIntelligence");
+    expect(isVagueNewAppPrompt("Mere liye ek expense tracker banao")).toBe(false);
+    expect(isVagueNewAppPrompt("Build a todo app with categories")).toBe(false);
+    expect(isVagueNewAppPrompt("Isko professional banao")).toBe(true);
   });
 });

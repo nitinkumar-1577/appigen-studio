@@ -18,7 +18,7 @@ The active production Edge Function is `Appigen` version 142. Its six provider s
 | Groq | `GROQ_API_KEY` | `https://api.groq.com/openai/v1`, OpenAI-compatible | `openai/gpt-oss-120b` before this local fix | Authentication working; generation returned request error |
 | DeepSeek | `DEEPSEEK_API_KEY` (code also accepts `DEEPSEEK-API-KEY`) | `https://api.deepseek.com`, OpenAI-compatible | `deepseek-v4-pro` | Authentication working; generation quota/balance exhausted |
 | OpenRouter | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1`, OpenAI-compatible | `openai/gpt-4o-mini` | Authentication working; generation quota/balance exhausted |
-| Gemini | `GEMINI_API_KEY` | `https://generativelanguage.googleapis.com/v1beta`, `generateContent` | `gemini-2.5-flash` | Invalid credentials (401) |
+| Gemini | `GEMINI_API_KEY` | `https://generativelanguage.googleapis.com/v1beta`, `generateContent` | `gemini-3.8-flash` | Invalid credentials (401) |
 | OpenAI | `OPENAI_API_KEY` | `https://api.openai.com/v1`, OpenAI-compatible | `gpt-4o-mini` | Invalid credentials (401) |
 | NVIDIA NIM | `NVIDIA_API_KEY` | `https://integrate.api.nvidia.com/v1`, OpenAI-compatible | `mistralai/mistral-large-4-1t-a52b` | Request rejected (400) |
 
@@ -43,7 +43,7 @@ These are the last live health results from the previous audit; no new provider 
 
 ## Provider references
 
-- [Gemini 2.5 Flash free-tier pricing](https://ai.google.dev/gemini-api/docs/pricing)
+- [Gemini 3.8 Flash free-tier pricing](https://ai.google.dev/gemini-api/docs/pricing)
 - [Groq billing tiers](https://console.groq.com/docs/billing-faqs)
 - [Groq API request fields](https://console.groq.com/docs/api-reference)
 - [NVIDIA Mistral Large 4 request example](https://build.nvidia.com/mistralai/mistral-large-4-1t-a52b)

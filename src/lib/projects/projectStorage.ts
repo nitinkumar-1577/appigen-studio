@@ -1,10 +1,22 @@
 import type { ProjectMemory } from "./projectMemory";
 import type { ChangeRecord } from "./changeTracking";
+import type { BuildActivity } from "./conversationActivity";
+
+export type MessageFeedback = "up" | "down" | null;
 
 export type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   timestamp: number;
+  /** text = plain chat bubble, activity = build/edit activity, result = final build result. */
+  kind?: "text" | "activity" | "result";
+  title?: string;
+  explanation?: string;
+  activity?: BuildActivity;
+  previewCode?: string;
+  versionId?: string;
+  feedback?: MessageFeedback;
+  bookmarked?: boolean;
 };
 
 export type LocalProjectDraft = {

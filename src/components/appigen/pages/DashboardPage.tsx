@@ -12,24 +12,31 @@ interface DashboardPageProps {
   onOpenSignIn: () => void;
 }
 
+interface UsageMetrics { apps_created: number; prompt_characters: number; average_build_time_ms: number | null; completed_builds: number }
+const EMPTY_USAGE: UsageMetrics = { apps_created: 0, prompt_characters: 0, average_build_time_ms: null, completed_builds: 0 };
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 export const DashboardPage = ({ userId, onNavigate, onOpenSignIn }: DashboardPageProps) => {
-  const [projectCount, setProjectCount] = useState(0);
+  const [usage, setUsage] = useState<UsageMetrics>(EMPTY_USAGE);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [loading, setLoading] = useState(Boolean(userId));
 
   const refresh = useCallback(async () => {
     if (!userId) {
-      setProjectCount(0);
+      setUsage(EMPTY_USAGE);
       setActivity([]);
       setLoading(false);
       return;
     }
-    const [{ count, error }, activityResult] = await Promise.all([
-      supabase.from("projects").select("id", { count: "exact", head: true }).eq("user_id", userId),
+    const [usageResult, activityResult] = await Promise.all([
+      supabase.rpc("get_appigen_usage_metrics"),
       loadProjectActivity(userId).then((entries) => ({ entries, error: null })).catch((activityError: unknown) => ({ entries: readActivity(userId), error: activityError })),
     ]);
-    if (error) toast({ title: "Dashboard data unavailable", description: error.message, variant: "destructive" });
-    else setProjectCount(count ?? 0);
+    if (usageResult.error) {
+      toast({ title: "Usage metrics unavailable", description: usageResult.error.message, variant: "destructive" });
+      const { count } = await supabase.from("projects").select("id", { count: "exact", head: true }).eq("user_id", userId);
+      setUsage({ ...EMPTY_USAGE, apps_created: count ?? 0 });
+    } else setUsage(usageResult.data?.[0] ?? EMPTY_USAGE);
     if (activityResult.error) {
       toast({ title: "Activity history unavailable", description: activityResult.error instanceof Error ? activityResult.error.message : "Your activity could not be loaded from the account.", variant: "destructive" });
     }
@@ -68,15 +75,14 @@ export const DashboardPage = ({ userId, onNavigate, onOpenSignIn }: DashboardPag
   }
 
   const builds = activity.filter((entry) => entry.kind === "build" || entry.kind === "edit");
-  const promptCharacters = builds.reduce((total, entry) => total + (entry.promptCharacters ?? 0), 0);
-  const buildTimes = builds.flatMap((entry) => entry.durationMs ? [entry.durationMs] : []);
-  const averageSeconds = buildTimes.length ? (buildTimes.reduce((sum, time) => sum + time, 0) / buildTimes.length / 1000).toFixed(1) : null;
-  const activeModel = builds.find((entry) => entry.detail)?.detail || "No builds yet";
+  const recentActivity = activity.filter((entry) => entry.createdAt >= Date.now() - DAY_MS);
+  const averageSeconds = usage.average_build_time_ms === null ? null : (usage.average_build_time_ms / 1000).toFixed(1);
+  const activeModel = builds.find((entry) => entry.detail)?.detail || "None yet";
   const stats = [
-    { label: "Apps Created", value: loading ? "…" : projectCount.toLocaleString(), delta: "Saved to your account", icon: AppWindow },
-    { label: "Prompt Characters", value: promptCharacters.toLocaleString(), delta: "Submitted in completed builds", icon: Zap },
-    { label: "Active Model", value: activeModel.replace(/^groq:/, ""), delta: "Used for your latest successful build", icon: Sparkles },
-    { label: "Avg. Build Time", value: averageSeconds ? `${averageSeconds}s` : "—", delta: buildTimes.length ? `${buildTimes.length} completed build${buildTimes.length === 1 ? "" : "s"}` : "Recorded after your first build", icon: Clock },
+    { label: "Apps Created", value: loading ? "…" : usage.apps_created.toLocaleString(), delta: "Lifetime total, including archived apps", icon: AppWindow },
+    { label: "Prompt Characters", value: usage.prompt_characters.toLocaleString(), delta: "Lifetime completed builds and edits", icon: Zap },
+    { label: "Active Model", value: activeModel.replace(/^groq:/, ""), delta: "Latest successful build · None if unused", icon: Sparkles },
+    { label: "Avg. Build Time", value: averageSeconds ? `${averageSeconds}s` : "—", delta: `${usage.completed_builds.toLocaleString()} completed builds`, icon: Clock },
   ];
 
   return (
@@ -106,13 +112,13 @@ export const DashboardPage = ({ userId, onNavigate, onOpenSignIn }: DashboardPag
           <div className="glass rounded-xl p-5 shadow-soft lg:col-span-2">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-sm font-semibold">Recent Activity</h2>
-              <span className="text-[11px] text-muted-foreground">This account only</span>
+              <span className="text-[11px] text-muted-foreground">Last 24 hours · This account only</span>
             </div>
             {loading ? (
               <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading your activity…</div>
-            ) : activity.length ? (
+            ) : recentActivity.length ? (
               <ul className="space-y-2">
-                {activity.slice(0, 8).map((entry) => (
+                {recentActivity.slice(0, 8).map((entry) => (
                   <li key={entry.id} className="flex items-center justify-between gap-3 rounded-lg border border-border/50 bg-background/40 px-3 py-2.5 transition-smooth hover:border-primary/40">
                     <div className="flex min-w-0 items-center gap-3">
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10"><Activity className="h-4 w-4 text-primary" /></div>
@@ -123,7 +129,7 @@ export const DashboardPage = ({ userId, onNavigate, onOpenSignIn }: DashboardPag
                 ))}
               </ul>
             ) : (
-              <div className="rounded-lg border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">Your successful builds and project actions will show up here.</div>
+              <div className="rounded-lg border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">No project activity in the last 24 hours. New activity will appear here.</div>
             )}
           </div>
 

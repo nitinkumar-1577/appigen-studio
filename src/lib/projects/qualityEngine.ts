@@ -127,7 +127,7 @@ export function runStaticQualityChecks(code: string, prompt = ""): QualityCheck[
   checks.push({ id: "structure", label: "Project structure", category: "structure", status: structure.files.length ? "passed" : "failed", summary: `${structure.files.length} source file(s) detected`, details: structure.files.slice(0, 20) });
 
   const validationError = validateGeneratedCode(code, false);
-  checks.push({ id: "validation", label: "Project validation", category: "validation", status: validationError ? "failed" : "passed", summary: validationError || "Syntax brackets, required entry/export, local imports, and package constraints passed (deterministic checks).", evidence: validationError || undefined });
+  checks.push({ id: "validation", label: "Project validation", category: "validation", status: validationError ? "failed" : "passed", summary: validationError || "Syntax brackets, required entry/export, local imports/exports, and package constraints passed (deterministic checks).", evidence: validationError || undefined });
 
   // per-file validation details
   const files = projectFiles(code);
@@ -163,12 +163,35 @@ export function runStaticQualityChecks(code: string, prompt = ""): QualityCheck[
   return checks;
 }
 
-export function computeOverall(checks: QualityCheck[], runtimeErrors: RuntimeIssue[], unresolved: string[]): CheckStatus {
-  if (runtimeErrors.some((e) => ["error", "promise", "compile", "render", "blank"].includes(e.kind))) return "failed";
+export function computeOverall(
+  checks: QualityCheck[],
+  runtimeErrors: RuntimeIssue[],
+  unresolved: string[],
+): CheckStatus {
+  if (
+    runtimeErrors.some((e) =>
+      ["error", "promise", "compile", "render", "blank"].includes(e.kind),
+    )
+  ) {
+    return "failed";
+  }
+
   if (unresolved.length) return "failed";
   if (checks.some((c) => c.status === "failed")) return "failed";
   if (checks.some((c) => c.status === "running")) return "running";
-  if (checks.every((c) => c.status === "skipped" || c.status === "unsupported" || c.status === "idle")) return checks.length ? "passed" : "idle";
+
+  if (!checks.length || checks.every((c) => c.status === "idle")) {
+    return "idle";
+  }
+
+  if (
+    checks.some(
+      (c) => c.status === "unsupported" || c.status === "skipped",
+    )
+  ) {
+    return "unsupported";
+  }
+
   return "passed";
 }
 

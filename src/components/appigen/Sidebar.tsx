@@ -1,15 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   LayoutDashboard,
   AppWindow,
   LayoutTemplate,
   KeyRound,
   Sparkles,
-  ChevronLeft,
+  X,
   Settings,
   Palette,
-  LoaderCircle,
-  Server,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -31,7 +29,6 @@ const navItems: { key: ViewKey; icon: LucideIcon; label: string }[] = [
   { key: "apps", icon: AppWindow, label: "My Apps" },
   { key: "templates", icon: LayoutTemplate, label: "Templates" },
   { key: "api", icon: KeyRound, label: "API Settings" },
-  { key: "backend", icon: Server, label: "Backend & Deploy" },
 ];
 
 interface SidebarProps {
@@ -40,87 +37,85 @@ interface SidebarProps {
   onOpenSettings: () => void;
   onOpenSignIn: () => void;
   onOpenPricing: () => void;
-  isBuilding: boolean;
-  progressStage: string;
-  /** When true, sidebar is rendered as an overlay drawer (hidden by default) on all screen sizes. */
-  overlay?: boolean;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
+  /** Desktop: user-controlled pinned/expanded state (in-flow). */
+  pinned: boolean;
+  /** Desktop: fully hide the in-flow sidebar (Lovable-style workspace mode). */
+  hidden: boolean;
+  /** Desktop: show the sidebar as an overlay opened from the header tab. */
+  overlayOpen: boolean;
+  onOverlayOpenChange: (open: boolean) => void;
+  /** Desktop: allow hiding the in-flow sidebar (only inside an app workspace). */
+  /** Mobile: responsive drawer state. */
+  mobileOpen: boolean;
+  onMobileOpenChange: (open: boolean) => void;
 }
 
-export const Sidebar = ({ active, onChange, onOpenSettings, onOpenSignIn, onOpenPricing, isBuilding, progressStage, overlay = false, open, onOpenChange }: SidebarProps) => {
-  const [collapsed, setCollapsed] = useState(false);
+export const Sidebar = ({ active, onChange, onOpenSettings, onOpenSignIn, onOpenPricing, pinned, hidden, overlayOpen, onOverlayOpenChange, mobileOpen, onMobileOpenChange }: SidebarProps) => {
   const { accent, setAccent } = useApp();
 
-  const handleNav = (v: ViewKey) => {
+  useEffect(() => {
+    if (!overlayOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onOverlayOpenChange(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [overlayOpen, onOverlayOpenChange]);
+
+  const handleNav = (v: ViewKey, close?: () => void) => {
     onChange(v);
-    if (overlay) onOpenChange(false);
+    close?.();
   };
 
-  const showRailToggle = !overlay;
-
-  return (
-    <>
-      {overlay && open && (
-        <div
-          onClick={() => onOpenChange(false)}
-          className="fixed inset-0 z-40 bg-background/70 backdrop-blur-sm animate-fade-in"
-          aria-hidden="true"
-        />
-      )}
-      <aside
-        aria-label="Workspace navigation"
-        className={cn(
-          "flex h-full flex-col border-r border-sidebar-border bg-sidebar transition-transform duration-300 ease-out",
-          overlay
-            ? cn(
-                "fixed inset-y-0 left-0 z-50 w-64 shadow-elevated",
-                open ? "translate-x-0" : "-translate-x-full pointer-events-none",
-              )
-            : cn(
-                "relative z-30 shrink-0",
-                collapsed ? "w-[72px]" : "w-60",
-              ),
-        )}
-      >
+  const SidebarBody = ({ mobile, overlay = false, onClose }: { mobile: boolean; overlay?: boolean; onClose?: () => void }) => {
+    const expanded = mobile || overlay ? true : pinned;
+    const compact = !expanded;
+    const closeSidebar = () => (onClose ? onClose() : onMobileOpenChange(false));
+    const closeOnNav = mobile || overlay ? closeSidebar : undefined;
+    return (
+      <>
         <div className="flex h-16 items-center gap-2.5 px-4">
           <button
-            onClick={() => handleNav("studio")}
+            onClick={() => handleNav("studio", closeOnNav)}
             className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-primary shadow-glow"
             aria-label="Open Studio"
           >
             <Sparkles className="h-4 w-4 text-primary-foreground" strokeWidth={2.5} />
           </button>
-          {(!collapsed || overlay) && (
-            <span className="font-display text-lg font-bold tracking-tight text-foreground animate-fade-in">
+          {expanded && (
+            <span className="font-display text-lg font-bold tracking-tight text-foreground">
               AppiGen
             </span>
           )}
-          {overlay && (
+          {mobile ? (
             <button
-              onClick={() => onOpenChange(false)}
+              onClick={closeSidebar}
               aria-label="Close sidebar"
               className="ml-auto flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-smooth hover:bg-sidebar-accent/60 hover:text-foreground"
             >
-              <ChevronLeft className="h-4 w-4" />
+              <X className="h-4 w-4" />
             </button>
-          )}
+          ) : null}
         </div>
 
-        <nav className="flex-1 px-3 py-4">
+        <nav className="flex-1 px-3 py-2">
           <ul className="space-y-1">
             {navItems.map((item) => {
               const isActive = active === item.key;
               return (
                 <li key={item.key}>
                   <button
-                    onClick={() => handleNav(item.key)}
+                    onClick={() => handleNav(item.key, closeOnNav)}
                     className={cn(
                       "group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-smooth",
                       isActive
                         ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-soft"
                         : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
                     )}
+                    title={compact ? item.label : undefined}
                   >
                     <item.icon
                       className={cn(
@@ -128,8 +123,8 @@ export const Sidebar = ({ active, onChange, onOpenSettings, onOpenSignIn, onOpen
                         isActive && "text-primary"
                       )}
                     />
-                    {(!collapsed || overlay) && <span className="truncate">{item.label}</span>}
-                    {isActive && (!collapsed || overlay) && (
+                    {expanded && <span className="truncate">{item.label}</span>}
+                    {isActive && expanded && (
                       <span className="ml-auto h-1.5 w-1.5 rounded-full bg-primary shadow-glow" />
                     )}
                   </button>
@@ -137,27 +132,10 @@ export const Sidebar = ({ active, onChange, onOpenSettings, onOpenSignIn, onOpen
               );
             })}
           </ul>
-          {isBuilding && (
-            <div
-              role="status"
-              aria-live="polite"
-              aria-label={`Build progress: ${progressStage}`}
-              title={`Build progress: ${progressStage}`}
-              className={cn(
-                "mt-4 rounded-xl border border-primary/20 bg-primary/[0.07] text-sidebar-foreground shadow-soft",
-                collapsed && !overlay ? "flex justify-center p-2.5" : "p-3"
-              )}
-            >
-              <div className={cn("flex items-center gap-2", collapsed && !overlay && "justify-center")}>
-                <LoaderCircle className="h-4 w-4 shrink-0 animate-spin text-primary" />
-                {(!collapsed || overlay) && <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Building your app</span>}
-              </div>
-              {(!collapsed || overlay) && <p className="mt-2 truncate text-xs font-semibold text-foreground">{progressStage}</p>}
-            </div>
-          )}
+
         </nav>
 
-        {(!collapsed || overlay) && (
+        {expanded && (
           <div className="px-4 pb-3">
             <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               <Palette className="h-3 w-3" /> Accent
@@ -181,27 +159,67 @@ export const Sidebar = ({ active, onChange, onOpenSettings, onOpenSignIn, onOpen
         )}
 
         <div className="space-y-1.5 border-t border-sidebar-border p-3">
-          <div className={cn("flex items-center gap-2", collapsed && !overlay && "justify-center")}>
-            <ProfileMenu onOpenSignIn={onOpenSignIn} onOpenSettings={onOpenSettings} onOpenPricing={onOpenPricing} compact={collapsed && !overlay} />
+          <div className={cn("flex items-center gap-2", compact && "justify-center")}>
+            <ProfileMenu onOpenSignIn={onOpenSignIn} onOpenSettings={onOpenSettings} onOpenPricing={onOpenPricing} compact={compact} />
           </div>
-          <button onClick={onOpenSettings} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-sidebar-foreground transition-smooth hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground">
+          <button onClick={onOpenSettings} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-sidebar-foreground transition-smooth hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground" title={compact ? "Settings" : undefined}>
             <Settings className="h-[18px] w-[18px]" />
-            {(!collapsed || overlay) && <span>Settings</span>}
+            {expanded && <span>Settings</span>}
           </button>
         </div>
+      </>
+    );
+  };
 
-        {showRailToggle && (
-          <button
-            onClick={() => setCollapsed((c) => !c)}
-            aria-label="Toggle sidebar"
-            className="absolute -right-3 top-20 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-surface-elevated text-muted-foreground shadow-soft transition-smooth hover:text-primary"
-          >
-            <ChevronLeft
-              className={cn("h-3.5 w-3.5 transition-transform", collapsed && "rotate-180")}
-            />
-          </button>
+  return (
+    <>
+      {/* Mobile drawer */}
+      {mobileOpen && (
+        <div
+          onClick={() => onMobileOpenChange(false)}
+          className="fixed inset-0 z-40 bg-background/70 backdrop-blur-sm md:hidden animate-fade-in"
+          aria-hidden="true"
+        />
+      )}
+      <aside
+        aria-label="Workspace navigation"
+        className={cn(
+          "fixed inset-y-0 left-0 z-50 flex h-full w-64 flex-col border-r border-sidebar-border bg-sidebar shadow-elevated transition-transform duration-300 ease-out md:hidden",
+          mobileOpen ? "translate-x-0" : "-translate-x-full pointer-events-none",
         )}
+      >
+        <SidebarBody mobile />
       </aside>
+
+      {/* Desktop overlay opened from the header tab */}
+      {overlayOpen && (
+        <>
+          <div
+            onClick={() => onOverlayOpenChange(false)}
+            className="fixed inset-0 z-40 hidden bg-transparent md:block"
+            aria-hidden="true"
+          />
+          <aside
+            aria-label="Workspace navigation"
+            className="fixed inset-y-0 left-0 z-50 hidden h-full w-64 flex-col border-r border-sidebar-border bg-sidebar shadow-elevated animate-fade-in md:flex"
+          >
+            <SidebarBody mobile={false} overlay onClose={() => onOverlayOpenChange(false)} />
+          </aside>
+        </>
+      )}
+
+      {/* Desktop sidebar (no hover popup/peek overlay) */}
+      {!hidden && (
+        <aside
+          aria-label="Workspace navigation"
+          className={cn(
+            "hidden md:flex h-full flex-col border-r border-sidebar-border bg-sidebar transition-all duration-200 ease-out relative z-30 shrink-0",
+            pinned ? "w-60" : "w-[72px]",
+          )}
+        >
+          <SidebarBody mobile={false} />
+        </aside>
+      )}
     </>
   );
 };

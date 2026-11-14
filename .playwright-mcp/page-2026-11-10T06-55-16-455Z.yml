@@ -165,7 +165,7 @@
                         - strong [ref=e305]: Invalid key
                       - generic [ref=e306]:
                         - text: "Model:"
-                        - strong [ref=e307]: gemini-2.5-flash
+                        - strong [ref=e307]: gemini-3.8-flash
                       - generic [ref=e308]: "Gemini 401 [INVALID_CREDENTIALS]: response_keys=error"
                   - generic [ref=e309]:
                     - generic [ref=e310]:
