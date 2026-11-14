@@ -1,0 +1,140 @@
+- generic [ref=f1e2]:
+  - region "Notifications (F8)":
+    - list
+  - region "Notifications alt+T"
+  - generic [ref=f1e3]:
+    - generic [ref=f1e4]:
+      - complementary [ref=f1e5]:
+        - generic [ref=f1e6]:
+          - button [ref=f1e7] [cursor=pointer]
+          - generic [ref=f1e10]: AppiGen
+        - navigation [ref=f1e11]:
+          - list [ref=f1e12]:
+            - listitem [ref=f1e13]:
+              - button "Studio" [ref=f1e14] [cursor=pointer]
+            - listitem [ref=f1e19]:
+              - button "Dashboard" [ref=f1e20] [cursor=pointer]
+            - listitem [ref=f1e27]:
+              - button "My Apps" [ref=f1e28] [cursor=pointer]
+            - listitem [ref=f1e32]:
+              - button "Templates" [ref=f1e33] [cursor=pointer]
+            - listitem [ref=f1e39]:
+              - button "API Settings" [ref=f1e40] [cursor=pointer]
+        - generic [ref=f1e45]:
+          - generic [ref=f1e46]: Accent
+          - generic [ref=f1e53]:
+            - button "Use Purple accent" [ref=f1e54] [cursor=pointer]
+            - button "Use Blue accent" [ref=f1e55] [cursor=pointer]
+            - button "Use Emerald accent" [ref=f1e56] [cursor=pointer]
+            - button "Use Rose accent" [ref=f1e57] [cursor=pointer]
+        - generic [ref=f1e58]:
+          - button "Sign in" [ref=f1e60] [cursor=pointer]
+          - button "Settings" [ref=f1e61] [cursor=pointer]
+        - button "Toggle sidebar" [ref=f1e66] [cursor=pointer]
+      - generic [ref=f1e69]:
+        - banner [ref=f1e70]:
+          - generic [ref=f1e71]:
+            - button [ref=f1e205] [cursor=pointer]:
+              - heading "Polished, Fully Playable Ludo Game Against" [level=1] [ref=f1e206]
+            - generic [ref=f1e77]: Auto title
+          - generic [ref=f1e78]:
+            - button "Connect to GitHub" [ref=f1e238] [cursor=pointer]
+            - button [ref=f1e80] [cursor=pointer]
+            - button "Upgrade" [ref=f1e84] [cursor=pointer]
+        - main [ref=f1e88]:
+          - generic [ref=f1e89]:
+            - button "Prompt" [ref=f1e90] [cursor=pointer]
+            - button "Preview" [ref=f1e93] [cursor=pointer]
+          - generic [ref=f1e99]:
+            - generic [ref=f1e212]:
+              - generic [ref=f1e213]:
+                - generic [ref=f1e214]: Project chat
+                - generic [ref=f1e218]:
+                  - button ".zip" [ref=f1e246] [cursor=pointer]
+                  - button "New project" [ref=f1e247] [cursor=pointer]
+              - generic [ref=f1e219]:
+                - article [ref=f1e220]:
+                  - generic [ref=f1e221]: You
+                  - text: "Build a polished, fully playable Ludo game against the computer (single player vs 3 CPU opponents). Create a classic 4-color Ludo board with four tokens per player, clear safe squares and home lanes, dice roll button with visible die result, turn indicator, and move animations. Follow standard rules: a 6 is required to leave base, rolling a 6 grants another turn, exact roll is required to finish, landing on an opponent sends their token back to base except on safe squares, and show win state. CPU players should take legal turns automatically. Make all controls functional and responsive. Do not use placeholder controls."
+                - article [ref=f1e222]:
+                  - generic [ref=f1e223]: AppiGen
+                  - text: "Implementation plan — game for casual gaming (complex) Requirements: - Build a polished, fully playable Ludo game against the computer (single player vs 3 CPU opponents). - Create a classic 4-color Ludo board with four tokens per player, clear safe squares and home lanes, dice roll button with visible die result, turn indicator, and move animations. - Follow standard rules: a 6 is required to leave base, rolling a 6 grants another turn, exact roll is required to finish, landing on an opponent sends their token back to base except on safe squares, and show win state. - CPU players should take legal turns automatically. - Make all controls functional and responsive. - Do not use placeholder controls. Roadmap: 1. Identify the requested user flows and edge cases 2. Create the app shell, screen, reusable UI, and app-specific styles 3. Separate meaningful state and domain rules into focused modules 4. Validate the complete project before preview and save Planned files: - src/App.tsx — Application shell and entry point - src/pages/MainPage.tsx — Primary screen composition - src/components/MainView.tsx — Reusable screen UI - src/styles.css — Responsive app-specific design system - src/components/GameBoard.tsx — Render the Ludo playfield and visible game state - src/components/GameControls.tsx — Expose the requested player controls and turn/status feedback - src/hooks/useLudo.ts — Manage Ludo state transitions and player/computer turns - src/lib/ludo-rules.ts — Implement and validate Ludo domain rules independently of the UI"
+                - article [ref=f1e248]:
+                  - generic [ref=f1e249]: AppiGen
+                  - text: Your app is ready in Preview.
+            - generic [ref=f1e108]:
+              - generic "Prompt ideas" [ref=f1e109]:
+                - generic [ref=f1e110]: Try
+                - button "AI chat workspace" [ref=f1e250] [cursor=pointer]
+                - button "creative portfolio" [ref=f1e251] [cursor=pointer]
+                - button "habit tracker" [ref=f1e252] [cursor=pointer]
+              - textbox "Describe an edit to this project" [ref=f1e253]:
+                - /placeholder: Describe a change to your app…
+              - generic [ref=f1e115]:
+                - generic [ref=f1e116]:
+                  - button "Attach file" [ref=f1e117] [cursor=pointer]
+                  - button "Add voice prompt" [ref=f1e120] [cursor=pointer]
+                - generic [ref=f1e124]:
+                  - button "Send" [disabled]
+              - generic [ref=f1e126]:
+                - generic [ref=f1e127]: Prompt credits
+                - generic [ref=f1e128]: 0 / 8,000 credits
+    - complementary [ref=f1e130]:
+      - generic [ref=f1e131]:
+        - heading "General Settings" [level=2] [ref=f1e134]
+        - button "Close settings" [ref=f1e135] [cursor=pointer]
+      - generic [ref=f1e139]:
+        - generic [ref=f1e140]:
+          - generic [ref=f1e141]:
+            - generic [ref=f1e142]: Appearance
+            - generic [ref=f1e143]: System and default follow AppiGen's dark theme
+          - generic [ref=f1e145]:
+            - button "Dark" [ref=f1e146] [cursor=pointer]
+            - button "Light" [ref=f1e149] [cursor=pointer]
+            - button "System" [ref=f1e156] [cursor=pointer]
+        - generic [ref=f1e159]:
+          - generic [ref=f1e160]:
+            - generic [ref=f1e161]: Default Model
+            - generic [ref=f1e162]: The model selected for new builds
+          - generic [ref=f1e163]:
+            - combobox [ref=f1e164]:
+              - option "Groq" [selected]
+              - option "Deepseek"
+              - option "Openrouter"
+              - option "Gemini"
+              - option "Openai"
+              - option "NVIDIA NIM"
+            - combobox [ref=f1e165]:
+              - option "openai/gpt-oss-20b"
+              - option "openai/gpt-oss-120b" [selected]
+        - generic [ref=f1e166]:
+          - generic [ref=f1e167]:
+            - generic [ref=f1e168]: UI Density
+            - generic [ref=f1e169]: Adjust card spacing across the workspace
+          - generic [ref=f1e171]:
+            - button "Comfortable" [ref=f1e172] [cursor=pointer]
+            - button "Compact" [ref=f1e173] [cursor=pointer]
+            - button "Spacious" [ref=f1e174] [cursor=pointer]
+        - generic [ref=f1e175]:
+          - generic [ref=f1e176]: Workspace
+          - generic [ref=f1e178]:
+            - generic [ref=f1e179]:
+              - generic [ref=f1e180]:
+                - generic [ref=f1e181]: Autodraft
+                - generic [ref=f1e182]: Save prompts locally while you type
+              - switch "Autodraft" [checked] [ref=f1e183] [cursor=pointer]
+            - generic [ref=f1e185]:
+              - generic [ref=f1e186]:
+                - generic [ref=f1e187]: Anonymous telemetry
+                - generic [ref=f1e188]: Share anonymous usage data to improve AppiGen
+              - switch "Anonymous telemetry" [ref=f1e189] [cursor=pointer]
+        - paragraph [ref=f1e191]: Model behavior and content safety are configured in API Settings.
+      - generic [ref=f1e192]:
+        - button "Cancel" [ref=f1e193] [cursor=pointer]
+        - button "Save changes" [ref=f1e194] [cursor=pointer]
+    - contentinfo [ref=f1e195]:
+      - generic [ref=f1e196]:
+        - generic [ref=f1e197]: All systems operational
+        - generic [ref=f1e199]: ·
+        - generic [ref=f1e200]: v1.0.0
+      - generic [ref=f1e201]: © 2026 AppiGen|Powered by NK

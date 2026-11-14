@@ -1,0 +1,131 @@
+- generic [ref=f1e2]:
+  - region "Notifications (F8)":
+    - list
+  - region "Notifications alt+T"
+  - generic [ref=f1e3]:
+    - generic [ref=f1e4]:
+      - complementary [ref=f1e5]:
+        - generic [ref=f1e6]:
+          - button [ref=f1e7] [cursor=pointer]
+          - generic [ref=f1e10]: AppiGen
+        - navigation [ref=f1e11]:
+          - list [ref=f1e12]:
+            - listitem [ref=f1e13]:
+              - button "Studio" [ref=f1e14] [cursor=pointer]
+            - listitem [ref=f1e19]:
+              - button "Dashboard" [ref=f1e20] [cursor=pointer]
+            - listitem [ref=f1e27]:
+              - button "My Apps" [ref=f1e28] [cursor=pointer]
+            - listitem [ref=f1e32]:
+              - button "Templates" [ref=f1e33] [cursor=pointer]
+            - listitem [ref=f1e39]:
+              - button "API Settings" [ref=f1e40] [cursor=pointer]
+        - generic [ref=f1e45]:
+          - generic [ref=f1e46]: Accent
+          - generic [ref=f1e53]:
+            - button "Use Purple accent" [ref=f1e54] [cursor=pointer]
+            - button "Use Blue accent" [ref=f1e55] [cursor=pointer]
+            - button "Use Emerald accent" [ref=f1e56] [cursor=pointer]
+            - button "Use Rose accent" [ref=f1e57] [cursor=pointer]
+        - generic [ref=f1e58]:
+          - button "Sign in" [ref=f1e60] [cursor=pointer]
+          - button "Settings" [ref=f1e61] [cursor=pointer]
+        - button "Toggle sidebar" [ref=f1e66] [cursor=pointer]
+      - generic [ref=f1e69]:
+        - banner [ref=f1e70]:
+          - generic [ref=f1e71]:
+            - button [ref=f1e205] [cursor=pointer]:
+              - heading "Polished, Fully Playable Ludo Game Against" [level=1] [ref=f1e206]
+            - generic [ref=f1e77]: Auto title
+          - generic [ref=f1e78]:
+            - button "Connect to GitHub" [ref=f1e238] [cursor=pointer]
+            - button [ref=f1e80] [cursor=pointer]
+            - button "Upgrade" [ref=f1e84] [cursor=pointer]
+        - main [ref=f1e88]:
+          - generic [ref=f1e89]:
+            - button "Prompt" [ref=f1e90] [cursor=pointer]
+            - button "Preview" [ref=f1e93] [cursor=pointer]
+          - generic [ref=f1e256]:
+            - generic [ref=f1e257]:
+              - generic [ref=f1e258]:
+                - button "Preview" [ref=f1e259] [cursor=pointer]
+                - button "Code" [ref=f1e263] [cursor=pointer]
+                - button "GitHub Push" [ref=f1e268] [cursor=pointer]
+              - generic [ref=f1e272]:
+                - button "Fix with AI" [ref=f1e273] [cursor=pointer]
+                - button "Reload preview" [ref=f1e274] [cursor=pointer]
+                - button "Fullscreen" [ref=f1e280] [cursor=pointer]
+            - generic [ref=f1e287]:
+              - button "Reload" [ref=f1e289] [cursor=pointer]
+              - iframe [active] [ref=f1e296]:
+                - generic [ref=f2e5]:
+                  - heading "Ludo" [level=1] [ref=f2e6]
+                  - generic [ref=f2e88]:
+                    - generic [ref=f2e89]: "Turn: You (red)"
+                    - 'button "Dice: 3" [disabled] [ref=f2e91]'
+                    - generic [ref=f2e92]:
+                      - button "Base 1" [ref=f2e93] [cursor=pointer]
+                      - button "Base 2" [ref=f2e94] [cursor=pointer]
+                      - button "Base 3" [ref=f2e95] [cursor=pointer]
+                      - button "Base 4" [ref=f2e96] [cursor=pointer]
+                    - button "Move" [disabled] [ref=f2e97]
+                    - generic [ref=f2e98]: Rolled a 3
+    - complementary [ref=f1e130]:
+      - generic [ref=f1e131]:
+        - heading "General Settings" [level=2] [ref=f1e134]
+        - button "Close settings" [ref=f1e135] [cursor=pointer]
+      - generic [ref=f1e139]:
+        - generic [ref=f1e140]:
+          - generic [ref=f1e141]:
+            - generic [ref=f1e142]: Appearance
+            - generic [ref=f1e143]: System and default follow AppiGen's dark theme
+          - generic [ref=f1e145]:
+            - button "Dark" [ref=f1e146] [cursor=pointer]
+            - button "Light" [ref=f1e149] [cursor=pointer]
+            - button "System" [ref=f1e156] [cursor=pointer]
+        - generic [ref=f1e159]:
+          - generic [ref=f1e160]:
+            - generic [ref=f1e161]: Default Model
+            - generic [ref=f1e162]: The model selected for new builds
+          - generic [ref=f1e163]:
+            - combobox [ref=f1e164]:
+              - option "Groq" [selected]
+              - option "Deepseek"
+              - option "Openrouter"
+              - option "Gemini"
+              - option "Openai"
+              - option "NVIDIA NIM"
+            - combobox [ref=f1e165]:
+              - option "openai/gpt-oss-20b"
+              - option "openai/gpt-oss-120b" [selected]
+        - generic [ref=f1e166]:
+          - generic [ref=f1e167]:
+            - generic [ref=f1e168]: UI Density
+            - generic [ref=f1e169]: Adjust card spacing across the workspace
+          - generic [ref=f1e171]:
+            - button "Comfortable" [ref=f1e172] [cursor=pointer]
+            - button "Compact" [ref=f1e173] [cursor=pointer]
+            - button "Spacious" [ref=f1e174] [cursor=pointer]
+        - generic [ref=f1e175]:
+          - generic [ref=f1e176]: Workspace
+          - generic [ref=f1e178]:
+            - generic [ref=f1e179]:
+              - generic [ref=f1e180]:
+                - generic [ref=f1e181]: Autodraft
+                - generic [ref=f1e182]: Save prompts locally while you type
+              - switch "Autodraft" [checked] [ref=f1e183] [cursor=pointer]
+            - generic [ref=f1e185]:
+              - generic [ref=f1e186]:
+                - generic [ref=f1e187]: Anonymous telemetry
+                - generic [ref=f1e188]: Share anonymous usage data to improve AppiGen
+              - switch "Anonymous telemetry" [ref=f1e189] [cursor=pointer]
+        - paragraph [ref=f1e191]: Model behavior and content safety are configured in API Settings.
+      - generic [ref=f1e192]:
+        - button "Cancel" [ref=f1e193] [cursor=pointer]
+        - button "Save changes" [ref=f1e194] [cursor=pointer]
+    - contentinfo [ref=f1e195]:
+      - generic [ref=f1e196]:
+        - generic [ref=f1e197]: All systems operational
+        - generic [ref=f1e199]: ·
+        - generic [ref=f1e200]: v1.0.0
+      - generic [ref=f1e201]: © 2026 AppiGen|Powered by NK

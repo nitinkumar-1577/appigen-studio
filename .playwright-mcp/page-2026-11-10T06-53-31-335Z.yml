@@ -1,0 +1,139 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - region "Notifications (F8)":
+      - list [ref=e190]:
+        - listitem [ref=e191]:
+          - generic [ref=e192]:
+            - generic [ref=e193]: Build failed
+            - generic [ref=e194]: "AI code generation failed: all configured Groq models failed. Groq openai/gpt-oss-20b rejected its configured credentials (HTTP 401). Groq openai/gpt-oss-120b rejected its configured credentials (HTTP 401)."
+          - button [ref=e195] [cursor=pointer]
+    - region "Notifications alt+T"
+    - generic [ref=e4]:
+      - generic [ref=e5]:
+        - complementary [ref=e6]:
+          - generic [ref=e7]:
+            - button [ref=e8] [cursor=pointer]
+            - generic [ref=e11]: AppiGen
+          - navigation [ref=e12]:
+            - list [ref=e13]:
+              - listitem [ref=e14]:
+                - button "Studio" [ref=e15] [cursor=pointer]
+              - listitem [ref=e20]:
+                - button "Dashboard" [ref=e21] [cursor=pointer]
+              - listitem [ref=e28]:
+                - button "My Apps" [ref=e29] [cursor=pointer]
+              - listitem [ref=e33]:
+                - button "Templates" [ref=e34] [cursor=pointer]
+              - listitem [ref=e40]:
+                - button "API Settings" [ref=e41] [cursor=pointer]
+          - generic [ref=e46]:
+            - generic [ref=e47]: Accent
+            - generic [ref=e54]:
+              - button "Use Purple accent" [ref=e55] [cursor=pointer]
+              - button "Use Blue accent" [ref=e56] [cursor=pointer]
+              - button "Use Emerald accent" [ref=e57] [cursor=pointer]
+              - button "Use Rose accent" [ref=e58] [cursor=pointer]
+          - generic [ref=e59]:
+            - button "Sign in" [ref=e61] [cursor=pointer]
+            - button "Settings" [ref=e62] [cursor=pointer]
+          - button "Toggle sidebar" [ref=e67] [cursor=pointer]
+        - generic [ref=e70]:
+          - banner [ref=e71]:
+            - generic [ref=e72]:
+              - heading "Responsive CRM Dashboard" [level=1] [ref=e200]
+              - generic [ref=e74]: Auto title
+            - generic [ref=e75]:
+              - button [ref=e77] [cursor=pointer]
+              - button "Upgrade" [ref=e81] [cursor=pointer]
+          - main [ref=e85]:
+            - generic [ref=e88]:
+              - generic [ref=e201]:
+                - generic [ref=e202]:
+                  - generic [ref=e203]: Build progress
+                  - button "New project" [ref=e208] [cursor=pointer]
+                - generic [ref=e209]:
+                  - article [ref=e210]:
+                    - generic [ref=e211]: You
+                    - text: Build a responsive CRM and inventory management application for a small electronics distributor. Include a dashboard with revenue, order, low-stock and customer KPI cards plus interactive charts; separate navigation pages for Dashboard, Customers, Products, Inventory, and Orders; searchable, filterable, sortable and paginated tables; create, edit and delete workflows for customers, products and orders; validated forms with required fields, valid email, positive prices and stock quantities; order status and inventory adjustments that update dashboard totals and low-stock alerts; responsive desktop/mobile layouts; useful loading, empty and error states; local persistent storage so sample records and user changes survive refresh. Use realistic sample data, polished professional visual design, accessible keyboard controls, no decorative dead buttons.
+                  - article [ref=e212]:
+                    - generic [ref=e213]: AppiGen
+                    - text: "Build failed: AI code generation failed: all configured Groq models failed. Groq openai/gpt-oss-20b rejected its configured credentials (HTTP 401). Groq openai/gpt-oss-120b rejected its configured credentials (HTTP 401)."
+              - generic [ref=e90]:
+                - generic "Prompt ideas" [ref=e91]:
+                  - generic [ref=e92]: Try
+                  - button "creative portfolio" [ref=e214] [cursor=pointer]
+                  - button "habit tracker" [ref=e215] [cursor=pointer]
+                  - button "event booking experience" [ref=e216] [cursor=pointer]
+                - textbox "Describe the app to build" [ref=e97]:
+                  - /placeholder: ""
+                  - text: Build a responsive CRM and inventory management application for a small electronics distributor. Include a dashboard with revenue, order, low-stock and customer KPI cards plus interactive charts; separate navigation pages for Dashboard, Customers, Products, Inventory, and Orders; searchable, filterable, sortable and paginated tables; create, edit and delete workflows for customers, products and orders; validated forms with required fields, valid email, positive prices and stock quantities; order status and inventory adjustments that update dashboard totals and low-stock alerts; responsive desktop/mobile layouts; useful loading, empty and error states; local persistent storage so sample records and user changes survive refresh. Use realistic sample data, polished professional visual design, accessible keyboard controls, no decorative dead buttons.
+                - generic [ref=e98]:
+                  - generic [ref=e99]:
+                    - button "Attach file" [ref=e100] [cursor=pointer]:
+                      - generic [ref=e103]: Attach
+                    - button "Add voice prompt" [ref=e104] [cursor=pointer]:
+                      - generic [ref=e108]: Voice
+                  - button "Build" [active] [ref=e217] [cursor=pointer]
+                - generic [ref=e111]:
+                  - generic [ref=e112]: Characters
+                  - 'generic "Prompt character count: 858" [ref=e218]': "858"
+      - complementary [ref=e114]:
+        - generic [ref=e115]:
+          - heading "General Settings" [level=2] [ref=e118]
+          - button "Close settings" [ref=e119] [cursor=pointer]
+        - generic [ref=e123]:
+          - generic [ref=e124]:
+            - generic [ref=e125]:
+              - generic [ref=e126]: Appearance
+              - generic [ref=e127]: System and default follow AppiGen's dark theme
+            - generic [ref=e129]:
+              - button "Dark" [ref=e130] [cursor=pointer]
+              - button "Light" [ref=e133] [cursor=pointer]
+              - button "System" [ref=e140] [cursor=pointer]
+          - generic [ref=e143]:
+            - generic [ref=e144]:
+              - generic [ref=e145]: Default Model
+              - generic [ref=e146]: The model selected for new builds
+            - generic [ref=e147]:
+              - combobox [ref=e148]:
+                - option "Groq" [selected]
+                - option "Deepseek"
+                - option "Openrouter"
+                - option "Gemini"
+                - option "Openai"
+                - option "NVIDIA NIM"
+              - combobox [ref=e149]:
+                - option "openai/gpt-oss-20b"
+                - option "openai/gpt-oss-120b" [selected]
+          - generic [ref=e150]:
+            - generic [ref=e151]:
+              - generic [ref=e152]: UI Density
+              - generic [ref=e153]: Adjust card spacing across the workspace
+            - generic [ref=e155]:
+              - button "Comfortable" [ref=e156] [cursor=pointer]
+              - button "Compact" [ref=e157] [cursor=pointer]
+              - button "Spacious" [ref=e158] [cursor=pointer]
+          - generic [ref=e159]:
+            - generic [ref=e160]: Workspace
+            - generic [ref=e162]:
+              - generic [ref=e163]:
+                - generic [ref=e164]:
+                  - generic [ref=e165]: Autodraft
+                  - generic [ref=e166]: Save prompts locally while you type
+                - switch "Autodraft" [checked] [ref=e167] [cursor=pointer]
+              - generic [ref=e169]:
+                - generic [ref=e170]:
+                  - generic [ref=e171]: Anonymous telemetry
+                  - generic [ref=e172]: Share anonymous usage data to improve AppiGen
+                - switch "Anonymous telemetry" [ref=e173] [cursor=pointer]
+          - paragraph [ref=e175]: Model behavior and content safety are configured in API Settings.
+        - generic [ref=e176]:
+          - button "Cancel" [ref=e177] [cursor=pointer]
+          - button "Save changes" [ref=e178] [cursor=pointer]
+      - contentinfo [ref=e179]:
+        - generic [ref=e180]:
+          - generic [ref=e181]: All systems operational
+          - generic [ref=e183]: ·
+          - generic [ref=e184]: v1.0.0
+        - generic [ref=e185]: © 2026 AppiGen|Powered by NK
+  - status [ref=e219]: "Notification Build failedAI code generation failed: all configured Groq models failed. Groq openai/gpt-oss-20b rejected its configured credentials (HTTP 401). Groq openai/gpt-oss-120b rejected its configured credentials (HTTP 401)."

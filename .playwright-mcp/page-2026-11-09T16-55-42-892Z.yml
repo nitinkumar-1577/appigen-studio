@@ -1,0 +1,150 @@
+- generic [ref=f1e2]:
+  - region "Notifications (F8)":
+    - list
+  - region "Notifications alt+T"
+  - generic [ref=f1e219]:
+    - generic [ref=f1e220]:
+      - complementary [ref=f1e221]:
+        - generic [ref=f1e222]:
+          - button [ref=f1e223] [cursor=pointer]
+          - generic [ref=f1e226]: AppiGen
+        - navigation [ref=f1e227]:
+          - list [ref=f1e228]:
+            - listitem [ref=f1e229]:
+              - button "Studio" [ref=f1e230] [cursor=pointer]
+            - listitem [ref=f1e235]:
+              - button "Dashboard" [ref=f1e236] [cursor=pointer]
+            - listitem [ref=f1e243]:
+              - button "My Apps" [ref=f1e244] [cursor=pointer]
+            - listitem [ref=f1e248]:
+              - button "Templates" [ref=f1e249] [cursor=pointer]
+            - listitem [ref=f1e255]:
+              - button "API Settings" [ref=f1e256] [cursor=pointer]
+        - generic [ref=f1e261]:
+          - generic [ref=f1e262]: Accent
+          - generic [ref=f1e269]:
+            - button "Use Purple accent" [ref=f1e270] [cursor=pointer]
+            - button "Use Blue accent" [ref=f1e271] [cursor=pointer]
+            - button "Use Emerald accent" [ref=f1e272] [cursor=pointer]
+            - button "Use Rose accent" [ref=f1e273] [cursor=pointer]
+        - generic [ref=f1e274]:
+          - button "Sign in" [ref=f1e276] [cursor=pointer]
+          - button "Settings" [ref=f1e277] [cursor=pointer]
+        - button "Toggle sidebar" [ref=f1e282] [cursor=pointer]
+      - generic [ref=f1e285]:
+        - banner [ref=f1e286]:
+          - generic [ref=f1e287]:
+            - button [ref=f1e288] [cursor=pointer]:
+              - heading "Untitled Project" [level=1] [ref=f1e289]
+            - generic [ref=f1e293]: Auto title
+          - generic [ref=f1e294]:
+            - button [ref=f1e296] [cursor=pointer]
+            - button "Upgrade" [ref=f1e300] [cursor=pointer]
+        - main [ref=f1e304]:
+          - generic [ref=f1e305]:
+            - button "Prompt" [ref=f1e306] [cursor=pointer]
+            - button "Preview" [ref=f1e309] [cursor=pointer]
+          - generic [ref=f1e317]:
+            - generic "Prompt ideas" [ref=f1e318]:
+              - generic [ref=f1e319]: Try
+              - button "online bookstore" [ref=f1e321] [cursor=pointer]
+              - button "AI chat workspace" [ref=f1e322] [cursor=pointer]
+              - button "creative portfolio" [ref=f1e411] [cursor=pointer]
+            - generic [ref=f1e323]:
+              - generic [aria-hidden]: A warm, editorial online bookstore with search, ge
+              - textbox "Describe the app to build" [ref=f1e324]:
+                - /placeholder: ""
+            - generic [ref=f1e325]:
+              - generic [ref=f1e326]:
+                - button "Attach file" [ref=f1e327] [cursor=pointer]
+                - button "Add voice prompt" [ref=f1e330] [cursor=pointer]
+              - generic [ref=f1e334]:
+                - button "Build" [disabled]
+            - generic [ref=f1e336]:
+              - generic [ref=f1e337]: Prompt characters
+              - generic [ref=f1e338]: "0"
+    - generic [ref=f1e413]:
+      - button "Close authentication dialog" [ref=f1e414] [cursor=pointer]
+      - generic [ref=f1e422]:
+        - generic [ref=f1e423]: Sign in to AppiGen
+        - generic [ref=f1e424]: Secure authentication powered by Supabase
+      - generic [ref=f1e425]:
+        - button "Email & Password" [ref=f1e426] [cursor=pointer]
+        - button "Email Code" [ref=f1e427] [cursor=pointer]
+      - generic [ref=f1e428]:
+        - button "Sign in" [ref=f1e429] [cursor=pointer]
+        - generic [ref=f1e430]: ·
+        - button "Create account" [ref=f1e431] [cursor=pointer]
+      - generic [ref=f1e432]:
+        - textbox "you@company.com" [active] [ref=f1e434]
+        - generic [ref=f1e435]:
+          - textbox "Password" [ref=f1e436]
+          - button "Show password" [ref=f1e437] [cursor=pointer]
+        - button "Sign in" [ref=f1e441] [cursor=pointer]
+        - button "Forgot password?" [ref=f1e442] [cursor=pointer]
+      - generic [ref=f1e446]:
+        - generic [ref=f1e447]:
+          - button "Continue with Google" [ref=f1e448] [cursor=pointer]:
+            - generic [aria-hidden] [ref=f1e449]: G
+            - text: Continue with Google
+          - button "Continue with GitHub" [ref=f1e450] [cursor=pointer]
+        - paragraph [ref=f1e454]: GitHub login does not connect a repository. Repository access is requested separately.
+    - complementary [ref=f1e339]:
+      - generic [ref=f1e340]:
+        - heading "General Settings" [level=2] [ref=f1e343]
+        - button "Close settings" [ref=f1e344] [cursor=pointer]
+      - generic [ref=f1e348]:
+        - generic [ref=f1e349]:
+          - generic [ref=f1e350]:
+            - generic [ref=f1e351]: Appearance
+            - generic [ref=f1e352]: System and default follow AppiGen's dark theme
+          - generic [ref=f1e354]:
+            - button "Dark" [ref=f1e355] [cursor=pointer]
+            - button "Light" [ref=f1e358] [cursor=pointer]
+            - button "System" [ref=f1e365] [cursor=pointer]
+        - generic [ref=f1e368]:
+          - generic [ref=f1e369]:
+            - generic [ref=f1e370]: Default Model
+            - generic [ref=f1e371]: The model selected for new builds
+          - generic [ref=f1e372]:
+            - combobox [ref=f1e373]:
+              - option "Groq" [selected]
+              - option "Deepseek"
+              - option "Openrouter"
+              - option "Gemini"
+              - option "Openai"
+              - option "NVIDIA NIM"
+            - combobox [ref=f1e374]:
+              - option "openai/gpt-oss-20b"
+              - option "openai/gpt-oss-120b" [selected]
+        - generic [ref=f1e375]:
+          - generic [ref=f1e376]:
+            - generic [ref=f1e377]: UI Density
+            - generic [ref=f1e378]: Adjust card spacing across the workspace
+          - generic [ref=f1e380]:
+            - button "Comfortable" [ref=f1e381] [cursor=pointer]
+            - button "Compact" [ref=f1e382] [cursor=pointer]
+            - button "Spacious" [ref=f1e383] [cursor=pointer]
+        - generic [ref=f1e384]:
+          - generic [ref=f1e385]: Workspace
+          - generic [ref=f1e387]:
+            - generic [ref=f1e388]:
+              - generic [ref=f1e389]:
+                - generic [ref=f1e390]: Autodraft
+                - generic [ref=f1e391]: Save prompts locally while you type
+              - switch "Autodraft" [checked] [ref=f1e392] [cursor=pointer]
+            - generic [ref=f1e394]:
+              - generic [ref=f1e395]:
+                - generic [ref=f1e396]: Anonymous telemetry
+                - generic [ref=f1e397]: Share anonymous usage data to improve AppiGen
+              - switch "Anonymous telemetry" [ref=f1e398] [cursor=pointer]
+        - paragraph [ref=f1e400]: Model behavior and content safety are configured in API Settings.
+      - generic [ref=f1e401]:
+        - button "Cancel" [ref=f1e402] [cursor=pointer]
+        - button "Save changes" [ref=f1e403] [cursor=pointer]
+    - contentinfo [ref=f1e404]:
+      - generic [ref=f1e405]:
+        - generic [ref=f1e406]: All systems operational
+        - generic [ref=f1e408]: ·
+        - generic [ref=f1e409]: v1.0.0
+      - generic [ref=f1e410]: © 2026 AppiGen|Powered by NK
