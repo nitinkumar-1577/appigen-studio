@@ -46,7 +46,13 @@ export const SettingsPanel = ({ open, onClose }: SettingsPanelProps) => {
     try {
       saveAppPreferences(preferences);
       const generation = readGenerationSettings();
-      saveGenerationSettings({ ...generation, provider: preferences.provider, model: preferences.model });
+      const defaultModelChanged = generation.provider !== preferences.provider || generation.model !== preferences.model;
+      saveGenerationSettings({
+        ...generation,
+        provider: preferences.provider,
+        model: preferences.model,
+        ...(defaultModelChanged ? { logicProvider: preferences.provider, logicModel: preferences.model } : {}),
+      });
       applyAppPreferences(preferences);
       onClose();
     } catch (error) {

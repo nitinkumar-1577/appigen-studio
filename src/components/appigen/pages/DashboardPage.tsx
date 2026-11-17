@@ -8,6 +8,7 @@ import type { ViewKey } from "../Sidebar";
 
 interface DashboardPageProps {
   userId: string | null;
+  activeProjectTitle: string | null;
   onNavigate: (view: ViewKey) => void;
   onOpenSignIn: () => void;
 }
@@ -16,7 +17,7 @@ interface UsageMetrics { apps_created: number; prompt_characters: number; averag
 const EMPTY_USAGE: UsageMetrics = { apps_created: 0, prompt_characters: 0, average_build_time_ms: null, completed_builds: 0 };
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export const DashboardPage = ({ userId, onNavigate, onOpenSignIn }: DashboardPageProps) => {
+export const DashboardPage = ({ userId, activeProjectTitle, onNavigate, onOpenSignIn }: DashboardPageProps) => {
   const [usage, setUsage] = useState<UsageMetrics>(EMPTY_USAGE);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [loading, setLoading] = useState(Boolean(userId));
@@ -74,14 +75,13 @@ export const DashboardPage = ({ userId, onNavigate, onOpenSignIn }: DashboardPag
     );
   }
 
-  const builds = activity.filter((entry) => entry.kind === "build" || entry.kind === "edit");
   const recentActivity = activity.filter((entry) => entry.createdAt >= Date.now() - DAY_MS);
   const averageSeconds = usage.average_build_time_ms === null ? null : (usage.average_build_time_ms / 1000).toFixed(1);
-  const activeModel = builds.find((entry) => entry.detail)?.detail || "None yet";
+  const activeProject = activeProjectTitle?.trim() || "No project";
   const stats = [
     { label: "Apps Created", value: loading ? "…" : usage.apps_created.toLocaleString(), delta: "Lifetime total, including archived apps", icon: AppWindow },
     { label: "Prompt Characters", value: usage.prompt_characters.toLocaleString(), delta: "Lifetime completed builds and edits", icon: Zap },
-    { label: "Active Model", value: activeModel.replace(/^groq:/, ""), delta: "Latest successful build · None if unused", icon: Sparkles },
+    { label: "Active Project", value: activeProject, delta: activeProjectTitle ? "Currently open in Studio" : "No project is currently open", icon: Sparkles },
     { label: "Avg. Build Time", value: averageSeconds ? `${averageSeconds}s` : "—", delta: `${usage.completed_builds.toLocaleString()} completed builds`, icon: Clock },
   ];
 

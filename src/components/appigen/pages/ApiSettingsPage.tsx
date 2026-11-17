@@ -98,6 +98,29 @@ export const ApiSettingsPage = () => {
               <p className="mt-1.5 text-[11px] text-muted-foreground">Provider credentials remain server-managed. Health checks never return API keys.</p>
             </div>
 
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2 rounded-xl border border-border/60 bg-background/30 p-3">
+                <h3 className="text-xs font-semibold">Design model</h3>
+                <p className="text-[11px] text-muted-foreground">Handles visual layout, components, and styling files.</p>
+                <select aria-label="Design provider" value={settings.designProvider} onChange={(e) => { const designProvider = e.target.value as GenerationSettings["provider"]; update({ designProvider, designModel: modelsForProvider(designProvider)[0] }); }} className="w-full rounded-lg border border-border bg-background/60 px-3 py-2 text-xs text-foreground">
+                  {AI_PROVIDERS.map((provider) => <option key={provider} value={provider}>{providerLabel(provider)}</option>)}
+                </select>
+                <select aria-label="Design model" value={settings.designModel} onChange={(e) => update({ designModel: e.target.value as GenerationSettings["model"] })} className="w-full rounded-lg border border-border bg-background/60 px-3 py-2 text-xs text-foreground">
+                  {modelsForProvider(settings.designProvider).map((model) => <option key={model} value={model}>{model}</option>)}
+                </select>
+              </div>
+              <div className="space-y-2 rounded-xl border border-border/60 bg-background/30 p-3">
+                <h3 className="text-xs font-semibold">Logic model</h3>
+                <p className="text-[11px] text-muted-foreground">Handles data, state, validation, and application logic.</p>
+                <select aria-label="Logic provider" value={settings.logicProvider} onChange={(e) => { const logicProvider = e.target.value as GenerationSettings["provider"]; update({ logicProvider, logicModel: modelsForProvider(logicProvider)[0] }); }} className="w-full rounded-lg border border-border bg-background/60 px-3 py-2 text-xs text-foreground">
+                  {AI_PROVIDERS.map((provider) => <option key={provider} value={provider}>{providerLabel(provider)}</option>)}
+                </select>
+                <select aria-label="Logic model" value={settings.logicModel} onChange={(e) => update({ logicModel: e.target.value as GenerationSettings["model"] })} className="w-full rounded-lg border border-border bg-background/60 px-3 py-2 text-xs text-foreground">
+                  {modelsForProvider(settings.logicProvider).map((model) => <option key={model} value={model}>{model}</option>)}
+                </select>
+              </div>
+            </div>
+
             <div>
               <label htmlFor="system-instructions" className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 <Wand2 className="h-3.5 w-3.5 text-primary" /> System Instructions
