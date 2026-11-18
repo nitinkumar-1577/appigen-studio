@@ -809,6 +809,70 @@ const navigateView = (next: ViewKey) => {
     let buildProvider: string = generationSettings.provider;
     try {
       assertSupabaseFunctionAccess();
+            if (!questionMode && session?.user?.id) {
+        const durableTitle = editMode
+          ? projectTitle
+          : titleManuallyEdited
+            ? projectTitle
+            : suggestProjectTitle(trimmed);
+
+        const durableProjectId = await persistProject({
+          projectId: editMode ? projectId : null,
+          userId: session.user.id,
+          title: durableTitle,
+          prompt: trimmed,
+          code: baseCodeForEdit ?? "",
+          messages: nextMessages,
+        });
+
+        setProjectId(durableProjectId);
+
+        const queuedMessage: ChatMessage = {
+          role: "assistant",
+          content: "Build accepted and queued. The background worker will continue generation.",
+          timestamp: Date.now(),
+        };
+
+        const queuedMessages = [...nextMessages, queuedMessage];
+
+        await enqueueBuildJob({
+          userId: session.user.id,
+          projectId: durableProjectId,
+          requestPayload: {
+            prompt: trimmed,
+            provider: generationSettings.provider,
+            model: generationSettings.model,
+            existingProject: editMode,
+            code: baseCodeForEdit ?? "",
+            conversation: baseMessages.slice(-12),
+            projectUnderstanding: understandingText,
+            projectMemory: memoryText,
+            changeSummary: recentChangeSummary,
+            responseLanguage: intent.responseLanguage,
+            intent: intent.intent,
+            followUp: followUpText,
+            system: [
+              generationSettings.systemInstructions,
+              responseLanguageInstruction(intent.responseLanguage),
+            ].filter(Boolean).join("\n\n"),
+            temperature: generationSettings.temperature,
+            topP: generationSettings.topP,
+            safety: generationSettings.safety,
+            title: durableTitle,
+            messages: queuedMessages,
+          },
+        });
+
+        setMessages(queuedMessages);
+        setPrompt("");
+        setProgressStage("Queued");
+        setBuildTimeline(["Build successfully added to background queue"]);
+        toast({
+          title: "Build queued",
+          description: "Your project is saved. Background generation has been started.",
+        });
+        return;
+      }
       if (questionMode) {
         setProgressStage("Planning");
         const { data: chatData, error: chatError } = await supabase.functions.invoke("Appigen", {
