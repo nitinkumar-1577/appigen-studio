@@ -187,6 +187,26 @@ const Index = () => {
   currentTitleRef.current = projectTitle;
   currentMessagesRef.current = messages;
   const [versions, setVersions] = useState<LocalProjectVersion[]>(initialState.versions);
+  const openedSavedProjectRef = useRef(false);
+
+const studioWorkspaceSnapshotRef = useRef<{
+  prompt: string;
+  doc: string;
+  projectTitle: string;
+  titleManuallyEdited: boolean;
+  lastCode: string | null;
+  workingCode: string | null;
+  changeBaseCode: string | null;
+  projectId: string | null;
+  projectUpdatedAt: string | null;
+  lastSyncedCode: string | null;
+  lastSyncedPrompt: string | null;
+  lastSyncedTitle: string | null;
+  lastSyncedMessages: string | null;
+  messages: ChatMessage[];
+  versions: LocalProjectVersion[];
+  qualityState: QualityState;
+} | null>(null);
   const [progressStage, setProgressStage] = useState("Planning");
   const [buildFiles, setBuildFiles] = useState<BuildFileProgress[]>([]);
   const [buildTimeline, setBuildTimeline] = useState<string[]>([]);
@@ -249,13 +269,79 @@ const Index = () => {
     }
     wasGeneratingRef.current = isGeneratingApp;
   }, [isGeneratingApp]);
+const saveStudioWorkspaceSnapshot = () => {
+  if (openedSavedProjectRef.current) return;
 
- const navigateView = (next: ViewKey) => {
-    setView(next);
-    setSidebarOverlayOpen(false);
-    setMobileSidebarOpen(false);
-  };
+ studioWorkspaceSnapshotRef.current = {
+  prompt,
+  doc,
+  projectTitle,
+  titleManuallyEdited,
+  lastCode,
+  workingCode,
+  changeBaseCode,
+  projectId,
+  projectUpdatedAt,
+  lastSyncedCode,
+  lastSyncedPrompt: lastSyncedPromptRef.current,
+  lastSyncedTitle: lastSyncedTitleRef.current,
+  lastSyncedMessages: lastSyncedMessagesRef.current,
+  messages,
+  versions,
+  qualityState,
+};
+};
+const restoreStudioWorkspaceSnapshot = () => {
+  const snapshot = studioWorkspaceSnapshotRef.current;
+  if (!snapshot) return;
 
+  setPrompt(snapshot.prompt);
+  setDoc(snapshot.doc);
+  setProjectTitle(snapshot.projectTitle);
+  setTitleManuallyEdited(snapshot.titleManuallyEdited);
+  setLastCode(snapshot.lastCode);
+  setWorkingCode(snapshot.workingCode);
+  setChangeBaseCode(snapshot.changeBaseCode);
+  setProjectId(snapshot.projectId);
+  setProjectUpdatedAt(snapshot.projectUpdatedAt);
+  setLastSyncedCode(snapshot.lastSyncedCode);
+  lastSyncedPromptRef.current = snapshot.lastSyncedPrompt;
+  lastSyncedTitleRef.current = snapshot.lastSyncedTitle;
+  lastSyncedMessagesRef.current = snapshot.lastSyncedMessages;
+  promptDirtyRef.current = false;
+  setMessages(snapshot.messages);
+  setVersions(snapshot.versions);
+  setQualityState(snapshot.qualityState);
+
+  openedSavedProjectRef.current = false;
+  studioWorkspaceSnapshotRef.current = null;
+};
+const navigateView = (next: ViewKey) => {
+  // Restore the previous Studio workspace only when no saved project is open.
+  if (
+  next === "studio" &&
+  studioWorkspaceSnapshotRef.current
+) {
+  restoreStudioWorkspaceSnapshot();
+  openedSavedProjectRef.current = false;
+}
+  // Save Studio workspace only when moving directly from Studio to My Apps.
+  if (
+    next === "apps" &&
+    view === "studio" &&
+    !openedSavedProjectRef.current
+  ) {
+    saveStudioWorkspaceSnapshot();
+  }
+
+  setSidebarHidden(false);
+  setSidebarPinned(true);
+
+  setView(next);
+  setSidebarActiveView(next);
+  setSidebarOverlayOpen(false);
+  setMobileSidebarOpen(false);
+};
   useEffect(() => {
     if (!isBuilding && !partialBuildRef.current) setWorkingCode(lastCode);
   }, [isBuilding, lastCode]);
@@ -680,8 +766,9 @@ const Index = () => {
       setTitleManuallyEdited(false);
     }
     if (!questionMode) {
-      setView("studio");
-    }
+  setView("studio");
+  setSidebarActiveView("studio");
+}
     setMobileStudioTab(questionMode ? "chat" : "preview");
     setProgressStage("Planning");
     setBuildTimeline(["Planning implementation", `Request type: ${intent.intent}`]);
@@ -1187,7 +1274,7 @@ setSidebarOverlayOpen(false);
     if (!window.confirm("Start a new project? Your current chat and code will be cleared.")) return;
     abortRef.current?.abort();
     if (chatKey === "local:current") clearLocalVersions(chatKey);
-    setProjectId(null); setProjectTitle("Untitled Project"); setTitleManuallyEdited(false); setPrompt(""); setLastCode(null); setWorkingCode(null); setChangeBaseCode(null); setBuildFiles([]); setBuildTimeline([]); partialBuildRef.current = null; setMessages([]); setVersions([]); runtimeIssuesRef.current = []; repairAttemptsRefState.current = []; setQualityState(emptyQualityState()); setDoc(buildDocFromPrompt("")); setView("studio"); setMobileStudioTab("chat"); setIsGeneratingApp(false); discardProjectDraft();
+    setProjectId(null); setProjectTitle("Untitled Project"); setTitleManuallyEdited(false); setPrompt(""); setLastCode(null); setWorkingCode(null); setChangeBaseCode(null); setBuildFiles([]); setBuildTimeline([]); partialBuildRef.current = null; setMessages([]); setVersions([]); runtimeIssuesRef.current = []; repairAttemptsRefState.current = []; setQualityState(emptyQualityState()); setDoc(buildDocFromPrompt("")); setView("studio");setSidebarActiveView("studio"); setMobileStudioTab("chat"); setIsGeneratingApp(false); discardProjectDraft();
   };
 
   const snapshotCode = async (code: string | null, action: string) => {
@@ -1277,6 +1364,7 @@ setSidebarOverlayOpen(false);
     setVersions([]);
     setDoc(buildDocFromPrompt(""));
     setView("studio");
+    setSidebarActiveView("studio");
     setMobileStudioTab("chat");
     setIsGeneratingApp(false);
   };
@@ -1456,21 +1544,20 @@ setSidebarOverlayOpen(false);
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
       <div className="relative flex flex-1 overflow-hidden">
-        <Sidebar
-          active={view}
-          workspaceActive={view === "studio" && hasAppWorkspace}
-          onChange={navigateView}
-          onOpenSettings={() => setSettingsOpen(true)}
-          onOpenSignIn={() => setAuthOpen(true)}
-          onOpenPricing={() => setPricingOpen(true)}
-          pinned={sidebarPinned}
-          hidden={sidebarHidden}
-          overlayOpen={sidebarOverlayOpen}
-          workspaceActive={view === "studio" && hasAppWorkspace}
-          onOverlayOpenChange={setSidebarOverlayOpen}
-          mobileOpen={mobileSidebarOpen}
-          onMobileOpenChange={setMobileSidebarOpen}
-        />
+       <Sidebar
+  active={sidebarActiveView}
+  workspaceActive={view === "studio" && hasAppWorkspace}
+  onChange={navigateView}
+  onOpenSettings={() => setSettingsOpen(true)}
+  onOpenSignIn={() => setAuthOpen(true)}
+  onOpenPricing={() => setPricingOpen(true)}
+  pinned={sidebarPinned}
+  hidden={sidebarHidden}
+  overlayOpen={sidebarOverlayOpen}
+  onOverlayOpenChange={setSidebarOverlayOpen}
+  mobileOpen={mobileSidebarOpen}
+  onMobileOpenChange={setMobileSidebarOpen}
+/>
 
         <div className="flex flex-1 flex-col overflow-hidden min-w-0">
           <header className="relative z-30 flex h-14 sm:h-16 shrink-0 items-center justify-between gap-2 border-b border-border/60 bg-background/40 px-3 sm:px-6 backdrop-blur-xl">
@@ -1754,6 +1841,8 @@ setSidebarOverlayOpen(false);
                       partialBuildRef.current = null;
                       setBuildFiles([]);
                       setBuildTimeline([]);
+                      saveStudioWorkspaceSnapshot();
+                      openedSavedProjectRef.current = true;
                       setProjectId(project.id);
                       setProjectUpdatedAt(project.updated_at);
                       setLastSyncedCode(project.code);
@@ -1779,6 +1868,7 @@ setSidebarOverlayOpen(false);
                       setSidebarOverlayOpen(false);
                       setMobileSidebarOpen(false);
                       setView("studio");
+                      setSidebarActiveView("apps");
                       setMobileStudioTab("preview");
                       toast({ title: "Project loaded", description: project.title });
                     } catch (error) {
@@ -1788,7 +1878,7 @@ setSidebarOverlayOpen(false);
                 }}
               />
             )}
-            {view === "templates" && <TemplatesPage onNavigate={navigateView} onUseTemplate={(templatePrompt) => { handlePromptChange(templatePrompt); setView("studio"); }} />}
+{view === "templates" && <TemplatesPage onNavigate={navigateView} onUseTemplate={(templatePrompt) => { handlePromptChange(templatePrompt); setView("studio"); setSidebarActiveView("studio"); }} />}
             {view === "api" && <ApiSettingsPage />}
             {view === "backend" && <BackendDeployPage projectId={projectId} projectTitle={projectTitle} />}
             {view === "pricing" && <PricingPage />}
