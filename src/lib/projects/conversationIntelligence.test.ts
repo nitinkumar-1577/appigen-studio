@@ -23,6 +23,8 @@ describe("conversation intelligence", () => {
   });
 
   it("treats build instructions as build in all supported languages", () => {
+    expect(analyzeIntent("Create a simple responsive To-Do app with add, complete, and delete task features.", { hasExistingProject: false }).shouldBuild).toBe(true);
+expect(analyzeIntent("Create an app with user authentication features.", { hasExistingProject: false }).shouldBuild).toBe(true);
     expect(analyzeIntent("Build a todo app", { hasExistingProject: false }).shouldBuild).toBe(true);
     expect(analyzeIntent("Isme login add kr do.", { hasExistingProject: true }).shouldBuild).toBe(true);
     expect(analyzeIntent("इसमें लॉगिन सिस्टम जोड़ दो।", { hasExistingProject: true }).shouldBuild).toBe(true);

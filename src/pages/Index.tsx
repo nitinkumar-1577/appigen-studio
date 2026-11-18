@@ -34,7 +34,7 @@ import { clearLocalVersions, clearProjectChangeRecords, clearProjectMemory, dele
 import { computeChangeRecord, formatChangeRecord } from "@/lib/projects/changeTracking";
 import { formatUnderstandingForPrompt, understandProject } from "@/lib/projects/projectUnderstanding";
 import { detectConflicts, formatMemoryForPrompt, updateProjectMemory } from "@/lib/projects/projectMemory";
-import { clearProjectVersions, createProjectVersion, deleteProject, deleteProjectVersion, loadProject, loadProjectVersions, persistActivity, persistProject, persistProjectThumbnail, subscribeToProjectSync } from "@/lib/projects/projectRepository";
+import { clearProjectVersions, createProjectVersion, deleteProject, deleteProjectVersion, enqueueBuildJob, loadLatestBuildJob, loadProject, loadProjectVersions, persistActivity, persistProject, persistProjectThumbnail, subscribeToBuildJob, subscribeToProjectSync, type DurableBuildJob } from "@/lib/projects/projectRepository";
 import { readAppPreferences, readGenerationSettings, recordActivity } from "@/lib/appPreferences";
 import { trackAnonymousUsage } from "@/lib/telemetry";
 import { analyzeIntent, intentSummary, isVagueNewAppPrompt, resolveFollowUp, responseLanguageInstruction } from "@/lib/projects/conversationIntelligence";
@@ -214,6 +214,7 @@ const studioWorkspaceSnapshotRef = useRef<{
   const [versionMenuOpen, setVersionMenuOpen] = useState(false);
   const [previewRuntime, setPreviewRuntime] = useState<{ status: "idle" | "pending" | "mounted" | "error"; message?: string; errorKind?: string }>({ status: "idle" });
   const abortRef = useRef<AbortController | null>(null);
+  const durableQueueAcceptedRef = useRef(false);
   const promptInputRef = useRef<HTMLTextAreaElement>(null);
   const previousUserRef = useRef(false);
   const [sidebarPinned, setSidebarPinned] = useState(true);
@@ -483,9 +484,114 @@ const navigateView = (next: ViewKey) => {
       unsubscribe();
     };
   }, [authReady, session?.user.id, projectId, lastCode, lastSyncedCode]);
-
   useEffect(() => {
-    if (!authReady || !user || !session?.user.id || !projectId || lastCode === null) return;
+    if (!authReady || !session?.user.id || !projectId) return;
+
+    let disposed = false;
+
+    const applyDurableJob = async (job: DurableBuildJob) => {
+      if (disposed) return;
+
+      const active = ["queued", "running", "retrying"].includes(job.status);
+
+      if (active) {
+        durableQueueAcceptedRef.current = true;
+        setIsBuilding(true);
+        setIsGeneratingApp(true);
+        setProgressStage(job.current_stage || "Building");
+
+        setBuildFiles(
+          Array.isArray(job.build_files)
+            ? job.build_files as unknown as BuildFileProgress[]
+            : []
+        );
+
+        setBuildTimeline(
+          Array.isArray(job.build_timeline)
+            ? job.build_timeline.filter((item): item is string => typeof item === "string")
+            : []
+        );
+
+        if (job.working_code) {
+          setWorkingCode(job.working_code);
+        }
+
+        return;
+      }
+
+      if (job.status === "completed") {
+        durableQueueAcceptedRef.current = false;
+        setIsBuilding(false);
+        setIsGeneratingApp(false);
+        setProgressStage("Completed");
+
+        try {
+          const remote = await loadProject(projectId, session!.user.id);
+          if (disposed) return;
+
+          setProjectTitle(remote.title);
+          setTitleManuallyEdited(true);
+          setPrompt(remote.prompt);
+          setLastCode(remote.code);
+          setWorkingCode(remote.code);
+          setLastSyncedCode(remote.code);
+          setProjectUpdatedAt(remote.updated_at);
+          lastSyncedPromptRef.current = remote.prompt;
+          lastSyncedTitleRef.current = remote.title;
+          lastSyncedMessagesRef.current = JSON.stringify(remote.messages);
+          setMessages(remote.messages);
+          setDoc(buildDocFromPrompt(remote.prompt, remote.code));
+
+          const remoteVersions = await loadProjectVersions(remote.id, session!.user.id);
+          if (!disposed) setVersions(remoteVersions);
+        } catch (error) {
+          if (!disposed) {
+            toast({
+              title: "Build completed, but project refresh failed",
+              description: error instanceof Error ? error.message : "Reload the project to see the final result.",
+              variant: "destructive",
+            });
+          }
+        }
+
+        return;
+      }
+
+      if (job.status === "failed" || job.status === "cancelled") {
+        durableQueueAcceptedRef.current = false;
+        setIsBuilding(false);
+        setIsGeneratingApp(false);
+        setProgressStage(job.status === "failed" ? "Failed" : "Stopped");
+
+        if (job.error) {
+          toast({
+            title: job.status === "failed" ? "Build failed" : "Build stopped",
+            description: job.error,
+            variant: "destructive",
+          });
+        }
+      }
+    };
+
+    const unsubscribe = subscribeToBuildJob(projectId, (job) => {
+      void applyDurableJob(job);
+    });
+
+    void loadLatestBuildJob(projectId, session.user.id)
+      .then((job) => {
+        if (job) void applyDurableJob(job);
+      })
+      .catch((error: unknown) => {
+        console.warn("Could not load the latest durable build job", error);
+      });
+
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, [authReady, session?.user.id, projectId]);
+  useEffect(() => {
+   if (!authReady || !user || !session?.user.id || !projectId || lastCode === null || durableQueueAcceptedRef.current) return;
     const timeout = window.setTimeout(() => {
       void persistProject({ projectId, userId: session.user.id, title: projectTitle, prompt, code: lastCode, messages, expectedUpdatedAt: projectUpdatedAt ?? undefined })
         .then(async (savedId) => {
@@ -798,6 +904,7 @@ const navigateView = (next: ViewKey) => {
     }
     const understandingText = understanding ? formatUnderstandingForPrompt(understanding) : "";
     const memoryText = memoryPreview ? formatMemoryForPrompt(memoryPreview, understanding) : "";
+    durableQueueAcceptedRef.current = false;
     setIsBuilding(true);
     setIsGeneratingApp(!questionMode);
     let generatedPreview = false;
@@ -809,6 +916,70 @@ const navigateView = (next: ViewKey) => {
     let buildProvider: string = generationSettings.provider;
     try {
       assertSupabaseFunctionAccess();
+            if (!questionMode && session?.user?.id) {
+        const durableTitle = editMode
+          ? projectTitle
+          : titleManuallyEdited
+            ? projectTitle
+            : suggestProjectTitle(trimmed);
+
+        const durableProjectId = await persistProject({
+          projectId: editMode ? projectId : null,
+          userId: session.user.id,
+          title: durableTitle,
+          prompt: trimmed,
+          code: baseCodeForEdit ?? "",
+          messages: nextMessages,
+        });
+
+        setProjectId(durableProjectId);
+
+        const queuedMessage: ChatMessage = {
+          role: "assistant",
+          content: "Build accepted and queued. The background worker will continue generation.",
+          timestamp: Date.now(),
+        };
+
+        const queuedMessages = [...nextMessages, queuedMessage];
+
+        await enqueueBuildJob({
+          userId: session.user.id,
+          projectId: durableProjectId,
+          requestPayload: {
+            prompt: trimmed,
+            provider: generationSettings.provider,
+            model: generationSettings.model,
+            existingProject: editMode,
+            code: baseCodeForEdit ?? "",
+            conversation: baseMessages.slice(-12),
+            projectUnderstanding: understandingText,
+            projectMemory: memoryText,
+            changeSummary: recentChangeSummary,
+            responseLanguage: intent.responseLanguage,
+            intent: intent.intent,
+            followUp: followUpText,
+            system: [
+              generationSettings.systemInstructions,
+              responseLanguageInstruction(intent.responseLanguage),
+            ].filter(Boolean).join("\n\n"),
+            temperature: generationSettings.temperature,
+            topP: generationSettings.topP,
+            safety: generationSettings.safety,
+            title: durableTitle,
+            messages: queuedMessages,
+          },
+        });
+durableQueueAcceptedRef.current = true;
+        setMessages(queuedMessages);
+        setPrompt("");
+        setProgressStage("Queued");
+        setBuildTimeline(["Build successfully added to background queue"]);
+        toast({
+          title: "Build queued",
+          description: "Your project is saved. Background generation has been started.",
+        });
+        return;
+      }
       if (questionMode) {
         setProgressStage("Planning");
         const { data: chatData, error: chatError } = await supabase.functions.invoke("Appigen", {
@@ -1242,22 +1413,22 @@ setSidebarOverlayOpen(false);
         { role: "assistant", content: `Build failed: ${msg}`, timestamp: Date.now() },
         { role: "assistant", content: failedActivity.title, kind: "activity", title: failedActivity.title, explanation: resolvedExplanation, activity: failedActivity, timestamp: Date.now() },
       ]);
-      toast({ title: staleGenerator ? "Generator update required" : "Build failed", description: msg, variant: "destructive" });
-    } finally {
-      abortRef.current = null;
-      setIsBuilding(false);
-      setIsGeneratingApp(false);
-      setProgressStage("Planning");
-      if (!generatedPreview && !lastCode) setMobileStudioTab("chat");
-      // Return the caret to the prompt once the build settles, even if the
-      // workspace layout remounted the chat panel during generation.
-      window.setTimeout(() => {
-        const desktop = window.matchMedia("(min-width: 768px)").matches;
-        if (desktop || mobileStudioTab === "chat") promptInputRef.current?.focus();
-      }, 0);
+         } finally {
+      if (!durableQueueAcceptedRef.current) {
+        abortRef.current = null;
+        setIsBuilding(false);
+        setIsGeneratingApp(false);
+        setProgressStage("Planning");
+
+        if (!generatedPreview && !lastCode) setMobileStudioTab("chat");
+
+        window.setTimeout(() => {
+          const desktop = window.matchMedia("(min-width: 768px)").matches;
+          if (desktop || mobileStudioTab === "chat") promptInputRef.current?.focus();
+        }, 0);
+      }
     }
   };
-
   const stopBuild = () => abortRef.current?.abort();
   const handlePromptChange = (value: string) => {
     promptDirtyRef.current = true;

@@ -14,6 +14,94 @@ export type Database = {
   }
   public: {
     Tables: {
+      
+      build_jobs: {
+        Row: {
+          id: string
+          user_id: string
+          project_id: string
+          status: string
+          current_stage: string
+          progress: number
+          request_payload: Json
+          implementation_plan: Json | null
+          build_files: Json
+          build_timeline: Json
+          working_code: string | null
+          result_code: string | null
+          result_messages: Json | null
+          error: string | null
+          attempt_count: number
+          max_attempts: number
+          lease_until: string | null
+          heartbeat_at: string | null
+          next_run_at: string
+          started_at: string | null
+          completed_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          project_id: string
+          status?: string
+          current_stage?: string
+          progress?: number
+          request_payload?: Json
+          implementation_plan?: Json | null
+          build_files?: Json
+          build_timeline?: Json
+          working_code?: string | null
+          result_code?: string | null
+          result_messages?: Json | null
+          error?: string | null
+          attempt_count?: number
+          max_attempts?: number
+          lease_until?: string | null
+          heartbeat_at?: string | null
+          next_run_at?: string
+          started_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          project_id?: string
+          status?: string
+          current_stage?: string
+          progress?: number
+          request_payload?: Json
+          implementation_plan?: Json | null
+          build_files?: Json
+          build_timeline?: Json
+          working_code?: string | null
+          result_code?: string | null
+          result_messages?: Json | null
+          error?: string | null
+          attempt_count?: number
+          max_attempts?: number
+          lease_until?: string | null
+          heartbeat_at?: string | null
+          next_run_at?: string
+          started_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "build_jobs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+
       project_versions: {
         Row: {
           code: string
