@@ -42,7 +42,7 @@ import { createActivityId, type BuildActivity } from "@/lib/projects/conversatio
 import { attemptsForIssue, buildQualityState, canAttemptRepair, createRepairAttempt, emptyQualityState, finalizeRepairAttempt, MAX_REPAIR_ATTEMPTS_PER_ISSUE, mergeRuntimeError, normalizeReviewFindings, type CheckStatus, type QualityState, type RepairAttempt, type RuntimeIssue } from "@/lib/projects/qualityEngine";
 
 const SPLIT_STORAGE_KEY = "appigen.studio.split.v1";
-const DEFAULT_SPLIT_RATIO = 30;
+const DEFAULT_SPLIT_RATIO = 40;
 const clampSplitRatio = (value: number) => Math.min(45, Math.max(20, Math.round(value)));
 export const shouldAutoHideSidebar = (isGenerating: boolean, wasGenerating: boolean) => isGenerating && !wasGenerating;
 
