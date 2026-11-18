@@ -15,7 +15,7 @@ import { SettingsPanel } from "@/components/appigen/SettingsPanel";
 import { NotificationsMenu } from "@/components/appigen/NotificationsMenu";
 import { GithubModal } from "@/components/appigen/GithubModal";
 import { useApp } from "@/components/appigen/AppContext";
-import { Sparkles, Menu, MessageSquare, Eye, Github as GithubIcon } from "lucide-react";
+import { Sparkles,Menu, MessageSquare, Eye, Github as GithubIcon } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { assertSupabaseFunctionAccess, supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
@@ -153,6 +153,7 @@ const Index = () => {
   const [prompt, setPrompt] = useState(initialState.prompt);
   const [doc, setDoc] = useState<string>(() => buildDocFromPrompt(initialState.prompt));
   const [view, setView] = useState<ViewKey>("studio");
+  const [sidebarActiveView, setSidebarActiveView] = useState<ViewKey>("studio");
   const [authOpen, setAuthOpen] = useState(false);
   const [pricingOpen, setPricingOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -249,8 +250,10 @@ const Index = () => {
     wasGeneratingRef.current = isGeneratingApp;
   }, [isGeneratingApp]);
 
-  const navigateView = (next: ViewKey) => {
+ const navigateView = (next: ViewKey) => {
     setView(next);
+    setSidebarOverlayOpen(false);
+    setMobileSidebarOpen(false);
   };
 
   useEffect(() => {
@@ -1455,6 +1458,7 @@ setSidebarOverlayOpen(false);
       <div className="relative flex flex-1 overflow-hidden">
         <Sidebar
           active={view}
+          workspaceActive={view === "studio" && hasAppWorkspace}
           onChange={navigateView}
           onOpenSettings={() => setSettingsOpen(true)}
           onOpenSignIn={() => setAuthOpen(true)}
@@ -1462,6 +1466,7 @@ setSidebarOverlayOpen(false);
           pinned={sidebarPinned}
           hidden={sidebarHidden}
           overlayOpen={sidebarOverlayOpen}
+          workspaceActive={view === "studio" && hasAppWorkspace}
           onOverlayOpenChange={setSidebarOverlayOpen}
           mobileOpen={mobileSidebarOpen}
           onMobileOpenChange={setMobileSidebarOpen}
@@ -1472,16 +1477,18 @@ setSidebarOverlayOpen(false);
             <div className="flex min-w-0 items-center gap-2 sm:gap-3">
               {view === "studio" && hasAppWorkspace && (
   <button
-    onClick={toggleSidebar}
-    aria-label="Open sidebar"
-    title="Open sidebar"
-    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-smooth hover:bg-secondary hover:text-foreground"
+    type="button"
+    onMouseEnter={() => setSidebarOverlayOpen(true)}
+    onClick={() => setSidebarOverlayOpen((prev) => !prev)}
+    aria-label="Toggle workspace sidebar"
+    title="Toggle sidebar"
+    className="hidden h-9 w-9 shrink-0 items-center justify-center border-0 bg-transparent p-0 text-muted-foreground md:flex"
   >
-    <Menu className="h-4 w-4" />
+    <Menu className="h-5 w-5" />
   </button>
 )}
-              {view === "studio" ? (
-                <h1 className="max-w-[18ch] sm:max-w-[40ch] truncate font-display text-sm sm:text-base font-semibold text-foreground">{projectTitle}</h1>
+         {view === "studio" ? (
+             <h1 className="min-w-0 max-w-[18ch] sm:max-w-[40ch] truncate font-display text-sm sm:text-base font-semibold text-foreground">{projectTitle}</h1>
               ) : (
                 <h1 className="truncate font-display text-sm sm:text-base font-semibold text-foreground">{VIEW_TITLES[view]}</h1>
               )}
@@ -1806,7 +1813,7 @@ setSidebarOverlayOpen(false);
             All systems operational
           </span>
           <span className="hidden sm:inline opacity-60">·</span>
-          <span className="hidden font-mono opacity-70 sm:inline">v1.0.0</span>
+          <span className="hidden font-mono opacity-70 sm:inline"></span>
         </div>
         <div className="font-light tracking-wide">
           © 2026 <span className="font-semibold text-foreground/80">AppiGen</span>
