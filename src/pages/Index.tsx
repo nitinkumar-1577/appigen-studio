@@ -486,7 +486,7 @@ const navigateView = (next: ViewKey) => {
   }, [authReady, session?.user.id, projectId, lastCode, lastSyncedCode]);
 
   useEffect(() => {
-    if (!authReady || !user || !session?.user.id || !projectId || lastCode === null) return;
+   if (!authReady || !user || !session?.user.id || !projectId || lastCode === null || durableQueueAcceptedRef.current) return;
     const timeout = window.setTimeout(() => {
       void persistProject({ projectId, userId: session.user.id, title: projectTitle, prompt, code: lastCode, messages, expectedUpdatedAt: projectUpdatedAt ?? undefined })
         .then(async (savedId) => {
