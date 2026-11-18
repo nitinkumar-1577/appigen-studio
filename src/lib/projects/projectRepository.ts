@@ -31,7 +31,24 @@ export type ProjectSummary = Pick<
 >;
 
 const toJson = (value: unknown): Json => value as Json;
+export const enqueueBuildJob = async (input: {
+  userId: string;
+  projectId: string;
+  requestPayload: Record<string, unknown>;
+}) => {
+  const { data, error } = await supabase
+    .from("build_jobs")
+    .insert({
+      user_id: input.userId,
+      project_id: input.projectId,
+      request_payload: toJson(input.requestPayload),
+    })
+    .select("*")
+    .single();
 
+  if (error) throw error;
+  return data;
+};
 export const extractProjectFiles = (code: string): Record<string, string> => {
   const parsed = parseFileMarkers(code);
   return parsed?.files ?? { "src/App.tsx": code };
