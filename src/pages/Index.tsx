@@ -1308,7 +1308,7 @@ setSidebarOverlayOpen(false);
         { role: "assistant", content: `Build failed: ${msg}`, timestamp: Date.now() },
         { role: "assistant", content: failedActivity.title, kind: "activity", title: failedActivity.title, explanation: resolvedExplanation, activity: failedActivity, timestamp: Date.now() },
       ]);
-        } finally {
+         } finally {
       if (!durableQueueAcceptedRef.current) {
         abortRef.current = null;
         setIsBuilding(false);
@@ -1323,11 +1323,7 @@ setSidebarOverlayOpen(false);
         }, 0);
       }
     }
-        if (desktop || mobileStudioTab === "chat") promptInputRef.current?.focus();
-      }, 0);
-    }
   };
-
   const stopBuild = () => abortRef.current?.abort();
   const handlePromptChange = (value: string) => {
     promptDirtyRef.current = true;
