@@ -407,11 +407,14 @@ const ActivityCard = ({
             <h3 className="text-xs font-semibold text-foreground">
               {activity.title}
             </h3>
-            <p className="mt-1 text-[10px] text-muted-foreground">
-              {activityStatusLabel(activity.status)}
-              {activity.stage ? ` · ${activity.stage}` : ""}
-            </p>
-          </div>
+          <p className="mt-1 text-[10px] text-muted-foreground">
+  {activityStatusLabel(activity.status)}
+</p>
+{activity.stage && (
+  <p className="text-[10px] text-muted-foreground">
+    {activity.stage}
+  </p>
+)}          </div>
           {onPreview && (
             <button
               type="button"
