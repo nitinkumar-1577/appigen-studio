@@ -42,7 +42,7 @@ import { createActivityId, type BuildActivity } from "@/lib/projects/conversatio
 import { attemptsForIssue, buildQualityState, canAttemptRepair, createRepairAttempt, emptyQualityState, finalizeRepairAttempt, MAX_REPAIR_ATTEMPTS_PER_ISSUE, mergeRuntimeError, normalizeReviewFindings, type CheckStatus, type QualityState, type RepairAttempt, type RuntimeIssue } from "@/lib/projects/qualityEngine";
 
 const SPLIT_STORAGE_KEY = "appigen.studio.split.v1";
-const DEFAULT_SPLIT_RATIO = 40;
+const DEFAULT_SPLIT_RATIO = 30;
 const clampSplitRatio = (value: number) => Math.min(45, Math.max(20, Math.round(value)));
 export const shouldAutoHideSidebar = (isGenerating: boolean, wasGenerating: boolean) => isGenerating && !wasGenerating;
 
@@ -208,6 +208,25 @@ const Index = () => {
   const buildTimelineRef = useRef<string[]>([]);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [mobileStudioTab, setMobileStudioTab] = useState<"chat" | "preview">(initialState.mobileTab);
+    // Keep only one Studio layout mounted at a time.
+  const [isDesktopLayout, setIsDesktopLayout] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches
+  );
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(min-width: 1024px)");
+
+    const updateLayout = () => {
+      setIsDesktopLayout(mediaQuery.matches);
+    };
+
+    updateLayout();
+    mediaQuery.addEventListener("change", updateLayout);
+
+    return () => {
+      mediaQuery.removeEventListener("change", updateLayout);
+    };
+  }, []);
   const [qualityState, setQualityState] = useState<QualityState>(emptyQualityState());
   const [qualityRunning, setQualityRunning] = useState(false);
   const [manualFixing, setManualFixing] = useState(false);
@@ -1077,7 +1096,7 @@ const Index = () => {
     } catch (err: unknown) {
       setSidebarHidden(false);
 setSidebarPinned(true);
-setSidebarOverlayOpen(false);
+setSidebarOverlayOpen(false); 
       if ((err instanceof Error && err.name === "AbortError") || controller.signal.aborted) {
         const stoppedFiles = buildFilesRef.current.map((file) => file.status === "generating" || file.status === "validating" || file.status === "queued" || file.status === "retrying" ? { ...file, status: "failed" as const, error: "Stopped by user" } : file);
         buildFilesRef.current = stoppedFiles;
@@ -1493,7 +1512,7 @@ setSidebarOverlayOpen(false);
             {view === "studio" && (
               <>
                 {/* Mobile tab switcher */}
-                {showPreview && <div className="flex shrink-0 items-center gap-1 border-b border-border/60 bg-background/60 p-1.5 lg:hidden">
+       {showPreview && !isDesktopLayout && <div className="flex shrink-0 items-center gap-1 border-b border-border/60 bg-background/60 p-1.5">
                   <button
                     onClick={() => setMobileStudioTab("chat")}
                     className={cn(
@@ -1550,7 +1569,8 @@ setSidebarOverlayOpen(false);
                     </section>
                   ) : (
                     <>
-                      <ResizablePanelGroup ref={splitGroupRef} direction="horizontal" className="hidden min-h-0 flex-1 lg:flex" onLayout={handleSplitLayout}>
+{isDesktopLayout ? (
+  <ResizablePanelGroup ref={splitGroupRef} direction="horizontal" className="flex min-h-0 flex-1" onLayout={handleSplitLayout}>
                         <ResizablePanel id="studio-chat" order={1} defaultSize={splitRatio} minSize={0} collapsedSize={0} collapsible className="min-w-0">
                           <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-r border-border/60">
                             <PromptPanel
@@ -1628,8 +1648,9 @@ setSidebarOverlayOpen(false);
                             />
                           </section>
                         </ResizablePanel>
-                      </ResizablePanelGroup>
-                      <div className="flex min-h-0 flex-1 flex-col lg:hidden">
+                                          </ResizablePanelGroup>
+                    ) : (
+                      <div className="flex min-h-0 flex-1 flex-col">
                         <section className={cn("min-h-0 min-w-0 overflow-hidden border-b border-border/60", mobileStudioTab === "chat" ? "flex flex-1 flex-col" : "hidden")}>
                           <PromptPanel
                             prompt={prompt}
@@ -1702,7 +1723,8 @@ setSidebarOverlayOpen(false);
                             }}
                           />
                         </section>
-                      </div>
+                                         </div>
+                    )}
                     </>
                   )}
                 </div>
@@ -1745,6 +1767,10 @@ setSidebarOverlayOpen(false);
                       repairAttemptsRefState.current = [];
                       setQualityState(buildQualityState({ code: project.code || "", prompt: project.prompt || "" }));
                       setDoc(buildDocFromPrompt(project.prompt, project.code));
+                      setSidebarPinned(true);
+                      setSidebarHidden(false);
+                      setSidebarOverlayOpen(false);
+                      setMobileSidebarOpen(false);
                       setView("studio");
                       setMobileStudioTab("preview");
                       toast({ title: "Project loaded", description: project.title });
