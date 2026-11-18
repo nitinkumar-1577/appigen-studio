@@ -1,4 +1,4 @@
-import type { Json } from "@/integrations/supabase/types";
+import type { Database, Json } from "@/integrations/supabase/types";
 import { supabase } from "@/integrations/supabase/client";
 import type { ActivityEntry } from "@/lib/appPreferences";
 import { formatFileMarkers, parseFileMarkers } from "@/lib/preview/parseFileMarkers";
@@ -48,6 +48,49 @@ export const enqueueBuildJob = async (input: {
 
   if (error) throw error;
   return data;
+};
+export type DurableBuildJob = Database["public"]["Tables"]["build_jobs"]["Row"];
+
+let durableBuildJobChannelCounter = 0;
+
+export const loadLatestBuildJob = async (projectId: string, userId: string) => {
+  const { data, error } = await supabase
+    .from("build_jobs")
+    .select("*")
+    .eq("project_id", projectId)
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+};
+
+export const subscribeToBuildJob = (
+  projectId: string,
+  onChange: (job: DurableBuildJob) => void,
+) => {
+  const channel = supabase
+    .channel(`build-job-${projectId}-${++durableBuildJobChannelCounter}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "build_jobs",
+        filter: `project_id=eq.${projectId}`,
+      },
+      (payload) => {
+        const job = payload.new as DurableBuildJob;
+        if (job?.id) onChange(job);
+      },
+    )
+    .subscribe();
+
+  return () => {
+    void supabase.removeChannel(channel);
+  };
 };
 export const extractProjectFiles = (code: string): Record<string, string> => {
   const parsed = parseFileMarkers(code);
