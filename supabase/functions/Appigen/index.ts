@@ -1690,7 +1690,7 @@ Deno.serve(async (req) => {
       }
 
       return jsonResponse({ code: reviewed.value.code, repairAttempted: reviewed.value.repairAttempted, findings: reviewed.value.findings, changedPaths: reviewed.value.changedPaths, provider: `${reviewed.provider}:${reviewed.value.model}`, requestedProvider: provider, mode });
-
+   }
 
     // build or edit mode
     const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
