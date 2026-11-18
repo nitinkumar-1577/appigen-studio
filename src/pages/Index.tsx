@@ -214,6 +214,7 @@ const studioWorkspaceSnapshotRef = useRef<{
   const [versionMenuOpen, setVersionMenuOpen] = useState(false);
   const [previewRuntime, setPreviewRuntime] = useState<{ status: "idle" | "pending" | "mounted" | "error"; message?: string; errorKind?: string }>({ status: "idle" });
   const abortRef = useRef<AbortController | null>(null);
+  const durableQueueAcceptedRef = useRef(false);
   const promptInputRef = useRef<HTMLTextAreaElement>(null);
   const previousUserRef = useRef(false);
   const [sidebarPinned, setSidebarPinned] = useState(true);
@@ -798,6 +799,7 @@ const navigateView = (next: ViewKey) => {
     }
     const understandingText = understanding ? formatUnderstandingForPrompt(understanding) : "";
     const memoryText = memoryPreview ? formatMemoryForPrompt(memoryPreview, understanding) : "";
+    durableQueueAcceptedRef.current = false;
     setIsBuilding(true);
     setIsGeneratingApp(!questionMode);
     let generatedPreview = false;
@@ -862,7 +864,7 @@ const navigateView = (next: ViewKey) => {
             messages: queuedMessages,
           },
         });
-
+durableQueueAcceptedRef.current = true;
         setMessages(queuedMessages);
         setPrompt("");
         setProgressStage("Queued");
@@ -1306,17 +1308,21 @@ setSidebarOverlayOpen(false);
         { role: "assistant", content: `Build failed: ${msg}`, timestamp: Date.now() },
         { role: "assistant", content: failedActivity.title, kind: "activity", title: failedActivity.title, explanation: resolvedExplanation, activity: failedActivity, timestamp: Date.now() },
       ]);
-      toast({ title: staleGenerator ? "Generator update required" : "Build failed", description: msg, variant: "destructive" });
-    } finally {
-      abortRef.current = null;
-      setIsBuilding(false);
-      setIsGeneratingApp(false);
-      setProgressStage("Planning");
-      if (!generatedPreview && !lastCode) setMobileStudioTab("chat");
-      // Return the caret to the prompt once the build settles, even if the
-      // workspace layout remounted the chat panel during generation.
-      window.setTimeout(() => {
-        const desktop = window.matchMedia("(min-width: 768px)").matches;
+        } finally {
+      if (!durableQueueAcceptedRef.current) {
+        abortRef.current = null;
+        setIsBuilding(false);
+        setIsGeneratingApp(false);
+        setProgressStage("Planning");
+
+        if (!generatedPreview && !lastCode) setMobileStudioTab("chat");
+
+        window.setTimeout(() => {
+          const desktop = window.matchMedia("(min-width: 768px)").matches;
+          if (desktop || mobileStudioTab === "chat") promptInputRef.current?.focus();
+        }, 0);
+      }
+    }
         if (desktop || mobileStudioTab === "chat") promptInputRef.current?.focus();
       }, 0);
     }
