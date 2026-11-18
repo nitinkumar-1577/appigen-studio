@@ -1075,6 +1075,9 @@ const Index = () => {
         description: "Static/project validation passed. Awaiting live preview verification; errors will be reported if detected.",
       });
     } catch (err: unknown) {
+      setSidebarHidden(false);
+setSidebarPinned(true);
+setSidebarOverlayOpen(false);
       if ((err instanceof Error && err.name === "AbortError") || controller.signal.aborted) {
         const stoppedFiles = buildFilesRef.current.map((file) => file.status === "generating" || file.status === "validating" || file.status === "queued" || file.status === "retrying" ? { ...file, status: "failed" as const, error: "Stopped by user" } : file);
         buildFilesRef.current = stoppedFiles;
