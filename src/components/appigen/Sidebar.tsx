@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  Menu,
   LayoutDashboard,
   AppWindow,
   LayoutTemplate,
@@ -29,8 +30,8 @@ const navItems: { key: ViewKey; icon: LucideIcon; label: string }[] = [
   { key: "apps", icon: AppWindow, label: "My Apps" },
   { key: "templates", icon: LayoutTemplate, label: "Templates" },
   { key: "api", icon: KeyRound, label: "API Settings" },
-];
 
+];
 interface SidebarProps {
   active: ViewKey;
   onChange: (v: ViewKey) => void;
@@ -43,6 +44,7 @@ interface SidebarProps {
   hidden: boolean;
   /** Desktop: show the sidebar as an overlay opened from the header tab. */
   overlayOpen: boolean;
+    workspaceActive: boolean;
   onOverlayOpenChange: (open: boolean) => void;
   /** Desktop: allow hiding the in-flow sidebar (only inside an app workspace). */
   /** Mobile: responsive drawer state. */
@@ -50,9 +52,36 @@ interface SidebarProps {
   onMobileOpenChange: (open: boolean) => void;
 }
 
-export const Sidebar = ({ active, onChange, onOpenSettings, onOpenSignIn, onOpenPricing, pinned, hidden, overlayOpen, onOverlayOpenChange, mobileOpen, onMobileOpenChange }: SidebarProps) => {
+export const Sidebar = ({ active, onChange, onOpenSettings, onOpenSignIn, onOpenPricing, pinned, hidden, overlayOpen,workspaceActive, onOverlayOpenChange, mobileOpen, onMobileOpenChange }: SidebarProps) => {
   const { accent, setAccent } = useApp();
+  const [overlayPinnedByClick, setOverlayPinnedByClick] = useState(false);
 
+  useEffect(() => {
+    if (!overlayOpen) {
+      setOverlayPinnedByClick(false);
+    }
+  }, [overlayOpen]);
+    const handleDesktopTriggerEnter = () => {
+    if (!overlayPinnedByClick) {
+      onOverlayOpenChange(true);
+    }
+  };
+
+  const handleDesktopTriggerClick = () => {
+    if (overlayPinnedByClick) {
+      setOverlayPinnedByClick(false);
+      onOverlayOpenChange(false);
+    } else {
+      setOverlayPinnedByClick(true);
+      onOverlayOpenChange(true);
+    }
+  };
+
+  const handleDesktopOverlayMouseLeave = () => {
+    if (!overlayPinnedByClick) {
+      onOverlayOpenChange(false);
+    }
+  };
   useEffect(() => {
     if (!overlayOpen) return;
     const onKey = (event: KeyboardEvent) => {
@@ -105,6 +134,8 @@ export const Sidebar = ({ active, onChange, onOpenSettings, onOpenSignIn, onOpen
           <ul className="space-y-1">
             {navItems.map((item) => {
               const isActive = active === item.key;
+              const showActivePoint = isActive && expanded;
+              
               return (
                 <li key={item.key}>
                   <button
@@ -124,9 +155,9 @@ export const Sidebar = ({ active, onChange, onOpenSettings, onOpenSignIn, onOpen
                       )}
                     />
                     {expanded && <span className="truncate">{item.label}</span>}
-                    {isActive && expanded && (
-                      <span className="ml-auto h-1.5 w-1.5 rounded-full bg-primary shadow-glow" />
-                    )}
+                    {showActivePoint && (
+  <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-primary shadow-glow" />
+)}
                   </button>
                 </li>
               );
@@ -190,26 +221,44 @@ export const Sidebar = ({ active, onChange, onOpenSettings, onOpenSignIn, onOpen
       >
         <SidebarBody mobile />
       </aside>
+{/* Desktop workspace hover sidebar */}
+{workspaceActive && (
+  <>
+    {overlayOpen && (
+      <div
+        onClick={() => onOverlayOpenChange(false)}
+        className="fixed inset-0 z-40 hidden bg-transparent md:block"
+        aria-hidden="true"
+      />
+    )}
 
-      {/* Desktop overlay opened from the header tab */}
+    <div
+    className={`fixed left-0 top-0 z-50 hidden items-start md:flex ${
+        overlayOpen ? "w-[332px]" : "w-11"
+      }`}
+      onMouseEnter={handleDesktopTriggerEnter}
+      onMouseLeave={handleDesktopOverlayMouseLeave}
+    >
+    
+
       {overlayOpen && (
-        <>
-          <div
-            onClick={() => onOverlayOpenChange(false)}
-            className="fixed inset-0 z-40 hidden bg-transparent md:block"
-            aria-hidden="true"
+        <aside
+          aria-label="Workspace navigation"
+        className="fixed inset-y-0 left-0 z-40 h-dvh w-72 shrink-0 flex-col border-r border-sidebar-border bg-sidebar shadow-elevated animate-fade-in md:flex"
+        >
+          <SidebarBody
+            mobile={false}
+            overlay
+            onClose={() => onOverlayOpenChange(false)}
           />
-          <aside
-            aria-label="Workspace navigation"
-            className="fixed inset-y-0 left-0 z-50 hidden h-full w-64 flex-col border-r border-sidebar-border bg-sidebar shadow-elevated animate-fade-in md:flex"
-          >
-            <SidebarBody mobile={false} overlay onClose={() => onOverlayOpenChange(false)} />
-          </aside>
-        </>
+        </aside>
       )}
+    </div>
+  </>
+)}
 
       {/* Desktop sidebar (no hover popup/peek overlay) */}
-      {!hidden && (
+  {!hidden && !workspaceActive && (
         <aside
           aria-label="Workspace navigation"
           className={cn(
