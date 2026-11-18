@@ -484,7 +484,112 @@ const navigateView = (next: ViewKey) => {
       unsubscribe();
     };
   }, [authReady, session?.user.id, projectId, lastCode, lastSyncedCode]);
+  useEffect(() => {
+    if (!authReady || !session?.user.id || !projectId) return;
 
+    let disposed = false;
+
+    const applyDurableJob = async (job: DurableBuildJob) => {
+      if (disposed) return;
+
+      const active = ["queued", "running", "retrying"].includes(job.status);
+
+      if (active) {
+        durableQueueAcceptedRef.current = true;
+        setIsBuilding(true);
+        setIsGeneratingApp(true);
+        setProgressStage(job.current_stage || "Building");
+
+        setBuildFiles(
+          Array.isArray(job.build_files)
+            ? job.build_files as unknown as BuildFileProgress[]
+            : []
+        );
+
+        setBuildTimeline(
+          Array.isArray(job.build_timeline)
+            ? job.build_timeline.filter((item): item is string => typeof item === "string")
+            : []
+        );
+
+        if (job.working_code) {
+          setWorkingCode(job.working_code);
+        }
+
+        return;
+      }
+
+      if (job.status === "completed") {
+        durableQueueAcceptedRef.current = false;
+        setIsBuilding(false);
+        setIsGeneratingApp(false);
+        setProgressStage("Completed");
+
+        try {
+          const remote = await loadProject(projectId, session!.user.id);
+          if (disposed) return;
+
+          setProjectTitle(remote.title);
+          setTitleManuallyEdited(true);
+          setPrompt(remote.prompt);
+          setLastCode(remote.code);
+          setWorkingCode(remote.code);
+          setLastSyncedCode(remote.code);
+          setProjectUpdatedAt(remote.updated_at);
+          lastSyncedPromptRef.current = remote.prompt;
+          lastSyncedTitleRef.current = remote.title;
+          lastSyncedMessagesRef.current = JSON.stringify(remote.messages);
+          setMessages(remote.messages);
+          setDoc(buildDocFromPrompt(remote.prompt, remote.code));
+
+          const remoteVersions = await loadProjectVersions(remote.id, session!.user.id);
+          if (!disposed) setVersions(remoteVersions);
+        } catch (error) {
+          if (!disposed) {
+            toast({
+              title: "Build completed, but project refresh failed",
+              description: error instanceof Error ? error.message : "Reload the project to see the final result.",
+              variant: "destructive",
+            });
+          }
+        }
+
+        return;
+      }
+
+      if (job.status === "failed" || job.status === "cancelled") {
+        durableQueueAcceptedRef.current = false;
+        setIsBuilding(false);
+        setIsGeneratingApp(false);
+        setProgressStage(job.status === "failed" ? "Failed" : "Stopped");
+
+        if (job.error) {
+          toast({
+            title: job.status === "failed" ? "Build failed" : "Build stopped",
+            description: job.error,
+            variant: "destructive",
+          });
+        }
+      }
+    };
+
+    const unsubscribe = subscribeToBuildJob(projectId, (job) => {
+      void applyDurableJob(job);
+    });
+
+    void loadLatestBuildJob(projectId, session.user.id)
+      .then((job) => {
+        if (job) void applyDurableJob(job);
+      })
+      .catch((error: unknown) => {
+        console.warn("Could not load the latest durable build job", error);
+      });
+
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, [authReady, session?.user.id, projectId]);
   useEffect(() => {
    if (!authReady || !user || !session?.user.id || !projectId || lastCode === null || durableQueueAcceptedRef.current) return;
     const timeout = window.setTimeout(() => {
