@@ -1651,16 +1651,46 @@ Deno.serve(async (req) => {
       }
 
       const requireArchitecture = body.existingProject !== true;
-      const reviewed = await executeProviderFailover(providers, provider, async (candidate, timeoutMs) => {
-        const reviewResult = await reviewAndImproveCode(providers, candidate, prompt, code, body.plan, body.model, timeoutMs);
-        const reviewedCode = reviewResult.code;
-        const reviewValidation = validateGeneratedCode(reviewedCode, requireArchitecture) || (requireArchitecture ? validatePlannedFiles(reviewedCode, body.plan) : null);
-        if (reviewValidation) throw new Error(`${providerLabel(candidate)} review returned invalid project code: ${reviewValidation}`);
-        const reviewModelUsed = modelForTask(getProviderConfig(candidate).models.map((entry) => entry.id), typeof body.model === "string" ? body.model : undefined, getDefaultModel(candidate), "review");
-        return { code: reviewedCode, repairAttempted: reviewResult.changedPaths.length > 0, findings: reviewResult.findings, changedPaths: reviewResult.changedPaths, model: reviewModelUsed };
-      });
+   
+      let reviewed;
+      try {
+        reviewed = await executeProviderFailover(providers, provider, async (candidate, timeoutMs) => {
+          const reviewResult = await reviewAndImproveCode(providers, candidate, prompt, code, body.plan, body.model, timeoutMs);
+          const reviewedCode = reviewResult.code;
+          const reviewValidation = validateGeneratedCode(reviewedCode, requireArchitecture) || (requireArchitecture ? validatePlannedFiles(reviewedCode, body.plan) : null);
+          if (reviewValidation) throw new Error(`${providerLabel(candidate)} review returned invalid project code: ${reviewValidation}`);
+          const reviewModelUsed = modelForTask(getProviderConfig(candidate).models.map((entry) => entry.id), typeof body.model === "string" ? body.model : undefined, getDefaultModel(candidate), "review");
+          return { code: reviewedCode, repairAttempted: reviewResult.changedPaths.length > 0, findings: reviewResult.findings, changedPaths: reviewResult.changedPaths, model: reviewModelUsed };
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const providersUnavailable = /\[(?:INVALID_CREDENTIALS|PERMISSION_DENIED|QUOTA_EXCEEDED|RATE_LIMITED|MODEL_UNAVAILABLE|PROVIDER_ERROR|REQUEST_REJECTED|TIMEOUT|NETWORK_ERROR)\]/i.test(message);
+
+        if (!providersUnavailable) throw error;
+
+        const fallbackValidation = validateGeneratedCode(code, requireArchitecture)
+          || (requireArchitecture ? validatePlannedFiles(code, body.plan) : null);
+
+        if (fallbackValidation) {
+          throw new Error(`AI review unavailable and local validation failed: ${fallbackValidation}`);
+        }
+
+        console.warn("AppiGen review skipped because all providers were unavailable:", message.slice(0, 500));
+
+        return jsonResponse({
+          code,
+          repairAttempted: false,
+          findings: ["AI review was skipped because all configured providers were unavailable. Local validation passed."],
+          changedPaths: [],
+          reviewSkipped: true,
+          reviewWarning: "AI review unavailable; locally validated project was preserved.",
+          requestedProvider: provider,
+          mode,
+        });
+      }
+
       return jsonResponse({ code: reviewed.value.code, repairAttempted: reviewed.value.repairAttempted, findings: reviewed.value.findings, changedPaths: reviewed.value.changedPaths, provider: `${reviewed.provider}:${reviewed.value.model}`, requestedProvider: provider, mode });
-    }
+
 
     // build or edit mode
     const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
