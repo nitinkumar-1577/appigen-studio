@@ -360,6 +360,7 @@ function thoughtSteps(activity: BuildActivity): string[] {
   return [...new Set(steps)];
 }
 
+
 const ActivityCard = ({
   activity,
   contents,
@@ -384,6 +385,10 @@ const ActivityCard = ({
   now: number;
 }) => {
   const durationMs = activityDurationMs(activity, now);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const completedCount = activity.files.filter(
+    (file) => file.status === "completed",
+  ).length;
 
   return (
     <section
@@ -391,20 +396,138 @@ const ActivityCard = ({
       aria-live={live ? "polite" : undefined}
       className={cn(
         "mr-auto w-full overflow-hidden rounded-xl border bg-surface-elevated/80 shadow-soft",
-        activity.status === "error" ? "border-destructive/50" : "border-border/60",
+        activity.status === "error"
+          ? "border-destructive/50"
+          : "border-border/60",
       )}
     >
-      <div className="space-y-2 px-3 py-2.5">
-        {activity.status === "error" && activity.errors.length > 0 && (
-          <p className="text-[11px] text-destructive">{activity.errors[0]}</p>
+      <div className="space-y-3 px-3 py-2.5">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h3 className="text-xs font-semibold text-foreground">
+              {activity.title}
+            </h3>
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              {activityStatusLabel(activity.status)}
+              {activity.stage ? ` · ${activity.stage}` : ""}
+            </p>
+          </div>
+          {onPreview && (
+            <button
+              type="button"
+              onClick={onPreview}
+              className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border/60 px-2 py-1 text-[10px] font-medium hover:bg-secondary"
+            >
+              <Eye className="h-3 w-3" />
+              Preview
+            </button>
+          )}
+        </div>
+
+        {explanation && (
+          <p className="text-[11px] text-muted-foreground">{explanation}</p>
+        )}
+
+        {activity.files.length > 0 && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-[10px]">
+              <span className="font-medium text-foreground">Files</span>
+              <span className="text-muted-foreground">
+                {completedCount}/{activity.files.length} files
+              </span>
+            </div>
+            <ActivityFileList
+              files={activity.files}
+              contents={contents}
+              expanded={expanded}
+              onToggle={onToggleFile}
+            />
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            aria-expanded={detailsOpen}
+            onClick={() => setDetailsOpen((open) => !open)}
+            className="rounded-md border border-border/60 px-2 py-1 text-[10px] font-medium hover:bg-secondary"
+          >
+            Details
+          </button>
+
+          {onRestore && (
+            <button
+              type="button"
+              onClick={onRestore}
+              className="rounded-md border border-border/60 px-2 py-1 text-[10px] font-medium hover:bg-secondary"
+            >
+              Restore version
+            </button>
+          )}
+
+          {onRetry &&
+            (activity.status === "error" || activity.status === "stopped") && (
+              <button
+                type="button"
+                onClick={onRetry}
+                className="inline-flex items-center gap-1 rounded-md border border-primary/50 bg-primary/10 px-2 py-1 text-[10px] font-medium text-primary hover:bg-primary/20"
+              >
+                <RotateCcw className="h-3 w-3" />
+                Try again
+              </button>
+            )}
+        </div>
+
+        {detailsOpen && (
+          <div className="space-y-2 rounded-lg border border-border/60 bg-background/40 p-2.5 text-[10px]">
+            {activity.validation.length > 0 && (
+              <div>
+                <p className="mb-1 font-semibold text-foreground">Validation</p>
+                {activity.validation.map((item, index) => (
+                  <p key={`${index}-${item}`} className="text-muted-foreground">
+                    {item}
+                  </p>
+                ))}
+              </div>
+            )}
+
+            {activity.errors.length > 0 && (
+              <div>
+                <p className="mb-1 font-semibold text-destructive">Errors</p>
+                {activity.errors.map((item, index) => (
+                  <p key={`${index}-${item}`} className="text-destructive">
+                    {item}
+                  </p>
+                ))}
+              </div>
+            )}
+
+            {activity.timeline.length > 0 && (
+              <div>
+                <p className="mb-1 font-semibold text-foreground">Activity timeline</p>
+                <ol className="space-y-1 text-muted-foreground">
+                  {activity.timeline.map((item, index) => (
+                    <li key={`${index}-${item}`}>{item}</li>
+                  ))}
+                </ol>
+              </div>
+            )}
+
+            {!activity.validation.length &&
+              !activity.errors.length &&
+              !activity.timeline.length && (
+                <p className="text-muted-foreground">
+                  No additional details available.
+                </p>
+              )}
+          </div>
         )}
 
         <details className="rounded-lg border border-border/60 bg-background/40 px-2.5 py-2 text-[10px] text-muted-foreground">
-          <summary className="flex cursor-pointer select-none items-center gap-1.5 font-medium text-muted-foreground">
+          <summary className="flex cursor-pointer select-none items-center gap-1.5 font-medium">
             <Clock className="h-3 w-3" />
             Thought for {formatActivityDuration(durationMs)}
           </summary>
-
           <ol className="mt-1.5 max-h-32 space-y-0.5 overflow-auto border-t border-border/50 pt-1.5">
             {thoughtSteps(activity).map((event) => (
               <li key={event} className="break-words">
@@ -413,17 +536,6 @@ const ActivityCard = ({
             ))}
           </ol>
         </details>
-
-        {onRetry && (activity.status === "error" || activity.status === "stopped") && (
-          <button
-            type="button"
-            onClick={onRetry}
-            className="inline-flex items-center gap-1.5 rounded-md border border-primary/50 bg-primary/10 px-2 py-1 text-[10px] font-medium text-primary transition hover:bg-primary/20"
-          >
-            <RotateCcw className="h-3 w-3" />
-            Try again
-          </button>
-        )}
       </div>
     </section>
   );
