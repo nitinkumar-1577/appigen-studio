@@ -525,17 +525,17 @@ export const PreviewPanel = ({
               [
                 {
                   id: "preview" as const,
-                  label: "Open preview",
+label: "Preview",
                   icon: Globe,
                 },
                 {
-                  id: "code" as const,
-                  label: "Open code",
+                  id: "code" as const,    
+label: "Code",
                   icon: Code2,
                 },
                 {
-                  id: "versions" as const,
-                  label: "Version history",
+                  id: "versions" as const, 
+label: `Versions (${versions.length})`,
                   icon: Clock,
                 },
               ]
