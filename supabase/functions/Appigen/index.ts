@@ -189,7 +189,7 @@ function numericSetting(value: unknown, fallback: number, min: number, max: numb
   return typeof value === "number" && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
 }
 export function ensureAppStylesImport(source: string): string {
-  let s = (source ?? "").replace(/\r\n/g, "\n");
+  const  s = (source ?? "").replace(/\r\n/g, "\n");
 
   const appMarker = /^\s*\/\/\s*FILE:\s*src\/App\.(?:tsx|jsx)\s*$/m.exec(s);
   const hasAppStyles = /^\s*\/\/\s*FILE:\s*src\/styles\.css\s*$/m.test(s);
