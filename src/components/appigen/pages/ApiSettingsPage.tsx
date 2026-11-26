@@ -51,9 +51,7 @@ export const ApiSettingsPage = () => {
     generation?: { model: string; status: string; detail?: string };
   }>>([]);
   const update = (values: Partial<GenerationSettings>) => setSettings((current) => ({ ...current, ...values }));
-  const save = () => {
-    try {
-       const save = async () => {
+  const save = async () => {
     try {
       saveGenerationSettings(settings);
 
@@ -86,18 +84,29 @@ export const ApiSettingsPage = () => {
       });
     }
   };
+
+  const checkProviders = async () => {
+    setHealthLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke("Appigen", { body: { mode: "health" } });
+      const { data, error } = await supabase.functions.invoke("Appigen", {
+        body: { mode: "health" },
+      });
       if (error) throw error;
-      if (!Array.isArray(data?.results)) throw new Error("The health route returned no provider results.");
+      if (!Array.isArray(data?.results)) {
+        throw new Error("The health route returned no provider results.");
+      }
       setHealthResults(data.results);
     } catch (error) {
-      toast({ title: "Provider health check failed", description: error instanceof Error ? error.message : "Could not check providers.", variant: "destructive" });
+      toast({
+        title: "Provider health check failed",
+        description:
+          error instanceof Error ? error.message : "Could not check providers.",
+        variant: "destructive",
+      });
     } finally {
       setHealthLoading(false);
     }
   };
-
   return (
     <div className="h-full overflow-auto">
       <div className="mx-auto max-w-5xl space-y-6 p-8">
