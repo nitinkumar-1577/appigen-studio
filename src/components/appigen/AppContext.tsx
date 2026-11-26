@@ -110,6 +110,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     } catch { return []; }
   });
   const [accent, setAccentState] = useState<string>(() => {
+      const settingsSyncReadyUserId = useRef<string | null>(null);
     try { return localStorage.getItem(LS.accent) || "purple"; } catch { return "purple"; }
   });
 
