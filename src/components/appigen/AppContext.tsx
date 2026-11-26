@@ -131,7 +131,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       const remoteVersion = Date.parse(remote.updated_at) || 0;
       if (remoteVersion < latestUpdate) return;
       latestUpdate = remoteVersion;
-
+settingsSyncReadyUserId.current = userId;
       saveAppPreferences(remote.app_preferences);
       saveGenerationSettings(remote.generation_settings);
 
