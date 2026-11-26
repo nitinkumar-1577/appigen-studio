@@ -14,7 +14,30 @@ export type Database = {
   }
   public: {
     Tables: {
-      
+            user_settings: {
+        Row: {
+          user_id: string;
+          app_preferences: Json;
+          generation_settings: Json;
+          accent_color: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          app_preferences?: Json;
+          generation_settings?: Json;
+          accent_color?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          user_id?: string;
+          app_preferences?: Json;
+          generation_settings?: Json;
+          accent_color?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       build_jobs: {
         Row: {
           id: string
