@@ -53,15 +53,39 @@ export const ApiSettingsPage = () => {
   const update = (values: Partial<GenerationSettings>) => setSettings((current) => ({ ...current, ...values }));
   const save = () => {
     try {
+       const save = async () => {
+    try {
       saveGenerationSettings(settings);
-      saveAppPreferences({ ...readAppPreferences(), provider: settings.provider, model: settings.model });
-      toast({ title: "API settings saved", description: "New builds will use these model, instruction, and safety settings." });
+
+      const preferences = {
+        ...readAppPreferences(),
+        provider: settings.provider,
+        model: settings.model,
+      };
+
+      saveAppPreferences(preferences);
+
+      if (session?.user?.id) {
+        await saveAccountSettings(session.user.id, {
+          app_preferences: preferences,
+          generation_settings: settings,
+          accent_color: accent,
+        });
+      }
+
+      toast({
+        title: "API settings saved",
+        description: "Your account settings have been synced.",
+      });
     } catch (error) {
-      toast({ title: "API settings could not be saved", description: error instanceof Error ? error.message : "Browser storage is unavailable.", variant: "destructive" });
+      toast({
+        title: "API settings could not be synced",
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
     }
   };
-  const checkProviders = async () => {
-    setHealthLoading(true);
     try {
       const { data, error } = await supabase.functions.invoke("Appigen", { body: { mode: "health" } });
       if (error) throw error;
