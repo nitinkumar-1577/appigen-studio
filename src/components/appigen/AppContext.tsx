@@ -251,7 +251,7 @@ settingsSyncReadyUserId.current = userId;
     markAllRead: () => setNotifications((prev) => prev.map((n) => ({ ...n, read: true }))),
     clearNotifications: () => setNotifications([]),
     accent,
-    setAccent: setAccentState,
+ setAccent: updateAccent,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
