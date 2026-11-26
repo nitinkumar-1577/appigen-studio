@@ -1,5 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import type { Session, User as SupaUser } from "@supabase/supabase-js";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";import type { Session, User as SupaUser } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { applyAppPreferences, readAppPreferences } from "@/lib/appPreferences";
 import { NOTIFICATION_RETENTION_MS, retainRecentNotifications } from "@/lib/notifications";
