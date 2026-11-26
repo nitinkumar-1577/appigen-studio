@@ -1425,7 +1425,12 @@ async function reviewAndImproveCode(
     throw new ProviderRequestError(provider, undefined, "INVALID_RESPONSE", "review found issues but supplied no focused file repairs");
   }
   const delta = Object.entries(updates).map(([path, content]) => `// FILE: ${path}\n${content}`).join("\n\n");
-  return { code: delta ? mergeProjectFiles(code, delta) : code, findings, changedPaths: Object.keys(updates) };
+ const mergedCode = delta ? mergeProjectFiles(code, delta) : code;
+return {
+  code: ensureAppStylesImport(mergedCode),
+  findings,
+  changedPaths: Object.keys(updates),
+};
 }
 
 async function answerProjectQuestion(
