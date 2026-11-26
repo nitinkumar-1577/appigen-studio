@@ -116,7 +116,65 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     applyAppPreferences(readAppPreferences());
   }, []);
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) return;
 
+    let active = true;
+    let latestUpdate = 0;
+    let unsubscribe: (() => void) | undefined;
+
+    const applyRemoteSettings = (remote: Awaited<ReturnType<typeof loadAccountSettings>>) => {
+      if (!active || !remote) return;
+
+      const remoteVersion = Date.parse(remote.updated_at) || 0;
+      if (remoteVersion < latestUpdate) return;
+      latestUpdate = remoteVersion;
+
+      saveAppPreferences(remote.app_preferences);
+      saveGenerationSettings(remote.generation_settings);
+
+      applyAppPreferences(readAppPreferences());
+
+      const validAccent = ACCENT_THEMES.some(
+        (item) => item.key === remote.accent_color
+      );
+
+      if (validAccent && remote.accent_color) {
+        setAccentState(remote.accent_color);
+      }
+    };
+
+    const startSync = async () => {
+      unsubscribe = subscribeToAccountSettings(
+        userId,
+        applyRemoteSettings
+      );
+
+      const remote = await loadAccountSettings(userId);
+
+      if (!active) return;
+
+      if (remote) {
+        applyRemoteSettings(remote);
+      } else {
+        await saveAccountSettings(userId, {
+          app_preferences: readAppPreferences(),
+          generation_settings: readGenerationSettings(),
+          accent_color: accent,
+        });
+      }
+    };
+
+    void startSync().catch((error) => {
+      console.error("Account settings sync failed:", error);
+    });
+
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
+  }, [session?.user?.id]);
   // Apply accent on mount + change
   useEffect(() => {
     const t = ACCENT_THEMES.find((a) => a.key === accent) ?? ACCENT_THEMES[0];
