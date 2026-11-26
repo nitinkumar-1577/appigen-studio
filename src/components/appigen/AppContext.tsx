@@ -6,7 +6,13 @@ import {
   readGenerationSettings,
   saveAppPreferences,
   saveGenerationSettings,
-} from "@/lib/appPreferences";import { NOTIFICATION_RETENTION_MS, retainRecentNotifications } from "@/lib/notifications";
+} from "@/lib/appPreferences";
+import {
+  loadAccountSettings,
+  saveAccountSettings,
+  subscribeToAccountSettings,
+} from "@/lib/accountSettingsSync";
+import { NOTIFICATION_RETENTION_MS, retainRecentNotifications } from "@/lib/notifications";
 
 export type User = { name: string; email: string; avatarUrl?: string | null };
 
