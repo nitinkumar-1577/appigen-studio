@@ -67,6 +67,48 @@ export const loadLatestBuildJob = async (projectId: string, userId: string) => {
   return data;
 };
 
+export const loadLatestActiveBuildJob = async (userId: string) => {
+  const { data, error } = await supabase
+    .from("build_jobs")
+    .select("*")
+    .eq("user_id", userId)
+    .in("status", ["queued", "running", "retrying"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+};
+
+export const subscribeToActiveBuildJobs = (
+  userId: string,
+  onChange: (job: DurableBuildJob) => void,
+) => {
+  const channel = supabase
+    .channel(`account-build-jobs-${userId}-${++durableBuildJobChannelCounter}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "build_jobs",
+        filter: `user_id=eq.${userId}`,
+      },
+      (payload) => {
+        const job = payload.new as DurableBuildJob;
+        if (job?.id && job.user_id === userId) {
+          onChange(job);
+        }
+      },
+    )
+    .subscribe();
+
+  return () => {
+    void supabase.removeChannel(channel);
+  };
+};
+
 export const subscribeToBuildJob = (
   projectId: string,
   onChange: (job: DurableBuildJob) => void,
