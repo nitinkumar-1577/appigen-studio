@@ -13,6 +13,7 @@ describe("Appigen v126 provider and review behavior", () => {
   let relevantProjectSource: (source: string, prompt: string) => string;
   let outputTokenBudget: (provider: string, inputCharacters?: number) => number;
   let validatePlannedFiles: (source: string, plan: unknown) => string | null;
+  let ensureAppStylesImport: (source: string) => string;
   beforeAll(async () => {
     (globalThis as typeof globalThis & {
       Deno?: { env: { get: () => undefined }; serve: ReturnType<typeof vi.fn> };
