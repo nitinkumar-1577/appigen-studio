@@ -1,3 +1,5 @@
+import { useApp } from "@/components/appigen/AppContext";
+import { saveAccountSettings } from "@/lib/accountSettingsSync";
 import { useState } from "react";
 import { Save, Wand2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
@@ -38,6 +40,7 @@ export const healthStatusLabel = (status?: string) => {
 };
 
 export const ApiSettingsPage = () => {
+    const { session, accent } = useApp();
   const [settings, setSettings] = useState<GenerationSettings>(() => readGenerationSettings());
   const [healthLoading, setHealthLoading] = useState(false);
   const [healthResults, setHealthResults] = useState<Array<{
