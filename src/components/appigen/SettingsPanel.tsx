@@ -1,3 +1,5 @@
+import { useApp } from "@/components/appigen/AppContext";
+import { saveAccountSettings } from "@/lib/accountSettingsSync";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { X, Moon, Sun, Monitor, Sliders } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -17,6 +19,7 @@ import {
 interface SettingsPanelProps { open: boolean; onClose: () => void; }
 
 export const SettingsPanel = ({ open, onClose }: SettingsPanelProps) => {
+    const { session, accent } = useApp();
   const [preferences, setPreferences] = useState<AppPreferences>(() => readAppPreferences());
 
   useEffect(() => {
@@ -42,21 +45,50 @@ export const SettingsPanel = ({ open, onClose }: SettingsPanelProps) => {
     return () => window.removeEventListener("keydown", onKey);
   }, [open, cancel]);
 
-  const save = () => {
+   const save = async () => {
     try {
       saveAppPreferences(preferences);
+
       const generation = readGenerationSettings();
-      const defaultModelChanged = generation.provider !== preferences.provider || generation.model !== preferences.model;
-      saveGenerationSettings({
+      const defaultModelChanged =
+        generation.provider !== preferences.provider ||
+        generation.model !== preferences.model;
+
+      const nextGeneration = {
         ...generation,
         provider: preferences.provider,
         model: preferences.model,
-        ...(defaultModelChanged ? { logicProvider: preferences.provider, logicModel: preferences.model } : {}),
-      });
+        ...(defaultModelChanged
+          ? {
+              logicProvider: preferences.provider,
+              logicModel: preferences.model,
+            }
+          : {}),
+      };
+
+      saveGenerationSettings(nextGeneration);
+
+      if (session?.user?.id) {
+        await saveAccountSettings(session.user.id, {
+          app_preferences: preferences,
+          generation_settings: nextGeneration,
+          accent_color: accent,
+        });
+      }
+
       applyAppPreferences(preferences);
       onClose();
+      toast({
+        title: "Settings saved",
+        description: "Your account settings have been synced.",
+      });
     } catch (error) {
-      toast({ title: "Settings could not be saved", description: error instanceof Error ? error.message : "Browser storage is unavailable.", variant: "destructive" });
+      toast({
+        title: "Settings could not be synced",
+        description:
+          error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
     }
   };
 
