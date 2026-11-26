@@ -144,6 +144,9 @@ settingsSyncReadyUserId.current = userId;
       if (validAccent && remote.accent_color) {
         setAccentState(remote.accent_color);
       }
+      window.dispatchEvent(
+  new Event("appigen:account-settings-updated")
+);
     };
 
     const startSync = async () => {
