@@ -183,7 +183,20 @@ settingsSyncReadyUserId.current = userId;
     applyAccent(t.hue);
     try { localStorage.setItem(LS.accent, accent); } catch (error) { console.warn("Could not save accent preference:", error); }
   }, [accent]);
+  const updateAccent = useCallback((nextAccent: string) => {
+    setAccentState(nextAccent);
 
+    const userId = session?.user?.id;
+    if (!userId || settingsSyncReadyUserId.current !== userId) return;
+
+    void saveAccountSettings(userId, {
+      app_preferences: readAppPreferences(),
+      generation_settings: readGenerationSettings(),
+      accent_color: nextAccent,
+    }).catch((error) => {
+      console.error("Could not sync accent preference:", error);
+    });
+  }, [session?.user?.id]);
   // Auth listener BEFORE getSession
   useEffect(() => {
     let authEventReceived = false;
