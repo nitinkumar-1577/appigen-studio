@@ -49,7 +49,7 @@ export const SettingsPanel = ({ open, onClose }: SettingsPanelProps) => {
         toast({
           title: "Settings changed on another device",
           description:
-            "Your unsaved changes are محفوظ. Save your changes or cancel to use the latest account settings.",
+        "Your unsaved changes are preserved. Save your changes or cancel to use the latest account settings."
         });
         return;
       }
