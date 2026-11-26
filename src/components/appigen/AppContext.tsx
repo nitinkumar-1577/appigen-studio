@@ -1,7 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";import type { Session, User as SupaUser } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
-import { applyAppPreferences, readAppPreferences } from "@/lib/appPreferences";
-import { NOTIFICATION_RETENTION_MS, retainRecentNotifications } from "@/lib/notifications";
+import {
+  applyAppPreferences,
+  readAppPreferences,
+  readGenerationSettings,
+  saveAppPreferences,
+  saveGenerationSettings,
+} from "@/lib/appPreferences";import { NOTIFICATION_RETENTION_MS, retainRecentNotifications } from "@/lib/notifications";
 
 export type User = { name: string; email: string; avatarUrl?: string | null };
 
