@@ -164,6 +164,7 @@ settingsSyncReadyUserId.current = userId;
           generation_settings: readGenerationSettings(),
           accent_color: accent,
         });
+        settingsSyncReadyUserId.current = userId;
       }
     };
 
