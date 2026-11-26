@@ -938,6 +938,18 @@ const navigateView = (next: ViewKey) => {
     const editMode = Boolean(lastCode) && !isNewAppPrompt(trimmed);
     const clarifyFirst = requiresClarification(trimmed, Boolean(lastCode));
     const questionMode = !intent.shouldBuild || clarifyFirst;
+    // Prevent a second device from starting another account-level build.
+if (!questionMode && session?.user?.id) {
+  const activeJob = await loadLatestActiveBuildJob(session.user.id);
+  if (activeJob) {
+    toast({
+      title: "A build is already active",
+      description: "Your existing build is running on this account. Open that project or wait for it to finish before starting another build.",
+      variant: "destructive",
+    });
+    return;
+  }
+}
     const generationSettings = readGenerationSettings();
     const buildStartedAt = Date.now();
     const activityId = createActivityId();
