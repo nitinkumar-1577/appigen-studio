@@ -229,7 +229,7 @@ function cleanCode(raw: string): string {
     // Remove any stray ReactDOM.createRoot calls (loader handles mounting)
     s = s.replace(/ReactDOM\s*\.\s*createRoot\s*\([\s\S]*?\)\s*\.\s*render\s*\([\s\S]*?\)\s*;?/g, "");
     s = s.replace(/ReactDOM\s*\.\s*render\s*\([\s\S]*?\)\s*;?/g, "");
-    return s.trim();
+ return ensureAppStylesImport(s).trim();
   }
 
   // Legacy single-file: keep the old behavior (strip modules, append render).
