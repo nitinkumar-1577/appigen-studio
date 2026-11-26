@@ -188,7 +188,30 @@ function getSafetyViolation(prompt: string, thresholds: SafetyThresholds): strin
 function numericSetting(value: unknown, fallback: number, min: number, max: number): number {
   return typeof value === "number" && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
 }
+export function ensureAppStylesImport(source: string): string {
+  let s = (source ?? "").replace(/\r\n/g, "\n");
 
+  const appMarker = /^\s*\/\/\s*FILE:\s*src\/App\.(?:tsx|jsx)\s*$/m.exec(s);
+  const hasAppStyles = /^\s*\/\/\s*FILE:\s*src\/styles\.css\s*$/m.test(s);
+
+  if (!appMarker || !hasAppStyles) return s;
+
+  const appStart = appMarker.index + appMarker[0].length;
+  const nextFileMarker = s.indexOf("\n// FILE:", appStart);
+  const appEnd = nextFileMarker < 0 ? s.length : nextFileMarker;
+  const appSource = s.slice(appStart, appEnd);
+
+  if (/^\s*import\s*["']\.\/styles\.css["']\s*;?/m.test(appSource)) {
+    return s;
+  }
+
+  const clientDirective = appSource.match(/^\s*["']use client["'];?\s*/);
+  const insertAt = appStart + (clientDirective?.[0].length ?? 0);
+
+  return s.slice(0, insertAt)
+    + '\nimport "./styles.css";\n'
+    + s.slice(insertAt);
+}
 function cleanCode(raw: string): string {
   let s = (raw ?? "").trim();
   // strip fenced blocks
