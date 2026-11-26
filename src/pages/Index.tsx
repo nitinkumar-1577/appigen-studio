@@ -411,6 +411,103 @@ const navigateView = (next: ViewKey) => {
 
   useEffect(() => {
     if (!authReady || !session?.user.id) return;
+
+    let disposed = false;
+    const restoringJobs = new Set<string>();
+
+    const restoreActiveBuild = async (job: DurableBuildJob) => {
+      if (disposed || !["queued", "running", "retrying"].includes(job.status)) return;
+
+      // This project is already open; its project-level listener handles updates.
+      if (projectId === job.project_id) return;
+
+      // Never replace another open project or unsaved local work.
+      const hasLocalWork =
+        Boolean(projectId) ||
+        Boolean(currentPromptRef.current.trim()) ||
+        Boolean(lastCode) ||
+        currentMessagesRef.current.length > 0;
+
+      if (hasLocalWork) return;
+      if (restoringJobs.has(job.id)) return;
+
+      restoringJobs.add(job.id);
+
+      try {
+        const project = await loadProject(job.project_id, session.user.id);
+        if (disposed) return;
+
+        const projectVersions = await loadProjectVersions(
+          job.project_id,
+          session.user.id,
+        );
+        if (disposed) return;
+
+        setProjectId(project.id);
+        setProjectUpdatedAt(project.updated_at);
+        setProjectTitle(project.title);
+        setTitleManuallyEdited(true);
+
+        setPrompt(project.prompt);
+        setLastCode(project.code);
+        setWorkingCode(job.working_code || project.code);
+        setMessages(project.messages);
+        setVersions(projectVersions);
+        setDoc(buildDocFromPrompt(project.prompt, project.code));
+
+        setLastSyncedCode(project.code);
+        lastSyncedPromptRef.current = project.prompt;
+        lastSyncedTitleRef.current = project.title;
+        lastSyncedMessagesRef.current = JSON.stringify(project.messages);
+        promptDirtyRef.current = false;
+
+        durableQueueAcceptedRef.current = true;
+        setIsBuilding(true);
+        setIsGeneratingApp(true);
+        setProgressStage(job.current_stage || "Building");
+
+        setBuildFiles(
+          Array.isArray(job.build_files)
+            ? job.build_files as unknown as BuildFileProgress[]
+            : [],
+        );
+
+        setBuildTimeline(
+          Array.isArray(job.build_timeline)
+            ? job.build_timeline.filter(
+                (item): item is string => typeof item === "string",
+              )
+            : [],
+        );
+      } catch (error) {
+        console.warn("Could not restore active build on this device", error);
+      }
+    };
+
+    const unsubscribe = subscribeToActiveBuildJobs(
+      session.user.id,
+      (job) => {
+        void restoreActiveBuild(job);
+      },
+    );
+
+    void loadLatestActiveBuildJob(session.user.id)
+      .then((job) => {
+        if (job) void restoreActiveBuild(job);
+      })
+      .catch((error) => {
+        console.warn("Could not find an active account build", error);
+      });
+
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, [authReady, session?.user.id, projectId, lastCode]);
+
+
+  useEffect(() => {
+    if (!authReady || !session?.user.id) return;
     const refreshActiveProject = async (changedProjectId?: string) => {
       if (!projectId || (changedProjectId && changedProjectId !== projectId)) return;
       if (document.activeElement?.id === "app-prompt") return;
