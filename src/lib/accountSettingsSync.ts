@@ -22,7 +22,7 @@ export interface AccountSettingsInput {
 export async function loadAccountSettings(
   userId: string
 ): Promise<AccountSettings | null> {
-  const { data, error } = await (supabase as any)
+  const { data, error } = await (supabase)
     .from("user_settings")
     .select(
       "user_id, app_preferences, generation_settings, accent_color, updated_at"
@@ -38,7 +38,7 @@ export async function saveAccountSettings(
   userId: string,
   settings: AccountSettingsInput
 ): Promise<void> {
-  const { error } = await (supabase as any)
+  const { error } = await (supabase)
     .from("user_settings")
     .upsert(
       {
