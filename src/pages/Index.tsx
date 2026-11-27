@@ -262,6 +262,11 @@ const studioWorkspaceSnapshotRef = useRef<{
   const promptActivityTimer = useRef<number | undefined>(undefined);
 
   const hasAppWorkspace = isGeneratingApp || Boolean(lastCode);
+  const hasStartedProject =
+  Boolean(projectId) ||
+  Boolean(lastCode) ||
+  isGeneratingApp ||
+  messages.length > 0;
   useEffect(() => {
   if (view === "studio" && !hasAppWorkspace) {
     setSidebarHidden(false);
@@ -2234,7 +2239,7 @@ setSidebarOverlayOpen(false);
               ) : (
                 <h1 className="truncate font-display text-sm sm:text-base font-semibold text-foreground">{VIEW_TITLES[view]}</h1>
               )}
-              {view === "studio" && (
+           {view === "studio" && hasStartedProject && (
                 <span className="hidden rounded-md border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-primary sm:inline">
 {titleManuallyEdited && projectTitle !== "Untitled Project" ? "Draft" : "Auto title"}                </span>
               )}
