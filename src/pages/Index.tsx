@@ -1163,13 +1163,14 @@ if (!questionMode && session?.user?.id) {
     if (clarifyFirst) {
       setMessages([...nextMessages, { role: "assistant", content: CLARIFY_NEW_APP, timestamp: Date.now() }]);
       setPrompt("");
-      promptDirtyRef.current = false;
+     
       setActivityStartedAt(undefined);
       setActivityExplanation(undefined);
       setBuildTimeline([]);
       toast({ title: "Add a little detail", description: "Name the app or page you want and I will start building." });
       return;
     }
+    promptDirtyRef.current = false;
     if (!editMode) {
       versionsAfterBuild = [];
       setVersions([]);
