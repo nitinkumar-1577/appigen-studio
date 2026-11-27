@@ -1191,7 +1191,7 @@ const unsubscribeSession = subscribeToStudioSession(
             "submit_appigen_build_prompt_update",
             {
               p_job_id: activeJob.id,
-              p_prompt: trimmed,
+              p_prompt: effectivePrompt,
               p_messages: updatedMessages,
             }
           );
@@ -1255,7 +1255,7 @@ const unsubscribeSession = subscribeToStudioSession(
           mode: "understand",
           provider: generationSettings.provider,
           model: generationSettings.model,
-          prompt: trimmed,
+         prompt: effectivePrompt,
           code: lastCode ?? "",
           conversation: messages.slice(-12).map(({ role, content }) => ({
             role,
@@ -1420,7 +1420,7 @@ activeRequestModeRef.current = questionMode ? "chat" : "build";
           projectId: editMode ? projectId : null,
           userId: session.user.id,
           title: durableTitle,
-          prompt: trimmed,
+        prompt: effectivePrompt,
           code: baseCodeForEdit ?? "",
           messages: nextMessages,
         });
@@ -1680,7 +1680,7 @@ if (!streamedAnswer.trim()) {
       buildMessages = [...nextMessages, { role: "assistant", content: planSummary, timestamp: Date.now() }];
       setMessages(buildMessages);
       setBuildTimeline((current) => [...current, "Implementation plan ready"]);
-      const canResume = partialBuildRef.current?.prompt === trimmed;
+      const canResume = partialBuildRef.current?.prompt === effectivePrompt;
       let generatedCode = canResume
         ? partialBuildRef.current?.code ?? ""
         : editMode && lastCode ? normalizeFileMarkers(lastCode) : "";
@@ -1688,7 +1688,7 @@ if (!streamedAnswer.trim()) {
       if (!blueprint.length) throw new Error("The implementation plan did not include a file blueprint.");
       const recentlyChangedPaths = recentChanges.flatMap((record) => record.changedPaths).slice(0, 12);
       const plannedFiles = editMode && generatedCode
-        ? selectFilesForEdit(generatedCode, trimmed, { understanding, recentlyChanged: recentlyChangedPaths }).map((path) => blueprint.find((file) => file.path === path) ?? ({ path, purpose: `Apply the requested change to ${path}` }))
+        ? selectFilesForEdit(generatedCode, effectivePrompt, { understanding, recentlyChanged: recentlyChangedPaths }).map((path) => blueprint.find((file) => file.path === path) ?? ({ path, purpose: `Apply the requested change to ${path}` }))
         : blueprint;
       if (editMode) setBuildTimeline((current) => [...current, `Targeted files: ${plannedFiles.map((f) => f.path).join(", ")}`]);
       const uniqueFiles = orderBuildFiles([...new Map(plannedFiles.map((file) => [file.path, file])).values()], { understanding: understanding ?? undefined });
@@ -1711,8 +1711,8 @@ if (!streamedAnswer.trim()) {
           setProgressStage(`Generating ${file.path}`);
           const { data: fileData, error: fileError } = await supabase.functions.invoke("Appigen", {
             body: {
-              mode: "build_file", prompt: trimmed, file,
-              requirements: Array.isArray(implementationPlan?.requirements) ? implementationPlan.requirements : [trimmed],
+             mode: "build_file", prompt: effectivePrompt, file,
+              requirements: Array.isArray(implementationPlan?.requirements) ? implementationPlan.requirements 	: [effectivePrompt],
               specification: implementationPlan?.specification ?? null,
               requirementTrace: Array.isArray(implementationPlan?.requirementTrace) ? implementationPlan.requirementTrace : [],
               fileTree: [...new Set([...requiredPaths, ...uniqueFiles.map(({ path }) => path)])],
