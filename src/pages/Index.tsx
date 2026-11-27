@@ -410,7 +410,77 @@ const navigateView = (next: ViewKey) => {
     // Start signed-in users with a clean Studio. Saved projects are opened explicitly from My Apps.
     setAccountProjectLoading(false);
   }, [authReady, session?.user.id]);
+  useEffect(() => {
+    if (!authReady || !session?.user.id) return;
 
+    let disposed = false;
+    const userId = session.user.id;
+
+    const restoreStudioSession = async () => {
+      studioSessionHydratingRef.current = true;
+
+      try {
+        const saved = await loadStudioSession(userId);
+        if (disposed) return;
+
+        if (!saved) return;
+
+        lastStudioSessionSerializedRef.current = JSON.stringify({
+          project_id: saved.project_id,
+          title: saved.title,
+          prompt: saved.prompt,
+          messages: saved.messages,
+        });
+
+        setProjectTitle(saved.title || "Untitled Project");
+        setTitleManuallyEdited(Boolean(saved.title && saved.title !== "Untitled Project"));
+        setPrompt(saved.prompt || "");
+        setMessages(saved.messages || []);
+
+        if (saved.project_id) {
+          const project = await loadProject(saved.project_id, userId);
+          if (disposed) return;
+
+          const projectVersions = await loadProjectVersions(project.id, userId);
+          if (disposed) return;
+
+          setProjectId(project.id);
+          setProjectUpdatedAt(project.updated_at);
+          setProjectTitle(project.title);
+          setPrompt(project.prompt);
+          setLastCode(project.code);
+          setWorkingCode(project.code);
+          setMessages(project.messages);
+          setVersions(projectVersions);
+          setDoc(buildDocFromPrompt(project.prompt, project.code));
+
+          setLastSyncedCode(project.code);
+          lastSyncedPromptRef.current = project.prompt;
+          lastSyncedTitleRef.current = project.title;
+          lastSyncedMessagesRef.current = JSON.stringify(project.messages);
+        } else {
+          setProjectId(null);
+          setLastCode(null);
+          setWorkingCode(null);
+          setVersions([]);
+          setDoc(buildDocFromPrompt(saved.prompt || ""));
+        }
+
+        promptDirtyRef.current = false;
+      } catch (error) {
+        console.warn("Could not restore Studio session", error);
+      } finally {
+        studioSessionHydratingRef.current = false;
+      }
+    };
+
+    void restoreStudioSession();
+
+    return () => {
+      disposed = true;
+      studioSessionHydratingRef.current = false;
+    };
+  }, [authReady, session?.user.id]);
   useEffect(() => {
     if (!authReady || !session?.user.id) return;
 
