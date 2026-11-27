@@ -475,7 +475,7 @@ export const saveStudioSession = async (input: {
   activeBuildJobId?: string | null;
 }): Promise<void> => {
   const { error } = await supabase
-    .from("studio_sessions" as any)
+.from("studio_sessions")
     .upsert(
       {
         user_id: input.userId,
