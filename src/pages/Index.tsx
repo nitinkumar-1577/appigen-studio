@@ -35,7 +35,8 @@ import { computeChangeRecord, formatChangeRecord } from "@/lib/projects/changeTr
 import { formatUnderstandingForPrompt, understandProject } from "@/lib/projects/projectUnderstanding";
 import { detectConflicts, formatMemoryForPrompt, updateProjectMemory } from "@/lib/projects/projectMemory";
 import { clearProjectVersions, createProjectVersion, deleteProject, deleteProjectVersion, enqueueBuildJob, loadLatestBuildJob, loadProject, loadProjectVersions, persistActivity, persistProject, persistProjectThumbnail, subscribeToBuildJob, subscribeToProjectSync, type DurableBuildJob } from "@/lib/projects/projectRepository";
-import { loadLatestAccountBuildJob, loadLatestActiveBuildJob, subscribeToActiveBuildJobs } from "@/lib/projects/projectRepository";import { readAppPreferences, readGenerationSettings, recordActivity } from "@/lib/appPreferences";
+import { loadLatestAccountBuildJob, loadLatestActiveBuildJob, subscribeToActiveBuildJobs, loadStudioSession, saveStudioSession, subscribeToStudioSession } from "@/lib/projects/projectRepository";
+import { readAppPreferences, readGenerationSettings, recordActivity } from "@/lib/appPreferences";
 import { trackAnonymousUsage } from "@/lib/telemetry";
 import { analyzeIntent, intentSummary, isVagueNewAppPrompt, resolveFollowUp, responseLanguageInstruction } from "@/lib/projects/conversationIntelligence";
 import { createActivityId, type BuildActivity } from "@/lib/projects/conversationActivity";
