@@ -1284,7 +1284,7 @@ const unsubscribeSession = subscribeToStudioSession(
     const clarifyFirst = intent.needsClarification;
     const questionMode = !intent.shouldBuild || clarifyFirst;
     const buildStartedAt = Date.now();
-    }
+    
 
     // Prevent duplicate account-level builds.
     if (!questionMode && session?.user?.id) {
