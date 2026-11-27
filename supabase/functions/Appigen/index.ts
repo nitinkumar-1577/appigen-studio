@@ -361,7 +361,92 @@ export function providerStreamingRequest(
     ),
   };
 }
+async function consumeProviderStream(
+  response: Response,
+  provider: ProviderName,
+  onText: (text: string) => void,
+) {
+  if (!response.body) {
+    throw new Error("Provider returned an empty streaming response.");
+  }
 
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  const processLine = (line: string) => {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("data:")) return;
+
+    const payload = trimmed.slice(5).trim();
+    if (!payload || payload === "[DONE]") return;
+
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(payload);
+    } catch {
+      return;
+    }
+
+    if (provider === "gemini") {
+      const candidates = Array.isArray(parsed.candidates)
+        ? parsed.candidates
+        : [];
+      const candidate = candidates[0];
+
+      if (!isRecord(candidate) || !isRecord(candidate.content)) return;
+
+      const parts = Array.isArray(candidate.content.parts)
+        ? candidate.content.parts
+        : [];
+
+      for (const part of parts) {
+        if (isRecord(part) && typeof part.text === "string") {
+          onText(part.text);
+        }
+      }
+      return;
+    }
+
+    const choices = Array.isArray(parsed.choices)
+      ? parsed.choices
+      : [];
+    const choice = choices[0];
+
+    if (!isRecord(choice) || !isRecord(choice.delta)) return;
+
+    const content = choice.delta.content;
+    if (typeof content === "string") {
+      onText(content);
+    } else if (Array.isArray(content)) {
+      for (const part of content) {
+        if (isRecord(part) && typeof part.text === "string") {
+          onText(part.text);
+        }
+      }
+    }
+  };
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        processLine(line);
+      }
+    }
+
+    buffer += decoder.decode();
+    if (buffer.trim()) processLine(buffer);
+  } finally {
+    reader.releaseLock();
+  }
+}
 async function completeChat(
   provider: ProviderName,
   apiKey: string,
