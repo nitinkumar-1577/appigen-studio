@@ -438,9 +438,7 @@ export const deleteProject = async (projectId: string, userId: string) => {
 };
 
 export const softDeleteProject = deleteProject;
-
-export type ProjectSyncEvent = {
-  export interface StudioSession {
+export interface StudioSession {
   user_id: string;
   project_id: string | null;
   title: string;
@@ -520,6 +518,11 @@ export const subscribeToStudioSession = (
   return () => {
     void supabase.removeChannel(channel);
   };
+};
+
+export type ProjectSyncEvent = {
+  refreshProjects: () => Promise<void>;
+
 };
   refreshProjects: () => Promise<void>;
   refreshProject: (projectId: string) => Promise<void>;
