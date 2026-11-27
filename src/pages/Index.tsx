@@ -1250,7 +1250,7 @@ if (!questionMode && session?.user?.id) {
 
         const queuedMessages = [...nextMessages, queuedMessage];
 
-        await enqueueBuildJob({
+    const queuedJob = await enqueueBuildJob({
           userId: session.user.id,
           projectId: durableProjectId,
           requestPayload: {
@@ -1277,6 +1277,7 @@ if (!questionMode && session?.user?.id) {
             messages: queuedMessages,
           },
         });
+              setActivityStartedAt(Date.parse(queuedJob.created_at));
 durableQueueAcceptedRef.current = true;
         setMessages(queuedMessages);
         setPrompt("");
