@@ -447,7 +447,7 @@ const navigateView = (next: ViewKey) => {
           setProjectId(project.id);
           setProjectUpdatedAt(project.updated_at);
           setProjectTitle(project.title);
-          setPrompt(project.prompt);
+    setPrompt(saved.prompt || "");
           setLastCode(project.code);
           setWorkingCode(project.code);
           setMessages(project.messages);
@@ -525,7 +525,7 @@ const navigateView = (next: ViewKey) => {
             setProjectId(project.id);
             setProjectUpdatedAt(project.updated_at);
             setProjectTitle(project.title);
-            setPrompt(project.prompt);
+            setPrompt(remote.prompt || "");
             setLastCode(project.code);
             setWorkingCode(project.code);
             setMessages(project.messages);
