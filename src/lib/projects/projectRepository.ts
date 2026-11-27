@@ -81,6 +81,19 @@ export const loadLatestActiveBuildJob = async (userId: string) => {
   return data;
 };
 
+export const loadLatestAccountBuildJob = async (userId: string) => {
+  const { data, error } = await supabase
+    .from("build_jobs")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+};
+
 export const subscribeToActiveBuildJobs = (
   userId: string,
   onChange: (job: DurableBuildJob) => void,
@@ -425,7 +438,87 @@ export const deleteProject = async (projectId: string, userId: string) => {
 };
 
 export const softDeleteProject = deleteProject;
+export interface StudioSession {
+  user_id: string;
+  project_id: string | null;
+  title: string;
+  prompt: string;
+  messages: ChatMessage[];
+  active_build_job_id: string | null;
+  updated_at: string;
+}
 
+export const loadStudioSession = async (
+  userId: string,
+): Promise<StudioSession | null> => {
+  const { data, error } = await supabase
+   .from("studio_sessions")
+    .select("*")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+
+  return {
+    ...data,
+    messages: Array.isArray(data.messages) ? data.messages : [],
+  } as StudioSession;
+};
+
+export const saveStudioSession = async (input: {
+  userId: string;
+  projectId: string | null;
+  title: string;
+  prompt: string;
+  messages: ChatMessage[];
+  activeBuildJobId?: string | null;
+}): Promise<void> => {
+  const { error } = await supabase
+.from("studio_sessions")
+    .upsert(
+      {
+        user_id: input.userId,
+        project_id: input.projectId,
+        title: input.title,
+        prompt: input.prompt,
+        messages: toJson(input.messages),
+        active_build_job_id: input.activeBuildJobId ?? null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id" },
+    );
+
+  if (error) throw error;
+};
+
+export const subscribeToStudioSession = (
+  userId: string,
+  onChange: (session: StudioSession) => void,
+) => {
+  const channel = supabase
+    .channel(`studio-session-${userId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "studio_sessions",
+        filter: `user_id=eq.${userId}`,
+      },
+      (payload) => {
+        if (payload.new && "user_id" in payload.new) {
+          const session = payload.new as StudioSession;
+          if (session.user_id === userId) onChange(session);
+        }
+      },
+    )
+    .subscribe();
+
+  return () => {
+    void supabase.removeChannel(channel);
+  };
+};
 export type ProjectSyncEvent = {
   refreshProjects: () => Promise<void>;
   refreshProject: (projectId: string) => Promise<void>;

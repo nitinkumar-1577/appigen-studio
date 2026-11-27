@@ -1,7 +1,17 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import type { Session, User as SupaUser } from "@supabase/supabase-js";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";import type { Session, User as SupaUser } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
-import { applyAppPreferences, readAppPreferences } from "@/lib/appPreferences";
+import {
+  applyAppPreferences,
+  readAppPreferences,
+  readGenerationSettings,
+  saveAppPreferences,
+  saveGenerationSettings,
+} from "@/lib/appPreferences";
+import {
+  loadAccountSettings,
+  saveAccountSettings,
+  subscribeToAccountSettings,
+} from "@/lib/accountSettingsSync";
 import { NOTIFICATION_RETENTION_MS, retainRecentNotifications } from "@/lib/notifications";
 
 export type User = { name: string; email: string; avatarUrl?: string | null };
@@ -100,20 +110,96 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     } catch { return []; }
   });
   const [accent, setAccentState] = useState<string>(() => {
+    
     try { return localStorage.getItem(LS.accent) || "purple"; } catch { return "purple"; }
   });
-
+  const settingsSyncReadyUserId = useRef<string | null>(null);
   useEffect(() => {
     applyAppPreferences(readAppPreferences());
   }, []);
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) return;
 
+    let active = true;
+    let latestUpdate = 0;
+    let unsubscribe: (() => void) | undefined;
+
+    const applyRemoteSettings = (remote: Awaited<ReturnType<typeof loadAccountSettings>>) => {
+      if (!active || !remote) return;
+
+      const remoteVersion = Date.parse(remote.updated_at) || 0;
+      if (remoteVersion < latestUpdate) return;
+      latestUpdate = remoteVersion;
+settingsSyncReadyUserId.current = userId;
+      saveAppPreferences(remote.app_preferences);
+      saveGenerationSettings(remote.generation_settings);
+
+      applyAppPreferences(readAppPreferences());
+
+      const validAccent = ACCENT_THEMES.some(
+        (item) => item.key === remote.accent_color
+      );
+
+      if (validAccent && remote.accent_color) {
+        setAccentState(remote.accent_color);
+      }
+      window.dispatchEvent(
+  new Event("appigen:account-settings-updated")
+);
+    };
+
+    const startSync = async () => {
+      unsubscribe = subscribeToAccountSettings(
+        userId,
+        applyRemoteSettings
+      );
+
+      const remote = await loadAccountSettings(userId);
+
+      if (!active) return;
+
+      if (remote) {
+        applyRemoteSettings(remote);
+      } else {
+        await saveAccountSettings(userId, {
+          app_preferences: readAppPreferences(),
+          generation_settings: readGenerationSettings(),
+          accent_color: accent,
+        });
+        settingsSyncReadyUserId.current = userId;
+      }
+    };
+
+    void startSync().catch((error) => {
+      console.error("Account settings sync failed:", error);
+    });
+
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
+  }, [session?.user?.id]);
   // Apply accent on mount + change
   useEffect(() => {
     const t = ACCENT_THEMES.find((a) => a.key === accent) ?? ACCENT_THEMES[0];
     applyAccent(t.hue);
     try { localStorage.setItem(LS.accent, accent); } catch (error) { console.warn("Could not save accent preference:", error); }
   }, [accent]);
+  const updateAccent = useCallback((nextAccent: string) => {
+    setAccentState(nextAccent);
 
+    const userId = session?.user?.id;
+    if (!userId || settingsSyncReadyUserId.current !== userId) return;
+
+    void saveAccountSettings(userId, {
+      app_preferences: readAppPreferences(),
+      generation_settings: readGenerationSettings(),
+      accent_color: nextAccent,
+    }).catch((error) => {
+      console.error("Could not sync accent preference:", error);
+    });
+  }, [session?.user?.id]);
   // Auth listener BEFORE getSession
   useEffect(() => {
     let authEventReceived = false;
@@ -168,7 +254,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     markAllRead: () => setNotifications((prev) => prev.map((n) => ({ ...n, read: true }))),
     clearNotifications: () => setNotifications([]),
     accent,
-    setAccent: setAccentState,
+ setAccent: updateAccent,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

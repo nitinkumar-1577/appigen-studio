@@ -14,7 +14,75 @@ export type Database = {
   }
   public: {
     Tables: {
-      
+            user_settings: {
+        Row: {
+          user_id: string;
+          app_preferences: Json;
+          generation_settings: Json;
+          accent_color: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          app_preferences?: Json;
+          generation_settings?: Json;
+          accent_color?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          user_id?: string;
+          app_preferences?: Json;
+          generation_settings?: Json;
+          accent_color?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+            studio_sessions: {
+        Row: {
+          user_id: string;
+          project_id: string | null;
+          title: string;
+          prompt: string;
+          messages: Json;
+          active_build_job_id: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          project_id?: string | null;
+          title?: string;
+          prompt?: string;
+          messages?: Json;
+          active_build_job_id?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          user_id?: string;
+          project_id?: string | null;
+          title?: string;
+          prompt?: string;
+          messages?: Json;
+          active_build_job_id?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "studio_sessions_project_id_fkey";
+            columns: ["project_id"];
+            isOneToOne: false;
+            referencedRelation: "projects";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "studio_sessions_active_build_job_id_fkey";
+            columns: ["active_build_job_id"];
+            isOneToOne: false;
+            referencedRelation: "build_jobs";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       build_jobs: {
         Row: {
           id: string

@@ -35,7 +35,7 @@ import { computeChangeRecord, formatChangeRecord } from "@/lib/projects/changeTr
 import { formatUnderstandingForPrompt, understandProject } from "@/lib/projects/projectUnderstanding";
 import { detectConflicts, formatMemoryForPrompt, updateProjectMemory } from "@/lib/projects/projectMemory";
 import { clearProjectVersions, createProjectVersion, deleteProject, deleteProjectVersion, enqueueBuildJob, loadLatestBuildJob, loadProject, loadProjectVersions, persistActivity, persistProject, persistProjectThumbnail, subscribeToBuildJob, subscribeToProjectSync, type DurableBuildJob } from "@/lib/projects/projectRepository";
-import { loadLatestActiveBuildJob, subscribeToActiveBuildJobs } from "@/lib/projects/projectRepository";
+import { loadLatestAccountBuildJob, loadLatestActiveBuildJob, subscribeToActiveBuildJobs, loadStudioSession, saveStudioSession, subscribeToStudioSession } from "@/lib/projects/projectRepository";
 import { readAppPreferences, readGenerationSettings, recordActivity } from "@/lib/appPreferences";
 import { trackAnonymousUsage } from "@/lib/telemetry";
 import { analyzeIntent, intentSummary, isVagueNewAppPrompt, resolveFollowUp, responseLanguageInstruction } from "@/lib/projects/conversationIntelligence";
@@ -187,6 +187,8 @@ const Index = () => {
   currentPromptRef.current = prompt;
   currentTitleRef.current = projectTitle;
   currentMessagesRef.current = messages;
+  const studioSessionHydratingRef = useRef(false);
+  const lastStudioSessionSerializedRef = useRef<string | null>(null);
   const [versions, setVersions] = useState<LocalProjectVersion[]>(initialState.versions);
   const openedSavedProjectRef = useRef(false);
 
@@ -408,6 +410,197 @@ const navigateView = (next: ViewKey) => {
     // Start signed-in users with a clean Studio. Saved projects are opened explicitly from My Apps.
     setAccountProjectLoading(false);
   }, [authReady, session?.user.id]);
+  useEffect(() => {
+    if (!authReady || !session?.user.id) return;
+
+    let disposed = false;
+    const userId = session.user.id;
+
+    const restoreStudioSession = async () => {
+      studioSessionHydratingRef.current = true;
+
+      try {
+        const saved = await loadStudioSession(userId);
+        if (disposed) return;
+
+        if (!saved) return;
+
+        lastStudioSessionSerializedRef.current = JSON.stringify({
+          project_id: saved.project_id,
+          title: saved.title,
+          prompt: saved.prompt,
+          messages: saved.messages,
+        });
+
+        setProjectTitle(saved.title || "Untitled Project");
+        setTitleManuallyEdited(Boolean(saved.title && saved.title !== "Untitled Project"));
+        setPrompt(saved.prompt || "");
+        setMessages(saved.messages || []);
+
+        if (saved.project_id) {
+          const project = await loadProject(saved.project_id, userId);
+          if (disposed) return;
+
+          const projectVersions = await loadProjectVersions(project.id, userId);
+          if (disposed) return;
+
+          setProjectId(project.id);
+          setProjectUpdatedAt(project.updated_at);
+          setProjectTitle(project.title);
+          setPrompt(project.prompt);
+          setLastCode(project.code);
+          setWorkingCode(project.code);
+          setMessages(project.messages);
+          setVersions(projectVersions);
+          setDoc(buildDocFromPrompt(project.prompt, project.code));
+
+          setLastSyncedCode(project.code);
+          lastSyncedPromptRef.current = project.prompt;
+          lastSyncedTitleRef.current = project.title;
+          lastSyncedMessagesRef.current = JSON.stringify(project.messages);
+        } else {
+          setProjectId(null);
+          setLastCode(null);
+          setWorkingCode(null);
+          setVersions([]);
+          setDoc(buildDocFromPrompt(saved.prompt || ""));
+        }
+
+        promptDirtyRef.current = false;
+      } catch (error) {
+        console.warn("Could not restore Studio session", error);
+      } finally {
+        studioSessionHydratingRef.current = false;
+      }
+    };
+
+    void restoreStudioSession();
+
+    return () => {
+      disposed = true;
+      studioSessionHydratingRef.current = false;
+    };
+  }, [authReady, session?.user.id]);
+    useEffect(() => {
+    if (!authReady || !session?.user.id) return;
+
+    let disposed = false;
+    const userId = session.user.id;
+
+    const unsubscribe = subscribeToStudioSession(userId, (remote) => {
+      void (async () => {
+        const remoteMessages = Array.isArray(remote.messages) ? remote.messages : [];
+        const remoteSnapshot = JSON.stringify({
+          project_id: remote.project_id,
+          title: remote.title,
+          prompt: remote.prompt,
+          messages: remoteMessages,
+        });
+
+        if (remoteSnapshot === lastStudioSessionSerializedRef.current) return;
+        if (studioSessionHydratingRef.current) return;
+
+        const localSnapshot = JSON.stringify({
+          project_id: projectId,
+          title: currentTitleRef.current,
+          prompt: currentPromptRef.current,
+          messages: currentMessagesRef.current,
+        });
+
+        if (
+          lastStudioSessionSerializedRef.current !== null &&
+          localSnapshot !== lastStudioSessionSerializedRef.current
+        ) {
+          return;
+        }
+
+        try {
+          if (remote.project_id) {
+            const project = await loadProject(remote.project_id, userId);
+            if (disposed) return;
+
+            const projectVersions = await loadProjectVersions(project.id, userId);
+            if (disposed) return;
+
+            setProjectId(project.id);
+            setProjectUpdatedAt(project.updated_at);
+            setProjectTitle(project.title);
+            setPrompt(project.prompt);
+            setLastCode(project.code);
+            setWorkingCode(project.code);
+            setMessages(project.messages);
+            setVersions(projectVersions);
+            setDoc(buildDocFromPrompt(project.prompt, project.code));
+
+            setLastSyncedCode(project.code);
+            lastSyncedPromptRef.current = project.prompt;
+            lastSyncedTitleRef.current = project.title;
+            lastSyncedMessagesRef.current = JSON.stringify(project.messages);
+          } else {
+            setProjectId(null);
+            setProjectUpdatedAt(null);
+            setProjectTitle(remote.title || "Untitled Project");
+            setPrompt(remote.prompt || "");
+            setLastCode(null);
+            setWorkingCode(null);
+            setMessages(remoteMessages);
+            setVersions([]);
+            setDoc(buildDocFromPrompt(remote.prompt || ""));
+            setLastSyncedCode(null);
+            lastSyncedPromptRef.current = remote.prompt || "";
+            lastSyncedTitleRef.current = remote.title || "Untitled Project";
+            lastSyncedMessagesRef.current = JSON.stringify(remoteMessages);
+          }
+
+          lastStudioSessionSerializedRef.current = remoteSnapshot;
+          promptDirtyRef.current = false;
+        } catch (error) {
+          console.warn("Could not apply remote Studio session", error);
+        }
+      })();
+    });
+
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, [authReady, session?.user.id, projectId]);
+  
+  useEffect(() => {
+    if (!authReady || !session?.user.id) return;
+    if (studioSessionHydratingRef.current) return;
+
+    const userId = session.user.id;
+
+    const snapshot = JSON.stringify({
+      project_id: projectId,
+      title: projectTitle,
+      prompt,
+      messages,
+    });
+
+    if (snapshot === lastStudioSessionSerializedRef.current) return;
+
+    const timeoutId = window.setTimeout(() => {
+      if (studioSessionHydratingRef.current) return;
+
+      void saveStudioSession({
+        userId,
+        projectId,
+        title: projectTitle,
+        prompt,
+        messages,
+      })
+        .then(() => {
+          lastStudioSessionSerializedRef.current = snapshot;
+        })
+        .catch((error) => {
+          console.warn("Could not auto-save Studio session", error);
+        });
+    }, 600);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [authReady, session?.user.id, projectId, projectTitle, prompt, messages]);
 
   useEffect(() => {
     if (!authReady || !session?.user.id) return;
