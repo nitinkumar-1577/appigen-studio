@@ -2486,6 +2486,7 @@ className="flex h-9 items-center gap-1.5 rounded-lg border border-primary bg-pri
                               onStop={stopBuild}
                               onNewProject={newProject}
                               isBuilding={isBuilding}
+                            isChatThinking={isChatThinking}
                               progressStage={progressStage}
                               buildFiles={buildFiles}
                               buildTimeline={buildTimeline}
