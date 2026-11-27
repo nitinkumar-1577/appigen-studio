@@ -1140,7 +1140,7 @@ setActivityStartedAt(Date.parse(job.created_at));
     const clarifyFirst = requiresClarification(trimmed, Boolean(lastCode));
     const questionMode = !intent.shouldBuild || clarifyFirst;
     
-       const generationSettings = readGenerationSettings();
+         const generationSettings = readGenerationSettings();
     const buildStartedAt = Date.now();
 
     // Show progress immediately while checking for another active build.
@@ -1164,7 +1164,8 @@ setActivityStartedAt(Date.parse(job.created_at));
       }
     }
 
-    const activityId = createActivityId();    let planTitleApplied = "";
+    const activityId = createActivityId(); 
+    let planTitleApplied = "";
     setActivityStartedAt(buildStartedAt);
     const explanationText = intentSummary(intent.intent);
     setActivityExplanation(explanationText);
