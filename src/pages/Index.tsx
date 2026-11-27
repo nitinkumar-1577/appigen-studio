@@ -1226,6 +1226,8 @@ setActivityStartedAt(Date.parse(job.created_at));
     if (!questionMode && clarificationNeeded.length) {
       setMessages((current) => [...current, { role: "assistant", content: `I need clarification before making targeted changes:\n${clarificationNeeded.map((c) => `- ${c}`).join("\n")}\n\nPlease specify the target behavior/file or confirm the intended change so I can preserve unrelated functionality.`, timestamp: Date.now() }]);
       toast({ title: "Clarification needed", description: clarificationNeeded[0] });
+     setIsBuilding(false);
+setIsGeneratingApp(false);
       return;
     }
     const understandingText = understanding ? formatUnderstandingForPrompt(understanding) : "";
