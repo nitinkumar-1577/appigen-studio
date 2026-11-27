@@ -630,7 +630,13 @@ if (isRemoteStudioReset && projectId) {
 
     const restoreActiveBuild = async (job: DurableBuildJob) => {
       if (disposed || !["queued", "running", "retrying"].includes(job.status)) return;
+const savedSession = await loadStudioSession(session.user.id);
 
+if (disposed) return;
+
+if (!savedSession || savedSession.active_build_job_id !== job.id) {
+  return;
+}
       // This project is already open; its project-level listener handles updates.
       if (projectId === job.project_id) return;
 
