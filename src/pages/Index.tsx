@@ -2144,20 +2144,33 @@ const userId = session?.user.id;
         });
 
         // Pause only the build belonging to this project.
-        const latestJob = await loadLatestBuildJob(savedProjectId, userId);
+      const latestJob = await loadLatestBuildJob(savedProjectId, userId);
 
-        if (
-          latestJob &&
-          ["queued", "running", "retrying"].includes(latestJob.status)
-        ) {
-          const pausedJob = await pauseBuildJob(latestJob.id, userId);
+if (latestJob) {
+  let pausedJob = latestJob;
 
-          if (!pausedJob) {
-            throw new Error(
-              "The build status changed while saving. Please try New Project again."
-            );
-          }
-        }
+  if (["queued", "running", "retrying"].includes(latestJob.status)) {
+    const result = await pauseBuildJob(latestJob.id, userId);
+
+    if (!result) {
+      throw new Error(
+        "The build status changed while saving. Please try New Project again."
+      );
+    }
+
+    pausedJob = result;
+  }
+
+  // Save the latest incomplete build state before leaving this project.
+  if (pausedJob.status === "paused") {
+    await saveBuildCheckpoint(pausedJob.id, userId, {
+      workingCode: preservedCode,
+      buildFiles,
+      buildTimeline,
+      currentStage: progressStage,
+    });
+  }
+}
       }
 
       // Detach the old project only after preservation succeeds.
