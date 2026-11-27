@@ -2115,73 +2115,122 @@ const userId = session?.user.id;
       }, 1400);
     }
   };
-    const newProject = () => {
-    // Detach this Studio session from the previous build immediately.
-    abortRef.current?.abort();
-    abortRef.current = null;
-    activeRequestModeRef.current = null;
-    durableQueueAcceptedRef.current = false;
+     const newProject = async () => {
+    const userId = session?.user.id;
 
-    if (chatKey === "local:current") clearLocalVersions(chatKey);
+    try {
+      let savedProjectId = projectId;
 
-    // Clear the account's active-build pointer so the old build
-    // cannot be restored into the new blank Studio session.
-    if (session?.user.id) {
-      void saveStudioSession({
-        userId: session.user.id,
-        projectId: null,
-        title: "Untitled Project",
-        prompt: "",
-        messages: [],
-        activeBuildJobId: null,
-      }).catch((error) => {
-        console.warn("Could not detach previous Studio build", error);
+      // Preserve the current project and its complete conversation first.
+      const preservedCode =
+        workingCode ?? lastCode ?? partialBuildRef.current?.code ?? "";
+
+      const hasProjectContent = Boolean(
+        projectId ||
+        prompt.trim() ||
+        messages.length ||
+        preservedCode.trim()
+      );
+
+      if (userId && hasProjectContent) {
+        savedProjectId = await persistProject({
+          projectId,
+          userId,
+          title: projectTitle,
+          prompt,
+          code: preservedCode,
+          messages,
+          expectedUpdatedAt: projectUpdatedAt ?? undefined,
+        });
+
+        // Pause only the build belonging to this project.
+        const latestJob = await loadLatestBuildJob(savedProjectId, userId);
+
+        if (
+          latestJob &&
+          ["queued", "running", "retrying"].includes(latestJob.status)
+        ) {
+          const pausedJob = await pauseBuildJob(latestJob.id, userId);
+
+          if (!pausedJob) {
+            throw new Error(
+              "The build status changed while saving. Please try New Project again."
+            );
+          }
+        }
+      }
+
+      // Detach the old project only after preservation succeeds.
+      if (userId) {
+        await saveStudioSession({
+          userId,
+          projectId: null,
+          title: "Untitled Project",
+          prompt: "",
+          messages: [],
+          activeBuildJobId: null,
+        });
+      }
+
+      abortRef.current?.abort();
+      abortRef.current = null;
+      activeRequestModeRef.current = null;
+      durableQueueAcceptedRef.current = false;
+
+      if (chatKey === "local:current") clearLocalVersions(chatKey);
+
+      partialBuildRef.current = null;
+      buildFilesRef.current = [];
+      buildTimelineRef.current = [];
+      runtimeIssuesRef.current = [];
+      repairAttemptsRefState.current = [];
+
+      setProjectId(null);
+      setProjectUpdatedAt(null);
+      setLastSyncedCode(null);
+      lastSyncedPromptRef.current = null;
+      lastSyncedTitleRef.current = null;
+      lastSyncedMessagesRef.current = null;
+      lastStudioSessionSerializedRef.current = null;
+      promptDirtyRef.current = false;
+
+      setProjectTitle("Untitled Project");
+      setTitleManuallyEdited(false);
+      setPrompt("");
+      setLastCode(null);
+      setWorkingCode(null);
+      setChangeBaseCode(null);
+      setBuildFiles([]);
+      setBuildTimeline([]);
+      setMessages([]);
+      setVersions([]);
+      setQualityState(emptyQualityState());
+      setDoc(buildDocFromPrompt(""));
+      setActivityStartedAt(undefined);
+      setActivityExplanation(undefined);
+      setProgressStage("Planning");
+
+      setIsBuilding(false);
+      setIsChatThinking(false);
+      setIsGeneratingApp(false);
+
+      setPreviewRuntime({ status: "idle" });
+      setView("studio");
+      setSidebarActiveView("studio");
+      setMobileStudioTab("chat");
+
+      discardProjectDraft();
+    } catch (error) {
+      toast({
+        title: "Project could not be safely saved",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Your current project is still open. Please try again.",
+        variant: "destructive",
       });
     }
-
-    partialBuildRef.current = null;
-    buildFilesRef.current = [];
-    buildTimelineRef.current = [];
-    runtimeIssuesRef.current = [];
-    repairAttemptsRefState.current = [];
-
-    setProjectId(null);
-    setProjectUpdatedAt(null);
-    setLastSyncedCode(null);
-    lastSyncedPromptRef.current = null;
-    lastSyncedTitleRef.current = null;
-    lastSyncedMessagesRef.current = null;
-    lastStudioSessionSerializedRef.current = null;
-    promptDirtyRef.current = false;
-
-    setProjectTitle("Untitled Project");
-    setTitleManuallyEdited(false);
-    setPrompt("");
-    setLastCode(null);
-    setWorkingCode(null);
-    setChangeBaseCode(null);
-    setBuildFiles([]);
-    setBuildTimeline([]);
-    setMessages([]);
-    setVersions([]);
-    setQualityState(emptyQualityState());
-    setDoc(buildDocFromPrompt(""));
-    setActivityStartedAt(undefined);
-    setActivityExplanation(undefined);
-    setProgressStage("Planning");
-
-    setIsBuilding(false);
-    setIsChatThinking(false);
-    setIsGeneratingApp(false);
-
-    setPreviewRuntime({ status: "idle" });
-    setView("studio");
-    setSidebarActiveView("studio");
-    setMobileStudioTab("chat");
-
-    discardProjectDraft();
   };
-
   const snapshotCode = async (code: string | null, action: string) => {
     if (!code || versions.some((version) => version.code === code)) return;
     const snapshot: LocalProjectVersion = { id: crypto.randomUUID(), code, prompt: action, createdAt: Date.now() };
