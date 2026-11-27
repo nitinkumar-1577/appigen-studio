@@ -150,6 +150,7 @@ const Index = () => {
   const { user, session, authReady, recoveryPending, clearRecoveryPending, addNotification } = useApp();
   const [initialState] = useState(createInitialStudioState);
   const [isBuilding, setIsBuilding] = useState(false);
+  const [isChatThinking, setIsChatThinking] = useState(false);
   const [isGeneratingApp, setIsGeneratingApp] = useState(false);
   const [prompt, setPrompt] = useState(initialState.prompt);
   const [doc, setDoc] = useState<string>(() => buildDocFromPrompt(initialState.prompt));
@@ -1422,6 +1423,7 @@ setPrompt("");
       }
       if (questionMode) {
         setProgressStage("Planning");
+        setIsChatThinking(true);
         
         const { data: authData } = await supabase.auth.getSession();
         const accessToken = authData.session?.access_token ?? SUPABASE_PUBLISHABLE_KEY;
@@ -1987,6 +1989,7 @@ setSidebarOverlayOpen(false);
       ]);
          } finally {
       if (!durableQueueAcceptedRef.current) {
+        setIsChatThinking(false);
        abortRef.current = null;
 activeRequestModeRef.current = null;
 setIsBuilding(false);
@@ -2451,6 +2454,7 @@ className="flex h-9 items-center gap-1.5 rounded-lg border border-primary bg-pri
                         onStop={stopBuild}
                         onNewProject={newProject}
                         isBuilding={isBuilding}
+                        isChatThinking={isChatThinking}
                         progressStage={progressStage}
                         buildFiles={buildFiles}
                         buildTimeline={buildTimeline}
