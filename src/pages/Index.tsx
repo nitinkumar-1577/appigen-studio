@@ -1236,7 +1236,13 @@ const unsubscribeSession = subscribeToStudioSession(
     }
     lastReportedRef.current = "";
     isRepairingRef.current = false;
-    const intent = analyzeIntent(trimmed, { hasExistingProject: Boolean(lastCode) });
+const intent = analyzeIntent(trimmed, {
+  hasExistingProject: Boolean(lastCode),
+  conversation: messages.slice(-12).map(({ role, content }) => ({
+    role,
+    content,
+  })),
+});
     const editMode = Boolean(lastCode) && !isNewAppPrompt(trimmed);
     const clarifyFirst = requiresClarification(trimmed, Boolean(lastCode));
     const questionMode = !intent.shouldBuild || clarifyFirst;
