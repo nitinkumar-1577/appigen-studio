@@ -709,7 +709,22 @@ setActivityStartedAt(Date.parse(job.created_at));
         void restoreActiveBuild(job);
       },
     );
+const unsubscribeSession = subscribeToStudioSession(
+  session.user.id,
+  (studio) => {
+    if (!studio.active_build_job_id) return;
 
+    void loadLatestActiveBuildJob(session.user.id)
+      .then((job) => {
+        if (job?.id === studio.active_build_job_id) {
+          return restoreActiveBuild(job);
+        }
+      })
+      .catch((error) => {
+        console.warn("Could not restore build after session update", error);
+      });
+  },
+);
     void loadLatestActiveBuildJob(session.user.id)
       .then((job) => {
         if (job) void restoreActiveBuild(job);
