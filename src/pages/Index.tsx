@@ -2115,11 +2115,71 @@ const userId = session?.user.id;
       }, 1400);
     }
   };
-  const newProject = () => {
-    if (!window.confirm("Start a new project? Your current chat and code will be cleared.")) return;
+    const newProject = () => {
+    // Detach this Studio session from the previous build immediately.
     abortRef.current?.abort();
+    abortRef.current = null;
+    activeRequestModeRef.current = null;
+    durableQueueAcceptedRef.current = false;
+
     if (chatKey === "local:current") clearLocalVersions(chatKey);
-    setProjectId(null); setProjectTitle("Untitled Project"); setTitleManuallyEdited(false); setPrompt(""); setLastCode(null); setWorkingCode(null); setChangeBaseCode(null); setBuildFiles([]); setBuildTimeline([]); partialBuildRef.current = null; setMessages([]); setVersions([]); runtimeIssuesRef.current = []; repairAttemptsRefState.current = []; setQualityState(emptyQualityState()); setDoc(buildDocFromPrompt("")); setView("studio");setSidebarActiveView("studio"); setMobileStudioTab("chat"); setIsGeneratingApp(false); discardProjectDraft();
+
+    // Clear the account's active-build pointer so the old build
+    // cannot be restored into the new blank Studio session.
+    if (session?.user.id) {
+      void saveStudioSession({
+        userId: session.user.id,
+        projectId: null,
+        title: "Untitled Project",
+        prompt: "",
+        messages: [],
+        activeBuildJobId: null,
+      }).catch((error) => {
+        console.warn("Could not detach previous Studio build", error);
+      });
+    }
+
+    partialBuildRef.current = null;
+    buildFilesRef.current = [];
+    buildTimelineRef.current = [];
+    runtimeIssuesRef.current = [];
+    repairAttemptsRefState.current = [];
+
+    setProjectId(null);
+    setProjectUpdatedAt(null);
+    setLastSyncedCode(null);
+    lastSyncedPromptRef.current = null;
+    lastSyncedTitleRef.current = null;
+    lastSyncedMessagesRef.current = null;
+    lastStudioSessionSerializedRef.current = null;
+    promptDirtyRef.current = false;
+
+    setProjectTitle("Untitled Project");
+    setTitleManuallyEdited(false);
+    setPrompt("");
+    setLastCode(null);
+    setWorkingCode(null);
+    setChangeBaseCode(null);
+    setBuildFiles([]);
+    setBuildTimeline([]);
+    setMessages([]);
+    setVersions([]);
+    setQualityState(emptyQualityState());
+    setDoc(buildDocFromPrompt(""));
+    setActivityStartedAt(undefined);
+    setActivityExplanation(undefined);
+    setProgressStage("Planning");
+
+    setIsBuilding(false);
+    setIsChatThinking(false);
+    setIsGeneratingApp(false);
+
+    setPreviewRuntime({ status: "idle" });
+    setView("studio");
+    setSidebarActiveView("studio");
+    setMobileStudioTab("chat");
+
+    discardProjectDraft();
   };
 
   const snapshotCode = async (code: string | null, action: string) => {
