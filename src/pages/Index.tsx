@@ -1160,6 +1160,7 @@ if (!questionMode && session?.user?.id) {
     let versionsAfterBuild = versions;
     setMessages(nextMessages);
     setPrompt("");
+    promptDirtyRef.current = false;
     if (clarifyFirst) {
       setMessages([...nextMessages, { role: "assistant", content: CLARIFY_NEW_APP, timestamp: Date.now() }]);
       setPrompt("");
