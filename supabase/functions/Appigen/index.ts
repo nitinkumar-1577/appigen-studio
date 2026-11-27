@@ -925,6 +925,168 @@ function modelForTask(configured: string[], preferred: string | undefined, fallb
   return configured.includes(fallback) ? fallback : (configured[0] ?? fallback);
 }
 
+type ConversationIntentResult = {
+  intent:
+    | "general_conversation"
+    | "question"
+    | "explanation"
+    | "app_planning"
+    | "new_app_creation"
+    | "existing_project_edit"
+    | "follow_up_modification"
+    | "bug_fixing"
+    | "clarification"
+    | "undo_revert"
+    | "feature_discussion";
+  shouldBuild: boolean;
+  isQuestion: boolean;
+  needsClarification: boolean;
+  resolvedPrompt: string;
+  confidence: number;
+  reason: string;
+};
+
+async function resolveConversationIntent(
+  providers: Providers,
+  preferred: ProviderName,
+  prompt: string,
+  conversation: ConversationTurn[],
+  hasExistingProject: boolean,
+  projectContext: string,
+): Promise<ConversationIntentResult> {
+  const allowedIntents = [
+    "general_conversation",
+    "question",
+    "explanation",
+    "app_planning",
+    "new_app_creation",
+    "existing_project_edit",
+    "follow_up_modification",
+    "bug_fixing",
+    "clarification",
+    "undo_revert",
+    "feature_discussion",
+  ];
+
+  const fallback: ConversationIntentResult = {
+    intent: hasExistingProject ? "existing_project_edit" : "new_app_creation",
+    shouldBuild: false,
+    isQuestion: false,
+    needsClarification: false,
+    resolvedPrompt: prompt,
+    confidence: 0,
+    reason: "AI understanding unavailable; safe fallback",
+  };
+
+  const result = await executeProviderFailover(
+    providers,
+    preferred,
+    async (candidate, timeoutMs) => {
+      const apiKey = providerKey(providers, candidate);
+      if (!apiKey) {
+        throw new ProviderRequestError(
+          candidate,
+          undefined,
+          "INVALID_CREDENTIALS",
+          "provider is not configured",
+        );
+      }
+
+      const models = getProviderConfig(candidate).models.map((m) => m.id);
+      const model = modelForTask(
+        models,
+        undefined,
+        getDefaultModel(candidate),
+        "planning",
+      );
+
+      const response = await completeChat(
+        candidate,
+        apiKey,
+        {
+          model,
+          temperature: 0.1,
+          max_completion_tokens: 1000,
+          response_format: { type: "json_object" },
+          messages: [
+            {
+              role: "system",
+              content: `You are AppiGen's conversation understanding engine.
+Understand the user's actual intent like a capable conversational AI.
+Use the full conversation and current project context.
+Do not rely on keyword matching alone.
+Resolve short follow-ups using earlier messages.
+Distinguish questions, discussion, planning, and explicit implementation requests.
+Do not start a build for a question or discussion.
+Do not ask clarification if the target is clear from context.
+If the user says to implement/build/design something already discussed, set shouldBuild true.
+If an existing project is present, prefer editing it unless the user clearly requests a new project.
+Never invent requirements.
+Return JSON only with:
+intent, shouldBuild, isQuestion, needsClarification,
+resolvedPrompt, confidence, reason.
+resolvedPrompt must preserve the user's actual request while making references understandable.
+If the target is genuinely unclear, set needsClarification true.
+Allowed intents: ${allowedIntents.join(", ")}.`,
+            },
+            {
+              role: "user",
+              content: `Current user message:
+${prompt}
+
+Existing project: ${hasExistingProject ? "yes" : "no"}
+
+Project context:
+${projectContext || "(not available)"}
+
+Recent conversation:
+${conversation.slice(-12).map((turn) => `${turn.role}: ${turn.content.slice(0, 1800)}`).join("\n") || "(none)"}`,
+            },
+          ],
+        },
+        { timeoutMs: Math.min(timeoutMs, 30000) },
+      );
+
+      const raw = response.choices?.[0]?.message?.content;
+      if (typeof raw !== "string") {
+        throw new Error("Intent resolver returned no JSON content.");
+      }
+
+      const parsed: unknown = JSON.parse(raw);
+      if (!isRecord(parsed)) {
+        throw new Error("Intent resolver returned invalid JSON.");
+      }
+
+      const intent = typeof parsed.intent === "string" &&
+        allowedIntents.includes(parsed.intent)
+        ? parsed.intent as ConversationIntentResult["intent"]
+        : "general_conversation";
+
+      const shouldBuild = parsed.shouldBuild === true &&
+        !["question", "explanation", "general_conversation", "app_planning", "feature_discussion", "clarification"].includes(intent);
+
+      return {
+        intent,
+        shouldBuild,
+        isQuestion: parsed.isQuestion === true,
+        needsClarification: parsed.needsClarification === true && !shouldBuild,
+        resolvedPrompt: typeof parsed.resolvedPrompt === "string" &&
+          parsed.resolvedPrompt.trim()
+          ? parsed.resolvedPrompt.trim().slice(0, 12000)
+          : prompt,
+        confidence: typeof parsed.confidence === "number"
+          ? Math.max(0, Math.min(1, parsed.confidence))
+          : 0.7,
+        reason: typeof parsed.reason === "string"
+          ? parsed.reason.slice(0, 500)
+          : "Conversation context analyzed",
+      };
+    },
+  );
+
+  return result.value;
+}
+
 async function createModelAssistedPlan(providers: Providers, preferred: ProviderName, prompt: string, existingCode?: string, conversation: ConversationTurn[] = [], context?: ContextBrief & { responseLanguage?: string; intent?: string }) {
   const fallback = enhanceAndPlan("", prompt, undefined, existingCode, conversation).implementationPlan;
   try {
