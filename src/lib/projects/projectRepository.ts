@@ -80,7 +80,44 @@ export const loadLatestActiveBuildJob = async (userId: string) => {
   if (error) throw error;
   return data;
 };
+export const pauseBuildJob = async (jobId: string, userId: string) => {
+  const { data, error } = await supabase
+    .from("build_jobs")
+    .update({
+      status: "paused",
+      lease_until: null,
+      heartbeat_at: new Date().toISOString(),
+    })
+    .eq("id", jobId)
+    .eq("user_id", userId)
+    .in("status", ["queued", "running", "retrying"])
+    .select("*")
+    .maybeSingle();
 
+  if (error) throw error;
+  return data;
+};
+
+export const resumeBuildJob = async (jobId: string, userId: string) => {
+  const { data, error } = await supabase
+    .from("build_jobs")
+    .update({
+      status: "queued",
+      next_run_at: new Date().toISOString(),
+      lease_until: null,
+      heartbeat_at: new Date().toISOString(),
+      completed_at: null,
+      error: null,
+    })
+    .eq("id", jobId)
+    .eq("user_id", userId)
+    .eq("status", "paused")
+    .select("*")
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+};
 export const loadLatestAccountBuildJob = async (userId: string) => {
   const { data, error } = await supabase
     .from("build_jobs")
