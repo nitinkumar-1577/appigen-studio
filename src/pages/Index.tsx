@@ -2239,13 +2239,13 @@ setSidebarOverlayOpen(false);
               ) : (
                 <h1 className="truncate font-display text-sm sm:text-base font-semibold text-foreground">{VIEW_TITLES[view]}</h1>
               )}
-           {view === "studio" && hasStartedProject && (
+           {view === "studio" && (
                 <span className="hidden rounded-md border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-primary sm:inline">
 {titleManuallyEdited && projectTitle !== "Untitled Project" ? "Draft" : "Auto title"}                </span>
               )}
             </div>
             <div className="flex shrink-0 items-center gap-1 sm:gap-2">
-              {view === "studio" && (
+            {view === "studio" && hasStartedProject && (
   <button
     onClick={newProject}
 className="flex h-9 items-center gap-1.5 rounded-lg border border-primary bg-primary px-2.5 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90"
