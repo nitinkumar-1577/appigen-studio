@@ -640,14 +640,7 @@ if (!savedSession || savedSession.active_build_job_id !== job.id) {
       // This project is already open; its project-level listener handles updates.
       if (projectId === job.project_id) return;
 
-      // Never replace another open project or unsaved local work.
-      const hasLocalWork =
-        Boolean(projectId) ||
-        Boolean(currentPromptRef.current.trim()) ||
-        Boolean(lastCode) ||
-        currentMessagesRef.current.length > 0;
-
-      if (hasLocalWork) return;
+    
       if (restoringJobs.has(job.id)) return;
 
       restoringJobs.add(job.id);
