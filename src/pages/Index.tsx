@@ -1564,7 +1564,7 @@ setPrompt("");
         });
         return;
 
-          return;
+ 
       }
       setProgressStage("Inspecting existing files");
       setBuildTimeline((current) => [...current, "Inspecting existing files"]);
