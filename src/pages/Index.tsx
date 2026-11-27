@@ -733,10 +733,11 @@ const unsubscribeSession = subscribeToStudioSession(
         console.warn("Could not find an active account build", error);
       });
 
-    return () => {
-      disposed = true;
-      unsubscribe();
-    };
+   return () => {
+  disposed = true;
+  unsubscribe();
+  unsubscribeSession();
+};
   }, [authReady, session?.user.id, projectId, lastCode]);
 
 
