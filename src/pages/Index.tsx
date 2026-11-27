@@ -2243,7 +2243,7 @@ setSidebarOverlayOpen(false);
               {view === "studio" && (
   <button
     onClick={newProject}
-    className="flex h-9 items-center gap-1.5 rounded-lg border border-border bg-secondary/40 px-2.5 text-xs font-semibold text-foreground transition hover:border-primary/40 hover:bg-secondary"
+className="flex h-9 items-center gap-1.5 rounded-lg border border-primary bg-primary px-2.5 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90"
   >
     <Plus className="h-4 w-4" />
     <span className="hidden sm:inline">New Project</span>
