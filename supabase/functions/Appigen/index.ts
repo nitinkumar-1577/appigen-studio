@@ -330,6 +330,38 @@ export function providerRequestBody(provider: ProviderName, body: Record<string,
   return provider === "groq" ? { ...body, stream: false, include_reasoning: false } : body;
 }
 
+export function providerStreamingRequest(
+  provider: ProviderName,
+  apiKey: string,
+  body: Record<string, unknown>,
+) {
+  const config = getProviderConfig(provider);
+  const model = typeof body.model === "string"
+    ? body.model
+    : getDefaultModel(provider);
+  const isGemini = config.protocol === "gemini";
+
+  const requestBody = providerRequestBody(provider, body);
+
+  const url = isGemini
+    ? `${config.baseUrl}/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(apiKey)}`
+    : `${config.baseUrl}/chat/completions`;
+
+  return {
+    url,
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "Accept": "text/event-stream",
+    },
+    body: JSON.stringify(
+      isGemini
+        ? requestBody
+        : { ...requestBody, stream: true },
+    ),
+  };
+}
+
 async function completeChat(
   provider: ProviderName,
   apiKey: string,
