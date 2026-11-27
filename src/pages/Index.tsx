@@ -262,6 +262,13 @@ const studioWorkspaceSnapshotRef = useRef<{
   const promptActivityTimer = useRef<number | undefined>(undefined);
 
   const hasAppWorkspace = isGeneratingApp || Boolean(lastCode);
+  useEffect(() => {
+  if (view === "studio" && !hasAppWorkspace) {
+    setSidebarHidden(false);
+    setSidebarPinned(true);
+    setSidebarOverlayOpen(false);
+  }
+}, [view, hasAppWorkspace]);
   const wasGeneratingRef = useRef(false);
   useEffect(() => {
     // Only an actual build/edit steps the sidebar aside. Questions, explanations,
