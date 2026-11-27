@@ -1333,9 +1333,9 @@ setIsGeneratingApp(false);
     }
     const understandingText = understanding ? formatUnderstandingForPrompt(understanding) : "";
     const memoryText = memoryPreview ? formatMemoryForPrompt(memoryPreview, understanding) : "";
-    durableQueueAcceptedRef.current = false;
-    setIsBuilding(true);
-    setIsGeneratingApp(!questionMode);
+  durableQueueAcceptedRef.current = false;
+setIsBuilding(!questionMode);
+setIsGeneratingApp(!questionMode);
     let generatedPreview = false;
  const controller = new AbortController();
 abortRef.current = controller;
