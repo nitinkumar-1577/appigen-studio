@@ -1980,7 +1980,7 @@ Deno.serve(async (req) => {
         },
         req.signal,
       );
-      return jsonResponse({ ...response, mode, intent: body.intent ?? null, responseLanguage: body.responseLanguage ?? null, requestedProvider: provider });
+
     }
 
     if (mode === "build_file") {
