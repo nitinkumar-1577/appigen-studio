@@ -61,8 +61,14 @@ const CLARIFY_SHORT = /^(?:hmm+|ok|okay|theek hai|haan|han|yes|no|nahi|sure|acha
 function isQuestionLike(text: string): boolean {
   return QUESTION_CUES.test(text);
 }
+export function analyzeIntent(
+  prompt: string,
+  options: {
+    hasExistingProject: boolean;
+    conversation?: Array<{ role: "user" | "assistant"; content: string }>;
+  }
+): IntentAnalysis {
 
-export function analyzeIntent(prompt: string, options: { hasExistingProject: boolean }): IntentAnalysis {
   const text = prompt.trim();
   const lower = text.toLowerCase();
   const responseLanguage = detectResponseLanguage(text);
