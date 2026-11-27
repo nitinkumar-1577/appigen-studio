@@ -573,6 +573,7 @@ export const PromptPanel = ({
   const [animatedPlaceholder, setAnimatedPlaceholder] = useState("");
   const [thinkingStage, setThinkingStage] = useState(0);
 
+  ["Planning", "Inspecting existing files"].includes(progressStage);
 useEffect(() => {
   if (!isChatThinking && !isBuildThinking) {
     setThinkingStage(0);
