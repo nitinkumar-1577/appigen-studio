@@ -1047,9 +1047,10 @@ export const PromptPanel = ({
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
 
-              if (!isBuilding && prompt.trim()) {
-                onBuild();
-                focusPrompt();
+            if (prompt.trim()) {
+  onBuild();
+  focusPrompt();
+}
               }
             }
           }}
