@@ -81,6 +81,19 @@ export const loadLatestActiveBuildJob = async (userId: string) => {
   return data;
 };
 
+export const loadLatestAccountBuildJob = async (userId: string) => {
+  const { data, error } = await supabase
+    .from("build_jobs")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+};
+
 export const subscribeToActiveBuildJobs = (
   userId: string,
   onChange: (job: DurableBuildJob) => void,
