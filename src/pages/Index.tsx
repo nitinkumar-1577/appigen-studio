@@ -2813,20 +2813,54 @@ className="flex h-9 items-center gap-1.5 rounded-lg border border-primary bg-pri
               <MyAppsPage
                 onNavigate={navigateView}
                 onOpenSignIn={() => setAuthOpen(true)}
-                onOpenProject={(p) => {
+                             onOpenProject={(p) => {
                   if (!session?.user.id) {
-                    toast({ title: "Sign in required", description: "Sign in to open your saved project.", variant: "destructive" });
+                    toast({
+                      title: "Sign in required",
+                      description: "Sign in to open your saved project.",
+                      variant: "destructive",
+                    });
                     return;
                   }
+
                   void (async () => {
                     try {
-                      const project = await loadProject(p.id, session.user.id);
-                      const projectVersions = await loadProjectVersions(p.id, session.user.id);
+                      const userId = session.user.id;
+                      const project = await loadProject(p.id, userId);
+                      const projectVersions = await loadProjectVersions(p.id, userId);
+                      const latestJob = await loadLatestBuildJob(project.id, userId);
+
+                      let activeJob =
+                        latestJob &&
+                        ["paused", "queued", "running", "retrying"].includes(latestJob.status)
+                          ? latestJob
+                          : null;
+
+                      // Restore the account-wide Studio pointer before resuming.
+                      await saveStudioSession({
+                        userId,
+                        projectId: project.id,
+                        title: project.title,
+                        prompt: project.prompt,
+                        messages: project.messages,
+                        activeBuildJobId: activeJob?.id ?? null,
+                      });
+
+                      // Resume only a job that was deliberately paused.
+                      if (activeJob?.status === "paused") {
+                        const resumedJob = await resumeBuildJob(activeJob.id, userId);
+
+                        if (!resumedJob) {
+                          throw new Error("This paused build could not be resumed. Please try again.");
+                        }
+
+                        activeJob = resumedJob;
+                      }
+
                       partialBuildRef.current = null;
-                      setBuildFiles([]);
-                      setBuildTimeline([]);
                       saveStudioWorkspaceSnapshot();
                       openedSavedProjectRef.current = true;
+
                       setProjectId(project.id);
                       setProjectUpdatedAt(project.updated_at);
                       setLastSyncedCode(project.code);
@@ -2834,34 +2868,76 @@ className="flex h-9 items-center gap-1.5 rounded-lg border border-primary bg-pri
                       lastSyncedTitleRef.current = project.title;
                       lastSyncedMessagesRef.current = JSON.stringify(project.messages);
                       promptDirtyRef.current = false;
+
                       setProjectTitle(project.title);
                       setTitleManuallyEdited(true);
-                     setPrompt("");
+                      setPrompt(project.prompt);
                       setLastCode(project.code);
-                      setWorkingCode(project.code);
+                      setWorkingCode(activeJob?.working_code || project.code);
                       setMessages(project.messages);
                       setVersions(projectVersions);
+
                       lastReportedRef.current = "";
                       isRepairingRef.current = false;
                       runtimeIssuesRef.current = [];
                       repairAttemptsRefState.current = [];
-                      setQualityState(buildQualityState({ code: project.code || "", prompt: project.prompt || "" }));
+
+                      setQualityState(
+                        buildQualityState({
+                          code: project.code || "",
+                          prompt: project.prompt || "",
+                        }),
+                      );
                       setDoc(buildDocFromPrompt(project.prompt, project.code));
+
+                      setBuildFiles(
+                        activeJob && Array.isArray(activeJob.build_files)
+                          ? activeJob.build_files as unknown as BuildFileProgress[]
+                          : [],
+                      );
+                      setBuildTimeline(
+                        activeJob && Array.isArray(activeJob.build_timeline)
+                          ? activeJob.build_timeline.filter(
+                              (item): item is string => typeof item === "string",
+                            )
+                          : [],
+                      );
+
+                      setProgressStage(activeJob?.current_stage || "Planning");
+                      setActivityStartedAt(
+                        activeJob ? Date.parse(activeJob.created_at) : undefined,
+                      );
+                      durableQueueAcceptedRef.current = Boolean(activeJob);
+                      setIsBuilding(Boolean(activeJob));
+                      setIsGeneratingApp(Boolean(activeJob));
+                      setIsChatThinking(false);
+
                       setSidebarPinned(true);
                       setSidebarHidden(false);
                       setSidebarOverlayOpen(false);
                       setMobileSidebarOpen(false);
                       setView("studio");
                       setSidebarActiveView("apps");
-                      setMobileStudioTab("preview");
-                      toast({ title: "Project loaded", description: project.title });
+                      setMobileStudioTab(activeJob ? "chat" : "preview");
+
+                      toast({
+                        title: activeJob ? "Build restored" : "Project loaded",
+                        description: activeJob
+                          ? `${project.title} — continuing saved build`
+                          : project.title,
+                      });
                     } catch (error) {
-                      toast({ title: "Couldn't open project", description: error instanceof Error ? error.message : "Please retry after checking your connection.", variant: "destructive" });
+                      toast({
+                        title: "Couldn't open project",
+                        description:
+                          error instanceof Error
+                            ? error.message
+                            : "Please retry after checking your connection.",
+                        variant: "destructive",
+                      });
                     }
                   })();
-                }}
-              />
-            )}
+                }} 
 {view === "templates" && (
   <TemplatesPage
     onNavigate={navigateView}
