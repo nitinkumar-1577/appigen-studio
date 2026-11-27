@@ -968,16 +968,7 @@ async function resolveConversationIntent(
     "feature_discussion",
   ];
 
-  const fallback: ConversationIntentResult = {
-    intent: hasExistingProject ? "existing_project_edit" : "new_app_creation",
-    shouldBuild: false,
-    isQuestion: false,
-    needsClarification: false,
-    resolvedPrompt: prompt,
-    confidence: 0,
-    reason: "AI understanding unavailable; safe fallback",
-  };
-
+  
   const result = await executeProviderFailover(
     providers,
     preferred,
