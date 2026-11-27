@@ -565,6 +565,43 @@ const navigateView = (next: ViewKey) => {
       unsubscribe();
     };
   }, [authReady, session?.user.id, projectId]);
+  
+  useEffect(() => {
+    if (!authReady || !session?.user.id) return;
+    if (studioSessionHydratingRef.current) return;
+
+    const userId = session.user.id;
+
+    const snapshot = JSON.stringify({
+      project_id: projectId,
+      title: projectTitle,
+      prompt,
+      messages,
+    });
+
+    if (snapshot === lastStudioSessionSerializedRef.current) return;
+
+    const timeoutId = window.setTimeout(() => {
+      if (studioSessionHydratingRef.current) return;
+
+      void saveStudioSession({
+        userId,
+        projectId,
+        title: projectTitle,
+        prompt,
+        messages,
+      })
+        .then(() => {
+          lastStudioSessionSerializedRef.current = snapshot;
+        })
+        .catch((error) => {
+          console.warn("Could not auto-save Studio session", error);
+        });
+    }, 600);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [authReady, session?.user.id, projectId, projectTitle, prompt, messages]);
+
   useEffect(() => {
     if (!authReady || !session?.user.id) return;
 
