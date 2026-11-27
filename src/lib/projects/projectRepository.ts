@@ -483,7 +483,9 @@ export const saveStudioSession = async (input: {
         title: input.title,
         prompt: input.prompt,
         messages: toJson(input.messages),
-        active_build_job_id: input.activeBuildJobId ?? null,
+       ...(Object.prototype.hasOwnProperty.call(input, "activeBuildJobId")
+  ? { active_build_job_id: input.activeBuildJobId }
+  : {}),
         updated_at: new Date().toISOString(),
       },
       { onConflict: "user_id" },
