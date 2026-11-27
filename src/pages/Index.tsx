@@ -1140,9 +1140,16 @@ setActivityStartedAt(Date.parse(job.created_at));
     const clarifyFirst = requiresClarification(trimmed, Boolean(lastCode));
     const questionMode = !intent.shouldBuild || clarifyFirst;
     // Prevent a second device from starting another account-level build.
-if (!questionMode && session?.user?.id) {
+if (!questionMode && session?.user?.id)
+  if (!questionMode) {
+  setIsBuilding(true);
+  setIsGeneratingApp(true);
+}
+{
   const activeJob = await loadLatestActiveBuildJob(session.user.id);
   if (activeJob) {
+    setIsBuilding(false);
+setIsGeneratingApp(false);
     toast({
       title: "A build is already active",
       description: "Your existing build is running on this account. Open that project or wait for it to finish before starting another build.",
