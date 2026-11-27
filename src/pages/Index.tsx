@@ -789,6 +789,7 @@ setActivityStartedAt(Date.parse(job.created_at));
         durableQueueAcceptedRef.current = true;
         setIsBuilding(true);
         setIsGeneratingApp(true);
+        setActivityStartedAt(Date.parse(job.created_at));
         setProgressStage(job.current_stage || "Building");
 
         setBuildFiles(
