@@ -990,7 +990,7 @@ export const PromptPanel = ({
                 </article>
               );
             })}
-            {isChatThinking && !isBuilding && (
+           {isChatThinking && (
               <div
                 className="mr-auto flex items-center gap-2 px-2 py-2 text-xs text-muted-foreground"
                 role="status"
@@ -1005,7 +1005,7 @@ export const PromptPanel = ({
                 </span>
               </div>
             )}
-            {isBuilding && (
+           {isBuilding && !isChatThinking && (
               <ActivityCard
                 activity={liveActivity}
                 contents={fileContents ?? {}}
