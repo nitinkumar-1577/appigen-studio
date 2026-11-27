@@ -1420,34 +1420,122 @@ setPrompt("");
       }
       if (questionMode) {
         setProgressStage("Planning");
-        const { data: chatData, error: chatError } = await supabase.functions.invoke("Appigen", {
-          body: {
+        
+        const { data: authData } = await supabase.auth.getSession();
+        const accessToken = authData.session?.access_token ?? SUPABASE_PUBLISHABLE_KEY;
+
+        const chatResponse = await fetch(`${SUPABASE_URL}/functions/v1/Appigen`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            apikey: SUPABASE_PUBLISHABLE_KEY,
+            "Content-Type": "application/json",
+            Accept: "text/event-stream",
+          },
+          body: JSON.stringify({
             mode: "chat",
             provider: generationSettings.provider,
             prompt: trimmed,
             code: lastCode ?? "",
             conversation: baseMessages.slice(-12),
             model: generationSettings.model,
-            system: [generationSettings.systemInstructions, responseLanguageInstruction(intent.responseLanguage)].filter(Boolean).join("\n\n"),
+            system: [
+              generationSettings.systemInstructions,
+              responseLanguageInstruction(intent.responseLanguage),
+            ].filter(Boolean).join("\n\n"),
             projectUnderstanding: understandingText,
             projectMemory: memoryText,
             changeSummary: recentChangeSummary,
             responseLanguage: intent.responseLanguage,
             intent: intent.intent,
-          },
+          }),
           signal: controller.signal,
         });
-        if (chatError) throw chatError;
-        if (typeof chatData?.answer !== "string" || !chatData.answer.trim()) {
+
+        if (!chatResponse.ok) {
+          const errorText = await chatResponse.text();
+          throw new Error(errorText || `Chat request failed (${chatResponse.status}).`);
+        }
+
+        if (!chatResponse.body) {
+          throw new Error("The conversation route returned no streaming response.");
+        }
+
+        const reader = chatResponse.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let streamedAnswer = "";
+        let streamProvider = "";
+        const assistantTimestamp = Date.now();
+
+        const processStreamLine = (line: string) => {
+          if (!line.startsWith("data:")) return;
+
+          const payload = line.slice(5).trim();
+          if (!payload) return;
+
+          const event = JSON.parse(payload) as {
+            type?: string;
+            text?: string;
+            provider?: string;
+            error?: string;
+          };
+
+          if (event.type === "meta" && typeof event.provider === "string") {
+            streamProvider = event.provider;
+          }
+
+          if (event.type === "delta" && typeof event.text === "string") {
+            streamedAnswer += event.text;
+            setMessages([
+              ...nextMessages,
+              {
+                role: "assistant",
+                content: streamedAnswer,
+                timestamp: assistantTimestamp,
+              },
+            ]);
+          }
+
+          if (event.type === "error") {
+            throw new Error(event.error || "The streaming response failed.");
+          }
+        };
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+
+          for (const line of lines) {
+            processStreamLine(line.replace(/\r$/, ""));
+          }
+        }
+
+        buffer += decoder.decode();
+        if (buffer.trim()) {
+          processStreamLine(buffer.replace(/\r$/, ""));
+        }
+
+        if (!streamedAnswer.trim()) {
           throw new Error("The conversation route returned no answer.");
         }
-        const completedMessages = [...nextMessages, {
-          role: "assistant" as const,
-          content: chatData.answer.trim(),
-          timestamp: Date.now(),
-        }];
+
+        const completedMessages = [
+          ...nextMessages,
+          {
+            role: "assistant" as const,
+            content: streamedAnswer.trim(),
+            timestamp: assistantTimestamp,
+          },
+        ];
+
         setMessages(completedMessages);
         setPrompt("");
+
         if (user && session?.user.id && projectId && lastCode) {
           await persistProject({
             projectId,
@@ -1469,8 +1557,14 @@ setPrompt("");
             updatedAt: Date.now(),
           });
         }
-        toast({ title: "Answer ready", description: typeof chatData.provider === "string" ? `Completed by ${chatData.provider}.` : undefined });
+
+        toast({
+          title: "Answer ready",
+          description: streamProvider ? `Completed by ${streamProvider}.` : undefined,
+        });
         return;
+
+          return;
       }
       setProgressStage("Inspecting existing files");
       setBuildTimeline((current) => [...current, "Inspecting existing files"]);
