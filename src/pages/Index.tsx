@@ -486,17 +486,7 @@ const navigateView = (next: ViewKey) => {
     return () => {
       disposed = true;
       studioSessionHydratingRef.current = false;
-      const isRemoteStudioReset =
-  !remote.project_id &&
-  remote.title === "Untitled Project" &&
-  !remote.prompt?.trim() &&
-  remoteMessages.length === 0;
-
-if (isRemoteStudioReset && projectId) {
-  lastStudioSessionSerializedRef.current = remoteSnapshot;
-  resetDeletedProject();
-  return;
-}
+   
     };
   }, [authReady, session?.user.id]);
     useEffect(() => {
@@ -517,6 +507,17 @@ if (isRemoteStudioReset && projectId) {
 
         if (remoteSnapshot === lastStudioSessionSerializedRef.current) return;
         if (studioSessionHydratingRef.current) return;
+        const isRemoteStudioReset =
+  !remote.project_id &&
+  remote.title === "Untitled Project" &&
+  !remote.prompt?.trim() &&
+  remoteMessages.length === 0;
+
+if (isRemoteStudioReset && projectId) {
+  lastStudioSessionSerializedRef.current = remoteSnapshot;
+  resetDeletedProject();
+  return;
+}
 
         const localSnapshot = JSON.stringify({
           project_id: projectId,
