@@ -1139,8 +1139,7 @@ setActivityStartedAt(Date.parse(job.created_at));
     const editMode = Boolean(lastCode) && !isNewAppPrompt(trimmed);
     const clarifyFirst = requiresClarification(trimmed, Boolean(lastCode));
     const questionMode = !intent.shouldBuild || clarifyFirst;
-    // Prevent a second device from starting another account-level build.
-if (!questionMode && session?.user?.id)
+    
        const generationSettings = readGenerationSettings();
     const buildStartedAt = Date.now();
 
