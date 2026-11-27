@@ -1236,11 +1236,7 @@ const unsubscribeSession = subscribeToStudioSession(
     }
     lastReportedRef.current = "";
     isRepairingRef.current = false;
-const intent = analyzeIntent(trimmed, {
-  hasExistingProject: Boolean(lastCode),
-  conversation: messages.slice(-12).map(({ role, content }) => ({
-    role,
-    content,
+
     const fallbackIntent = analyzeIntent(trimmed, {
       hasExistingProject: Boolean(lastCode),
       conversation: messages.slice(-12).map(({ role, content }) => ({
