@@ -1038,7 +1038,7 @@ const thinkingLabels = isBuildThinking
                 </span>
               </div>
             )}
-           {isBuilding && !isChatThinking && (
+        {isBuilding && !isChatThinking && !isBuildThinking && (
               <ActivityCard
                 activity={liveActivity}
                 contents={fileContents ?? {}}
