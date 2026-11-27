@@ -990,7 +990,21 @@ export const PromptPanel = ({
                 </article>
               );
             })}
-
+            {isChatThinking && !isBuilding && (
+              <div
+                className="mr-auto flex items-center gap-2 px-2 py-2 text-xs text-muted-foreground"
+                role="status"
+                aria-live="polite"
+              >
+                <LoaderCircle className="h-3.5 w-3.5 animate-spin text-primary" />
+                <span className="font-medium">Thinking</span>
+                <span className="flex items-center gap-0.5" aria-hidden="true">
+                  <span className="animate-pulse">.</span>
+                  <span className="animate-pulse [animation-delay:150ms]">.</span>
+                  <span className="animate-pulse [animation-delay:300ms]">.</span>
+                </span>
+              </div>
+            )}
             {isBuilding && (
               <ActivityCard
                 activity={liveActivity}
