@@ -1498,9 +1498,13 @@ const assistantTimestamp = Date.now();
             ]);
           }
 
-          if (event.type === "error") {
-            throw new Error(event.error || "The streaming response failed.");
-          }
+if (event.type === "done") {
+  streamCompleted = true;
+}
+
+if (event.type === "error") {
+  throw new Error(event.error || "The streaming response failed.");
+}
         };
 
         while (true) {
