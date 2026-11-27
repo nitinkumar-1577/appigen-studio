@@ -1141,13 +1141,16 @@ setActivityStartedAt(Date.parse(job.created_at));
     const questionMode = !intent.shouldBuild || clarifyFirst;
     // Prevent a second device from starting another account-level build.
 if (!questionMode && session?.user?.id)
-    // Show build progress immediately while checking for an existing account build.
+       const generationSettings = readGenerationSettings();
+    const buildStartedAt = Date.now();
+
+    // Show progress immediately while checking for another active build.
     if (!questionMode) {
       setIsBuilding(true);
       setIsGeneratingApp(true);
     }
 
-    // Prevent a second device from starting another account-level build.
+    // Prevent duplicate account-level builds.
     if (!questionMode && session?.user?.id) {
       const activeJob = await loadLatestActiveBuildJob(session.user.id);
       if (activeJob) {
@@ -1161,8 +1164,8 @@ if (!questionMode && session?.user?.id)
         return;
       }
     }
-    const activityId = createActivityId();
-    let planTitleApplied = "";
+
+    const activityId = createActivityId();    let planTitleApplied = "";
     setActivityStartedAt(buildStartedAt);
     const explanationText = intentSummary(intent.intent);
     setActivityExplanation(explanationText);
