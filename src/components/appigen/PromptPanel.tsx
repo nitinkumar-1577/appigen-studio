@@ -1055,7 +1055,7 @@ export const PromptPanel = ({
     }
   }
 }}
-          }}
+       
           rows={2}
           aria-label={hasCode ? "Describe a change to this project" : "Describe the app to build"}
           placeholder={
