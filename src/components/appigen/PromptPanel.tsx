@@ -15,8 +15,9 @@ interface PromptPanelProps {
   onDownload: () => void;
   onStop: () => void;
   onNewProject: () => void;
-  isBuilding: boolean;
-  progressStage: string;
+ isBuilding: boolean;
+isChatThinking: boolean;
+progressStage: string;
   buildFiles: BuildFileProgress[];
   buildTimeline: string[];
   messages: ChatMessage[];
@@ -548,6 +549,7 @@ export const PromptPanel = ({
   onBuild,
   onStop,
   isBuilding,
+ isChatThinking,
   progressStage,
   buildFiles,
   buildTimeline,
