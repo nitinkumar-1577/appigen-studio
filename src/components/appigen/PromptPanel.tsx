@@ -1040,9 +1040,9 @@ export const PromptPanel = ({
                 type="button"
                 onMouseDown={(event) => event.preventDefault()}
              onClick={() => {
-  onPromptChange(`Build ${idea.charAt(0).toLowerCase()}${idea.slice(1)}`);
-  focusPrompt();
-}}
+                  onPromptChange(`Build ${idea.charAt(0).toLowerCase()}${idea.slice(1)}`);
+                  focusPrompt();
+            }}
                 
                 className="max-w-[46%] truncate rounded-full border border-border/70 bg-secondary/40 px-2.5 py-1 text-[10px] text-muted-foreground transition hover:border-primary/50 hover:text-primary"
               >
