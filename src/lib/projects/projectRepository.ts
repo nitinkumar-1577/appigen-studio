@@ -519,15 +519,12 @@ export const subscribeToStudioSession = (
     void supabase.removeChannel(channel);
   };
 };
-
 export type ProjectSyncEvent = {
-  refreshProjects: () => Promise<void>;
-
-};
   refreshProjects: () => Promise<void>;
   refreshProject: (projectId: string) => Promise<void>;
   refreshVersions: (projectId: string) => Promise<void>;
   onDisconnected?: () => void;
+};
 };
 
 let projectSyncChannelCounter = 0;
