@@ -1045,16 +1045,16 @@ export const PromptPanel = ({
           id="app-prompt"
           value={prompt}
           onChange={(event) => onPromptChange(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
+         onKeyDown={(event) => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
 
-            if (prompt.trim()) {
-  onBuild();
-  focusPrompt();
-}
-              }
-            }
+    if (prompt.trim()) {
+      onBuild();
+      focusPrompt();
+    }
+  }
+}}
           }}
           rows={2}
           aria-label={hasCode ? "Describe a change to this project" : "Describe the app to build"}
