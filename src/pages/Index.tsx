@@ -1439,7 +1439,7 @@ activeRequestModeRef.current = questionMode ? "chat" : "build";
           userId: session.user.id,
           projectId: durableProjectId,
           requestPayload: {
-            prompt: trimmed,
+          prompt: effectivePrompt,
             provider: generationSettings.provider,
             model: generationSettings.model,
             existingProject: editMode,
@@ -1502,7 +1502,7 @@ setPrompt("");
           body: JSON.stringify({
             mode: "chat",
             provider: generationSettings.provider,
-            prompt: trimmed,
+          prompt: effectivePrompt,
             code: lastCode ?? "",
             conversation: baseMessages.slice(-12),
             model: generationSettings.model,
@@ -1649,7 +1649,7 @@ if (!streamedAnswer.trim()) {
         body: {
           mode: "plan",
           provider: generationSettings.provider,
-          prompt: trimmed,
+          prompt: effectivePrompt,
           stage,
           model: generationSettings.model,
           system: [generationSettings.systemInstructions, responseLanguageInstruction(intent.responseLanguage)].filter(Boolean).join("\n\n"),
