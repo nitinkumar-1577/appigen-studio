@@ -217,6 +217,7 @@ const studioWorkspaceSnapshotRef = useRef<{
   const [versionMenuOpen, setVersionMenuOpen] = useState(false);
   const [previewRuntime, setPreviewRuntime] = useState<{ status: "idle" | "pending" | "mounted" | "error"; message?: string; errorKind?: string }>({ status: "idle" });
   const abortRef = useRef<AbortController | null>(null);
+  const activeRequestModeRef = useRef<"chat" | "build" | null>(null);
   const durableQueueAcceptedRef = useRef(false);
   const promptInputRef = useRef<HTMLTextAreaElement>(null);
   const previousUserRef = useRef(false);
@@ -1335,8 +1336,9 @@ setIsGeneratingApp(false);
     setIsBuilding(true);
     setIsGeneratingApp(!questionMode);
     let generatedPreview = false;
-    const controller = new AbortController();
-    abortRef.current = controller;
+ const controller = new AbortController();
+abortRef.current = controller;
+activeRequestModeRef.current = questionMode ? "chat" : "build";
     setBuildFiles([]);
     setChangeBaseCode(baseCodeForEdit);
     setWorkingCode(partialBuildRef.current?.prompt === trimmed ? partialBuildRef.current.code : baseCodeForEdit);
@@ -1985,8 +1987,9 @@ setSidebarOverlayOpen(false);
       ]);
          } finally {
       if (!durableQueueAcceptedRef.current) {
-        abortRef.current = null;
-        setIsBuilding(false);
+       abortRef.current = null;
+activeRequestModeRef.current = null;
+setIsBuilding(false);
         setIsGeneratingApp(false);
         setProgressStage("Planning");
 
@@ -2001,9 +2004,13 @@ setSidebarOverlayOpen(false);
   };
  const stopBuild = async () => {
   // Stop any local generation immediately.
-  abortRef.current?.abort();
+abortRef.current?.abort();
 
-  const userId = session?.user.id;
+if (activeRequestModeRef.current === "chat") {
+  return;
+}
+
+const userId = session?.user.id;
   if (!userId) return;
 
   try {
