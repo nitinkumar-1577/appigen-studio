@@ -1,3 +1,4 @@
+import type { BuildFileProgress } from "@/lib/projects/buildWorkflow";
 import type { Database, Json } from "@/integrations/supabase/types";
 import { supabase } from "@/integrations/supabase/client";
 import type { ActivityEntry } from "@/lib/appPreferences";
