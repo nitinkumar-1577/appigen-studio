@@ -2059,8 +2059,9 @@ Deno.serve(async (req) => {
   catch { return jsonResponse({ error: "Invalid JSON body" }, 400); }
 
  const mode: "build" | "edit" | "build_file" | "repair" | "review" | "plan" | "chat" | "health" | "understand" =
-    body?.mode === "health" ? "health"
-      : body?.mode === "chat" ? "chat"
+   body?.mode === "understand" ? "understand"
+      : body?.mode === "health" ? "health"
+        : body?.mode === "chat" ? "chat"
         : body?.mode === "build_file" ? "build_file"
         : body?.mode === "repair" ? "repair"
         : body?.mode === "review" ? "review"
