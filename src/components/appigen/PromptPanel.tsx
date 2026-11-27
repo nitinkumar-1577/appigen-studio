@@ -997,7 +997,7 @@ export const PromptPanel = ({
                 aria-live="polite"
               >
                 <LoaderCircle className="h-3.5 w-3.5 animate-spin text-primary" />
-                <span className="font-medium">Thinking</span>
+               <span className="font-medium animate-pulse">Thinking</span>
                 <span className="flex items-center gap-0.5" aria-hidden="true">
                   <span className="animate-pulse">.</span>
                   <span className="animate-pulse [animation-delay:150ms]">.</span>
