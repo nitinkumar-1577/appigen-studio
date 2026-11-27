@@ -35,4 +35,5 @@ END;
 $$;
 
 REVOKE ALL ON FUNCTION public.cancel_appigen_build_job(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.cancel_appigen_build_job(uuid) FROM anon;
 GRANT EXECUTE ON FUNCTION public.cancel_appigen_build_job(uuid) TO authenticated;
