@@ -525,7 +525,6 @@ export type ProjectSyncEvent = {
   refreshVersions: (projectId: string) => Promise<void>;
   onDisconnected?: () => void;
 };
-};
 
 let projectSyncChannelCounter = 0;
 
