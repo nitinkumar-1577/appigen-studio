@@ -658,7 +658,7 @@ const navigateView = (next: ViewKey) => {
         setIsBuilding(true);
         setIsGeneratingApp(true);
         setProgressStage(job.current_stage || "Building");
-
+setActivityStartedAt(Date.parse(job.created_at));
         setBuildFiles(
           Array.isArray(job.build_files)
             ? job.build_files as unknown as BuildFileProgress[]
