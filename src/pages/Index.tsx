@@ -1141,25 +1141,26 @@ setActivityStartedAt(Date.parse(job.created_at));
     const questionMode = !intent.shouldBuild || clarifyFirst;
     // Prevent a second device from starting another account-level build.
 if (!questionMode && session?.user?.id)
-  if (!questionMode) {
-  setIsBuilding(true);
-  setIsGeneratingApp(true);
-}
-{
-  const activeJob = await loadLatestActiveBuildJob(session.user.id);
-  if (activeJob) {
-    setIsBuilding(false);
-setIsGeneratingApp(false);
-    toast({
-      title: "A build is already active",
-      description: "Your existing build is running on this account. Open that project or wait for it to finish before starting another build.",
-      variant: "destructive",
-    });
-    return;
-  }
-}
-    const generationSettings = readGenerationSettings();
-    const buildStartedAt = Date.now();
+    // Show build progress immediately while checking for an existing account build.
+    if (!questionMode) {
+      setIsBuilding(true);
+      setIsGeneratingApp(true);
+    }
+
+    // Prevent a second device from starting another account-level build.
+    if (!questionMode && session?.user?.id) {
+      const activeJob = await loadLatestActiveBuildJob(session.user.id);
+      if (activeJob) {
+        setIsBuilding(false);
+        setIsGeneratingApp(false);
+        toast({
+          title: "A build is already active",
+          description: "Your existing build is running on this account. Open that project or wait for it to finish before starting another build.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
     const activityId = createActivityId();
     let planTitleApplied = "";
     setActivityStartedAt(buildStartedAt);
