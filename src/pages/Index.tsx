@@ -1169,6 +1169,72 @@ const unsubscribeSession = subscribeToStudioSession(
       toast({ title: "Prompt is empty", description: "Describe the app you want to build first.", variant: "destructive" });
       return;
     }
+        // If a durable build is already active, append this prompt to that same build.
+    if (session?.user?.id) {
+      try {
+        const activeJob = await loadLatestActiveBuildJob(session.user.id);
+
+        if (activeJob) {
+          const submitted: ChatMessage = {
+            role: "user",
+            content: trimmed,
+            timestamp: Date.now(),
+          };
+
+          const payload = (activeJob.request_payload ?? {}) as Record<string, unknown>;
+          const storedMessages = Array.isArray(payload.messages)
+            ? payload.messages as ChatMessage[]
+            : messages;
+
+          const updatedMessages = [...storedMessages, submitted];
+
+          const { error } = await supabase.rpc(
+            "submit_appigen_build_prompt_update",
+            {
+              p_job_id: activeJob.id,
+              p_prompt: trimmed,
+              p_messages: updatedMessages,
+            }
+          );
+
+          if (error) throw error;
+
+          setProjectId(activeJob.project_id);
+          setMessages(updatedMessages);
+          setPrompt("");
+          setIsBuilding(true);
+          setIsGeneratingApp(true);
+          setView("studio");
+          setSidebarActiveView("studio");
+          setMobileStudioTab("chat");
+
+          void saveStudioSession({
+            userId: session.user.id,
+            projectId: activeJob.project_id,
+            title: typeof payload.title === "string" ? payload.title : projectTitle,
+            prompt: "",
+            messages: updatedMessages,
+            activeBuildJobId: activeJob.id,
+          }).catch((error) => {
+            console.warn("Studio session sync failed:", error);
+          });
+
+          toast({
+            title: "Prompt added",
+            description: "Your change will be applied to the current build.",
+          });
+
+          return;
+        }
+      } catch (error) {
+        toast({
+          title: "Could not add prompt",
+          description: error instanceof Error ? error.message : "Please try again.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
     lastReportedRef.current = "";
     isRepairingRef.current = false;
     const intent = analyzeIntent(trimmed, { hasExistingProject: Boolean(lastCode) });
