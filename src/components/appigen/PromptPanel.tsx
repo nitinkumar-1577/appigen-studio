@@ -574,7 +574,7 @@ export const PromptPanel = ({
   const [thinkingStage, setThinkingStage] = useState(0);
 
 useEffect(() => {
-  if (!isChatThinking) {
+  if (!isChatThinking && !isBuildThinking) {
     setThinkingStage(0);
     return;
   }
@@ -584,7 +584,7 @@ useEffect(() => {
   }, 1800);
 
   return () => window.clearInterval(timer);
-}, [isChatThinking]);
+}, [isChatThinking, isBuildThinking]);
 
 const thinkingLabels = [
   "Understanding your question",
