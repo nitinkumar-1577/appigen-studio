@@ -604,12 +604,13 @@ if (isRemoteStudioReset && projectId) {
       if (studioSessionHydratingRef.current) return;
 
       void saveStudioSession({
-        userId,
-        projectId,
-        title: projectTitle,
-        prompt,
-        messages,
-      })
+  userId,
+  projectId,
+  title: projectTitle,
+  prompt,
+  messages,
+  ...(projectId ? {} : { activeBuildJobId: null }),
+})
         .then(() => {
           lastStudioSessionSerializedRef.current = snapshot;
         })
