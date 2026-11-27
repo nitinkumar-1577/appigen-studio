@@ -587,11 +587,17 @@ useEffect(() => {
   return () => window.clearInterval(timer);
 }, [isChatThinking, isBuildThinking]);
 
-const thinkingLabels = [
-  "Understanding your question",
-  "Preparing a helpful response",
-  "Putting the answer together",
-];
+const thinkingLabels = isBuildThinking
+  ? [
+      "Understanding your app requirements",
+      "Planning the app structure",
+      "Preparing the implementation",
+    ]
+  : [
+      "Understanding your question",
+      "Preparing a helpful response",
+      "Putting the answer together",
+    ];
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(() => new Set());
 
   const fileRef = useRef<HTMLInputElement>(null);
