@@ -1524,10 +1524,13 @@ if (event.type === "error") {
         if (buffer.trim()) {
           processStreamLine(buffer.replace(/\r$/, ""));
         }
+if (!streamCompleted) {
+  throw new Error("The conversation stream ended before completion.");
+}
 
-        if (!streamedAnswer.trim()) {
-          throw new Error("The conversation route returned no answer.");
-        }
+if (!streamedAnswer.trim()) {
+  throw new Error("The conversation route returned no answer.");
+}
 
         const completedMessages = [
           ...nextMessages,
