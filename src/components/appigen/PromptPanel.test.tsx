@@ -32,6 +32,7 @@ const props = () => ({
   onStop: vi.fn(),
   onNewProject: vi.fn(),
   isBuilding: false,
+  isChatThinking: false,
   progressStage: "Planning",
   buildFiles: [],
   buildTimeline: [],

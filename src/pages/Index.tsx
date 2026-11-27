@@ -2953,6 +2953,7 @@ className="flex h-9 items-center gap-1.5 rounded-lg border border-primary bg-pri
                   })();
                 }} 
                    />
+            )}
 {view === "templates" && (
   <TemplatesPage
     onNavigate={navigateView}

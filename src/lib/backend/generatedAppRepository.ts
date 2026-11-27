@@ -1,6 +1,8 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
-import type { BackendMode, DeploymentRecord, EnvVarEntry, GeneratedAppBackendConfig, ProvisioningStatus } from "./types";
+import { asAppigenRuntimeClient, type BackendMode, type DeploymentRecord, type EnvVarEntry, type GeneratedAppBackendConfig, type ProvisioningStatus } from "./types";
+
+const appigenSupabase = asAppigenRuntimeClient(supabase);
 
 export interface GeneratedAppRecord {
   id: string;
@@ -24,7 +26,7 @@ function asProvisioningStatus(value: unknown): ProvisioningStatus {
 
 export async function ensureGeneratedApp(input: { ownerId: string; appigenProjectId: string | null; name: string; mode: BackendMode }): Promise<GeneratedAppRecord> {
   if (input.appigenProjectId) {
-    const { data: existing } = await supabase
+    const { data: existing } = await appigenSupabase
       .from("generated_apps")
       .select("*")
       .eq("owner_id", input.ownerId)
@@ -32,7 +34,7 @@ export async function ensureGeneratedApp(input: { ownerId: string; appigenProjec
       .maybeSingle();
     if (existing) return existing as GeneratedAppRecord;
   }
-  const { data, error } = await supabase
+  const { data, error } = await appigenSupabase
     .from("generated_apps")
     .insert({ owner_id: input.ownerId, appigen_project_id: input.appigenProjectId, name: input.name, backend_mode: input.mode, status: "configured" })
     .select("*")
@@ -42,7 +44,7 @@ export async function ensureGeneratedApp(input: { ownerId: string; appigenProjec
 }
 
 export async function upsertBackendConfig(config: GeneratedAppBackendConfig): Promise<void> {
-  const { error } = await supabase.from("generated_app_backend_configs").upsert({
+  const { error } = await appigenSupabase.from("generated_app_backend_configs").upsert({
     generated_app_id: config.generatedAppId,
     owner_id: config.ownerId,
     mode: config.mode,
@@ -56,11 +58,11 @@ export async function upsertBackendConfig(config: GeneratedAppBackendConfig): Pr
     config: (config.config ?? {}) as Json,
   }, { onConflict: "generated_app_id" });
   if (error) throw error;
-  await supabase.from("generated_apps").update({ backend_mode: config.mode, status: config.provisioningStatus }).eq("id", config.generatedAppId).eq("owner_id", config.ownerId);
+  await appigenSupabase.from("generated_apps").update({ backend_mode: config.mode, status: config.provisioningStatus }).eq("id", config.generatedAppId).eq("owner_id", config.ownerId);
 }
 
 export async function loadBackendConfig(generatedAppId: string, ownerId: string): Promise<GeneratedAppBackendConfig | null> {
-  const { data, error } = await supabase
+  const { data, error } = await appigenSupabase
     .from("generated_app_backend_configs")
     .select("*")
     .eq("generated_app_id", generatedAppId)
@@ -86,7 +88,7 @@ export async function loadBackendConfig(generatedAppId: string, ownerId: string)
 }
 
 export async function listEnvVars(generatedAppId: string, ownerId: string): Promise<EnvVarEntry[]> {
-  const { data, error } = await supabase
+  const { data, error } = await appigenSupabase
     .from("generated_app_env_vars")
     .select("id,key,is_secret,target,public_value,secret_ref")
     .eq("generated_app_id", generatedAppId)
@@ -107,7 +109,7 @@ export async function upsertEnvVar(generatedAppId: string, ownerId: string, entr
   if (entry.isSecret && entry.publicValue) {
     throw new Error("Secret values must not be stored as public environment values.");
   }
-  const { error } = await supabase.from("generated_app_env_vars").upsert({
+  const { error } = await appigenSupabase.from("generated_app_env_vars").upsert({
     ...(entry.id ? { id: entry.id } : {}),
     generated_app_id: generatedAppId,
     owner_id: ownerId,
@@ -121,13 +123,13 @@ export async function upsertEnvVar(generatedAppId: string, ownerId: string, entr
 }
 
 export async function deleteEnvVar(id: string, ownerId: string): Promise<void> {
-  const { error } = await supabase.from("generated_app_env_vars").delete().eq("id", id).eq("owner_id", ownerId);
+  const { error } = await appigenSupabase.from("generated_app_env_vars").delete().eq("id", id).eq("owner_id", ownerId);
   if (error) throw error;
 }
 
 // Shared-backend tenant-isolated CRUD (real DB operations when migrations applied and user authenticated)
 export async function sharedCreateRecord(generatedAppId: string, ownerId: string, collection: string, record: Record<string, unknown>) {
-  const { data, error } = await supabase
+  const { data, error } = await appigenSupabase
     .from("generated_app_data")
     .insert({ generated_app_id: generatedAppId, owner_id: ownerId, collection, record: record as Json })
     .select("id,collection,record,created_at,updated_at")
@@ -137,7 +139,7 @@ export async function sharedCreateRecord(generatedAppId: string, ownerId: string
 }
 
 export async function sharedListRecords(generatedAppId: string, ownerId: string, collection: string) {
-  const { data, error } = await supabase
+  const { data, error } = await appigenSupabase
     .from("generated_app_data")
     .select("id,collection,record,created_at,updated_at")
     .eq("generated_app_id", generatedAppId)
@@ -149,7 +151,7 @@ export async function sharedListRecords(generatedAppId: string, ownerId: string,
 }
 
 export async function sharedUpdateRecord(id: string, generatedAppId: string, ownerId: string, record: Record<string, unknown>) {
-  const { data, error } = await supabase
+  const { data, error } = await appigenSupabase
     .from("generated_app_data")
     .update({ record: record as Json })
     .eq("id", id)
@@ -162,7 +164,7 @@ export async function sharedUpdateRecord(id: string, generatedAppId: string, own
 }
 
 export async function sharedDeleteRecord(id: string, generatedAppId: string, ownerId: string) {
-  const { error } = await supabase
+  const { error } = await appigenSupabase
     .from("generated_app_data")
     .delete()
     .eq("id", id)
@@ -172,7 +174,7 @@ export async function sharedDeleteRecord(id: string, generatedAppId: string, own
 }
 
 export async function listDeployments(generatedAppId: string, ownerId: string): Promise<DeploymentRecord[]> {
-  const { data, error } = await supabase
+  const { data, error } = await appigenSupabase
     .from("generated_app_deployments")
     .select("id,generated_app_id,provider,status,repo_full_name,deployment_url,provider_deployment_id,logs,error,created_at")
     .eq("generated_app_id", generatedAppId)

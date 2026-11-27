@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Activity, Sparkles, Zap, Clock, ArrowUpRight, Plus, LayoutTemplate, AppWindow, LockKeyhole, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { asAppigenRuntimeClient } from "@/lib/backend/types";
 import { readActivity, type ActivityEntry } from "@/lib/appPreferences";
 import { loadProjectActivity } from "@/lib/projects/projectRepository";
 import { toast } from "@/hooks/use-toast";
@@ -16,6 +17,7 @@ interface DashboardPageProps {
 interface UsageMetrics { apps_created: number; prompt_characters: number; average_build_time_ms: number | null; completed_builds: number }
 const EMPTY_USAGE: UsageMetrics = { apps_created: 0, prompt_characters: 0, average_build_time_ms: null, completed_builds: 0 };
 const DAY_MS = 24 * 60 * 60 * 1000;
+const appigenSupabase = asAppigenRuntimeClient(supabase);
 
 export const DashboardPage = ({ userId, activeProjectTitle, onNavigate, onOpenSignIn }: DashboardPageProps) => {
   const [usage, setUsage] = useState<UsageMetrics>(EMPTY_USAGE);
@@ -30,12 +32,12 @@ export const DashboardPage = ({ userId, activeProjectTitle, onNavigate, onOpenSi
       return;
     }
     const [usageResult, activityResult] = await Promise.all([
-      supabase.rpc("get_appigen_usage_metrics"),
+      appigenSupabase.rpc("get_appigen_usage_metrics"),
       loadProjectActivity(userId).then((entries) => ({ entries, error: null })).catch((activityError: unknown) => ({ entries: readActivity(userId), error: activityError })),
     ]);
     if (usageResult.error) {
       toast({ title: "Usage metrics unavailable", description: usageResult.error.message, variant: "destructive" });
-      const { count } = await supabase.from("projects").select("id", { count: "exact", head: true }).eq("user_id", userId);
+      const { count } = await appigenSupabase.from("projects").select("id", { count: "exact", head: true }).eq("user_id", userId);
       setUsage({ ...EMPTY_USAGE, apps_created: count ?? 0 });
     } else setUsage(usageResult.data?.[0] ?? EMPTY_USAGE);
     if (activityResult.error) {

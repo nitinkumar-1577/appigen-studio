@@ -1,5 +1,7 @@
 
 import { supabase } from "@/integrations/supabase/client";
+import type { Json } from "@/integrations/supabase/types";
+import { asAppigenRuntimeClient } from "@/lib/backend/types";
 import type {
   AppPreferences,
   GenerationSettings,
@@ -19,10 +21,12 @@ export interface AccountSettingsInput {
   accent_color?: string | null;
 }
 
+const appigenSupabase = asAppigenRuntimeClient(supabase);
+
 export async function loadAccountSettings(
   userId: string
 ): Promise<AccountSettings | null> {
-  const { data, error } = await (supabase)
+  const { data, error } = await appigenSupabase
     .from("user_settings")
     .select(
       "user_id, app_preferences, generation_settings, accent_color, updated_at"
@@ -31,20 +35,20 @@ export async function loadAccountSettings(
     .maybeSingle();
 
   if (error) throw error;
-  return (data as AccountSettings | null) ?? null;
+  return (data as unknown as AccountSettings | null) ?? null;
 }
 
 export async function saveAccountSettings(
   userId: string,
   settings: AccountSettingsInput
 ): Promise<void> {
-  const { error } = await (supabase)
+  const { error } = await appigenSupabase
     .from("user_settings")
     .upsert(
       {
         user_id: userId,
-        app_preferences: settings.app_preferences,
-        generation_settings: settings.generation_settings,
+        app_preferences: settings.app_preferences as unknown as Json,
+        generation_settings: settings.generation_settings as unknown as Json,
         accent_color: settings.accent_color ?? null,
         updated_at: new Date().toISOString(),
       },

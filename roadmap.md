@@ -1,3 +1,4 @@
+- [ ] Bring the requested GitHub repository into a separate Lovable project without modifying AppiGen (waiting for a public repository URL or a private GitHub import during project creation).
 - [ ] Replace AppiGen's default user-owned AI provider with managed Lovable AI and test a full hard-prompt build. (Code complete: `lovable` provider + `LOVABLE_API_KEY`, default model `google/gemini-3.7-flash`, Groq fallback. Remaining: set the secret in Supabase and run a live hard-prompt build.)
 - [ ] Improve the build/edit instructions so new apps and requested changes are specific, complete, validated, and preserved.
 - [ ] Repair cloud project and numbered version history so builds, edits, restores, and deletions sync across signed-in devices.
