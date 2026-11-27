@@ -574,7 +574,18 @@ export const PromptPanel = ({
   const fileRef = useRef<HTMLInputElement>(null);
   const localPromptRef = useRef<HTMLTextAreaElement>(null);
   const promptRef = inputRef ?? localPromptRef;
-  const focusPrompt = () => requestAnimationFrame(() => promptRef.current?.focus());
+ const focusPrompt = () => {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      const textarea = promptRef.current;
+      if (!textarea) return;
+
+      textarea.focus();
+      const end = textarea.value.length;
+      textarea.setSelectionRange(end, end);
+    });
+  });
+};
 
   const recRef = useRef<SpeechRecognitionLike | null>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
