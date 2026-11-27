@@ -1191,7 +1191,7 @@ const unsubscribeSession = subscribeToStudioSession(
             "submit_appigen_build_prompt_update",
             {
               p_job_id: activeJob.id,
-              p_prompt: effectivePrompt,
+             p_prompt: trimmed,
               p_messages: updatedMessages,
             }
           );
