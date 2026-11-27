@@ -614,7 +614,7 @@ const thinkingLabels = [
   const transcriptRef = useRef<HTMLDivElement>(null);
   const [now, setNow] = useState(() => Date.now());
   const isChatActive = hasCode || isBuilding || messages.length > 0;
-  const isBuildThinking = isBuilding && buildFiles.length === 0;
+ 
 
   useEffect(() => {
     if (!isBuilding) return;
