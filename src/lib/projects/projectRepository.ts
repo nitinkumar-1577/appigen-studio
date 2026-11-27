@@ -452,7 +452,7 @@ export const loadStudioSession = async (
   userId: string,
 ): Promise<StudioSession | null> => {
   const { data, error } = await supabase
-    .from("studio_sessions" as any)
+   .from("studio_sessions")
     .select("*")
     .eq("user_id", userId)
     .maybeSingle();
