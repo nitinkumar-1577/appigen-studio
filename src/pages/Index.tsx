@@ -919,10 +919,9 @@ const unsubscribeSession = subscribeToStudioSession(
         console.warn("Could not load the latest durable build job", error);
       });
 
-   return () => {
+  return () => {
   disposed = true;
   unsubscribe();
-  unsubscribeSession();
 };
   }, [authReady, session?.user.id, projectId]);
   useEffect(() => {
