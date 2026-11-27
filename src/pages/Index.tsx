@@ -1845,7 +1845,48 @@ setSidebarOverlayOpen(false);
   const updateMessage = (timestamp: number, patch: Partial<ChatMessage>) =>
     setMessages((current) => current.map((message) => message.timestamp === timestamp ? { ...message, ...patch } : message));
 
-  const resetDeletedProject = () => {
+ const resetDeletedProject = () => {
+    // Stop any ongoing generation for the deleted project.
+    abortRef.current?.abort();
+    abortRef.current = null;
+    partialBuildRef.current = null;
+
+    clearLocalVersions(chatKey);
+    writeProjectMessages(chatKey, []);
+    discardProjectDraft();
+
+    setProjectId(null);
+    setProjectUpdatedAt(null);
+    setLastSyncedCode(null);
+    lastSyncedPromptRef.current = null;
+    lastSyncedTitleRef.current = null;
+    lastSyncedMessagesRef.current = null;
+    promptDirtyRef.current = false;
+
+    setProjectTitle("Untitled Project");
+    setTitleManuallyEdited(false);
+    setPrompt("");
+    setLastCode(null);
+    setWorkingCode(null);
+    setChangeBaseCode(null);
+    setBuildFiles([]);
+    setBuildTimeline([]);
+    buildFilesRef.current = [];
+    buildTimelineRef.current = [];
+
+    setMessages([]);
+    setVersions([]);
+    setDoc(buildDocFromPrompt(""));
+    setActivityStartedAt(undefined);
+    setActivityExplanation(undefined);
+    setProgressStage("Planning");
+    setIsBuilding(false);
+    setIsGeneratingApp(false);
+
+    setView("studio");
+    setSidebarActiveView("studio");
+    setMobileStudioTab("chat");
+};
     clearLocalVersions(chatKey);
     writeProjectMessages(chatKey, []);
     discardProjectDraft();
