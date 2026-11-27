@@ -1593,7 +1593,223 @@ async function answerProjectQuestion(
   });
   return { ...result.value, provider: `${result.provider}:${result.value.model}` };
 }
+async function answerProjectQuestionStream(
+  providers: Providers,
+  requested: ProviderName,
+  prompt: string,
+  code: string,
+  conversation: ConversationTurn[],
+  system: string | undefined,
+  model: string | undefined,
+  extraContext: {
+    understandingText?: string;
+    memoryText?: string;
+    changeText?: string;
+    responseLanguage?: string;
+    intent?: string;
+  } | undefined,
+  requestSignal: AbortSignal,
+) {
+  const result = await executeProviderFailover(
+    providers,
+    requested,
+    async (candidate, timeoutMs) => {
+      const apiKey = providerKey(providers, candidate);
+      if (!apiKey) {
+        throw new ProviderRequestError(
+          candidate, undefined, "INVALID_CREDENTIALS",
+          "provider is not configured",
+        );
+      }
 
+      const models = getProviderConfig(candidate).models.map((entry) => entry.id);
+      const chatModel = modelForTask(
+        models, model, getDefaultModel(candidate), "chat",
+      );
+      const context = code
+        ? relevantProjectSource(code, prompt)
+        : "(This is a general conversation before a project has been created.)";
+      const projectMemoryBlock = [
+        extraContext?.understandingText,
+        extraContext?.memoryText,
+        extraContext?.changeText,
+      ].filter(Boolean).join("\n\n");
+
+      const messages = [
+        {
+          role: "system",
+          content: `${system ?? ""}
+You are AppiGen's project-aware coding assistant.
+${responseLanguageContract({ responseLanguage: extraContext?.responseLanguage })}
+${extraContext?.intent ? `Detected intent: ${extraContext.intent}.` : ""}
+Use prior conversation and project understanding/memory/change context.
+Answer clearly and accurately. If the user is asking a question, explanation, or feature discussion, answer conversationally and do NOT generate code or claim you built/changed anything. If the user explicitly asks to create/modify/fix the app, explain they should submit it as a change/build request (do not implement in chat mode). When project context is relevant, ground answers in it and do not invent files/features or claim behavior without evidence; if unavailable, say so honestly. For ambiguous requests, ask one short clarification question. Keep responses useful and non-repetitive.`,
+        },
+        ...conversation.slice(-12),
+        {
+          role: "user",
+          content: `${projectMemoryBlock ? `PROJECT UNDERSTANDING/MEMORY/CHANGES:\n${projectMemoryBlock}\n\n` : ""}PROJECT SOURCE:\n${context}\n\nUSER MESSAGE:\n${prompt}`,
+        },
+      ];
+
+      const request = providerStreamingRequest(candidate, apiKey, {
+        model: chatModel,
+        messages,
+        temperature: 0.2,
+        top_p: 1,
+        max_completion_tokens: 1400,
+        reasoning_effort: "low",
+      });
+
+      const abortController = new AbortController();
+      const abortFromRequest = () => abortController.abort();
+
+      if (requestSignal.aborted) {
+        abortController.abort();
+      } else {
+        requestSignal.addEventListener("abort", abortFromRequest, { once: true });
+      }
+
+      const timer = setTimeout(
+        () => abortController.abort(),
+        Math.min(timeoutMs, 55000),
+      );
+
+      const cleanup = () => {
+        clearTimeout(timer);
+        requestSignal.removeEventListener("abort", abortFromRequest);
+      };
+
+      try {
+        const response = await fetch(request.url, {
+          method: "POST",
+          headers: request.headers,
+          body: request.body,
+          signal: abortController.signal,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          cleanup();
+          const metadata = providerErrorMetadata(errorText, apiKey);
+          throw new ProviderRequestError(
+            candidate,
+            response.status,
+            providerErrorCode(response.status, metadata),
+            metadata,
+          );
+        }
+
+        if (!response.body) {
+          cleanup();
+          throw new ProviderRequestError(
+            candidate, response.status, "INVALID_RESPONSE",
+            "provider returned no streaming body",
+          );
+        }
+
+        return {
+          response,
+          abortController,
+          cleanup,
+          model: chatModel,
+        };
+      } catch (error) {
+        cleanup();
+
+        if (error instanceof ProviderRequestError) throw error;
+
+        if (abortController.signal.aborted) {
+          throw new ProviderRequestError(
+            candidate, undefined, "TIMEOUT",
+            "streaming request exceeded its time limit or was cancelled",
+          );
+        }
+
+        throw new ProviderRequestError(
+          candidate, undefined, "NETWORK_ERROR",
+          "request could not reach provider",
+        );
+      }
+    },
+  );
+
+  const encoder = new TextEncoder();
+  const upstream = result.value;
+  let cancelled = false;
+  let streamController: ReadableStreamDefaultController<Uint8Array> | null = null;
+
+  const send = (event: Record<string, unknown>) => {
+    if (cancelled || !streamController) return;
+    streamController.enqueue(
+      encoder.encode(`data: ${JSON.stringify(event)}\n\n`),
+    );
+  };
+
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      streamController = controller;
+
+      send({
+        type: "meta",
+        provider: `${result.provider}:${upstream.model}`,
+        model: upstream.model,
+      });
+
+      void (async () => {
+        let answer = "";
+
+        await consumeProviderStream(
+          upstream.response,
+          result.provider,
+          (chunk) => {
+            answer += chunk;
+            send({ type: "delta", text: chunk });
+          },
+        );
+
+        if (!answer.trim()) {
+          throw new Error("The provider returned no conversational answer.");
+        }
+
+        send({ type: "done" });
+      })().catch((error) => {
+        send({
+          type: "error",
+          error: error instanceof Error
+            ? error.message
+            : "The streaming response failed.",
+        });
+      }).finally(() => {
+        upstream.cleanup();
+        if (!cancelled) {
+          cancelled = true;
+          try {
+            streamController?.close();
+          } catch {
+            // The client may already have disconnected.
+          }
+        }
+      });
+    },
+
+    cancel() {
+      cancelled = true;
+      upstream.abortController.abort();
+      upstream.cleanup();
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no",
+    },
+  });
+}
 export function providerFallbackOrder(providers: Providers, requested: ProviderName): ProviderName[] {
   // Preserve the user's explicit choice first; try known free-tier providers
   // before the other configured providers during automatic fallback.
