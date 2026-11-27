@@ -2084,7 +2084,47 @@ Deno.serve(async (req) => {
         results,
       });
     }
+    if (mode === "understand") {
+      const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+      if (!prompt) return jsonResponse({ error: "Prompt missing" }, 400);
 
+      const safetyViolation = getSafetyViolation(prompt, parseSafetyThresholds(body.safety));
+      if (safetyViolation) {
+        return jsonResponse({ error: `This request was blocked by AppiGen's safety filters (${safetyViolation}).` }, 400);
+      }
+
+      const code = typeof body.code === "string" ? body.code : "";
+      const conversation: ConversationTurn[] = Array.isArray(body.conversation)
+        ? body.conversation.slice(-12)
+            .filter((turn): turn is Record<string, unknown> =>
+              isRecord(turn) &&
+              (turn.role === "user" || turn.role === "assistant") &&
+              typeof turn.content === "string")
+            .map((turn) => ({
+              role: turn.role as "user" | "assistant",
+              content: (turn.content as string).slice(0, 2400),
+            }))
+        : [];
+
+      const contextBrief = projectContextBrief(code || undefined, prompt, body);
+      const projectContext = [
+        contextBrief.understandingText,
+        contextBrief.memoryText,
+        contextBrief.changeText,
+        contextBrief.followUpText,
+      ].filter(Boolean).join("\n\n");
+
+      const understanding = await resolveConversationIntent(
+        providers,
+        provider,
+        prompt,
+        conversation,
+        Boolean(code),
+        projectContext,
+      );
+
+      return jsonResponse({ understanding, mode });
+    }
     if (mode === "plan") {
       const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
       if (!prompt) return jsonResponse({ error: "Prompt missing" }, 400);
