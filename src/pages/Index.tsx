@@ -2443,7 +2443,27 @@ setSidebarOverlayOpen(false);
                 }}
               />
             )}
-{view === "templates" && <TemplatesPage onNavigate={navigateView} onUseTemplate={(templatePrompt) => { handlePromptChange(templatePrompt); setView("studio"); setSidebarActiveView("studio"); }} />}
+{view === "templates" && (
+  <TemplatesPage
+    onNavigate={navigateView}
+    onUseTemplate={(templatePrompt) => {
+      handlePromptChange(templatePrompt);
+      setView("studio");
+      setSidebarActiveView("studio");
+
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const textarea = promptInputRef.current;
+          if (!textarea) return;
+
+          textarea.focus();
+          const end = textarea.value.length;
+          textarea.setSelectionRange(end, end);
+        });
+      });
+    }}
+  />
+)}
             {view === "api" && <ApiSettingsPage />}
             {view === "backend" && <BackendDeployPage projectId={projectId} projectTitle={projectTitle} />}
             {view === "pricing" && <PricingPage />}
