@@ -1312,8 +1312,18 @@ setIsGeneratingApp(false);
         });
               setActivityStartedAt(Date.parse(queuedJob.created_at));
 durableQueueAcceptedRef.current = true;
-        setMessages(queuedMessages);
-        setPrompt("");
+setMessages(queuedMessages);
+
+await saveStudioSession({
+  userId: session.user.id,
+  projectId: durableProjectId,
+  title: durableTitle,
+  prompt: "",
+  messages: queuedMessages,
+  activeBuildJobId: queuedJob.id,
+});
+
+setPrompt("");
         setProgressStage("Queued");
         setBuildTimeline(["Build successfully added to background queue"]);
         toast({
