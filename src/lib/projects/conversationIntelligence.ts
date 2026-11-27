@@ -70,6 +70,12 @@ export function analyzeIntent(
 ): IntentAnalysis {
 
   const text = prompt.trim();
+  const recentConversation = (options.conversation ?? [])
+  .slice(-12)
+  .map((message) => `${message.role}: ${message.content}`)
+  .join("\n");
+
+const contextText = `${recentConversation}\nuser: ${prompt}`.toLowerCase();
   const lower = text.toLowerCase();
   const responseLanguage = detectResponseLanguage(text);
   const reasons: string[] = [`lang:${responseLanguage}`];
