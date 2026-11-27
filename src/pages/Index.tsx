@@ -1887,29 +1887,8 @@ setSidebarOverlayOpen(false);
     setSidebarActiveView("studio");
     setMobileStudioTab("chat");
 };
-    clearLocalVersions(chatKey);
-    writeProjectMessages(chatKey, []);
-    discardProjectDraft();
-    setProjectId(null);
-    setProjectUpdatedAt(null);
-    setLastSyncedCode(null);
-    lastSyncedPromptRef.current = null;
-    lastSyncedTitleRef.current = null;
-    lastSyncedMessagesRef.current = null;
-    promptDirtyRef.current = false;
-    setProjectTitle("Untitled Project");
-    setTitleManuallyEdited(false);
-    setPrompt("");
-    setLastCode(null);
-    setMessages([]);
-    setVersions([]);
-    setDoc(buildDocFromPrompt(""));
-    setView("studio");
-    setSidebarActiveView("studio");
-    setMobileStudioTab("chat");
-    setIsGeneratingApp(false);
-  };
-
+   
+  
   const deleteVersion = async (version: LocalProjectVersion) => {
     const deletesLastVersion = versions.length === 1;
     if (!window.confirm(deletesLastVersion
