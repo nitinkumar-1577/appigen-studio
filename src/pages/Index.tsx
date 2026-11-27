@@ -1305,12 +1305,7 @@ const unsubscribeSession = subscribeToStudioSession(
         error,
       );
     }
-    } catch (error) {
-      console.warn(
-        "AI conversation understanding unavailable; using local fallback:",
-        error,
-      );
-    }
+   
 
     const editMode = Boolean(lastCode) && !isNewAppPrompt(trimmed);
     const clarifyFirst = intent.needsClarification;
