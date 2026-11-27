@@ -1804,7 +1804,38 @@ setSidebarOverlayOpen(false);
       }
     }
   };
-  const stopBuild = () => abortRef.current?.abort();
+ const stopBuild = async () => {
+  // Stop any local generation immediately.
+  abortRef.current?.abort();
+
+  const userId = session?.user.id;
+  if (!userId) return;
+
+  try {
+    const activeJob = await loadLatestActiveBuildJob(userId);
+    if (!activeJob) return;
+
+    const { data, error } = await supabase.rpc(
+      "cancel_appigen_build_job",
+      { p_job_id: activeJob.id }
+    );
+
+    if (error) throw error;
+
+    if (!data) {
+      toast({
+        title: "Build already finished",
+        description: "There is no active build left to stop.",
+      });
+    }
+  } catch (error) {
+    toast({
+      title: "Could not stop build",
+      description: error instanceof Error ? error.message : "Please try again.",
+      variant: "destructive",
+    });
+  }
+};
   const handlePromptChange = (value: string) => {
     promptDirtyRef.current = true;
     setPrompt(value);
