@@ -15,7 +15,7 @@ import { SettingsPanel } from "@/components/appigen/SettingsPanel";
 import { NotificationsMenu } from "@/components/appigen/NotificationsMenu";
 import { GithubModal } from "@/components/appigen/GithubModal";
 import { useApp } from "@/components/appigen/AppContext";
-import { Sparkles,Menu, MessageSquare, Eye, Github as GithubIcon } from "lucide-react";
+import { Sparkles,Menu, MessageSquare, Eye, Github as GithubIcon,Plus } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { assertSupabaseFunctionAccess, supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
@@ -2240,6 +2240,15 @@ setSidebarOverlayOpen(false);
               )}
             </div>
             <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+              {view === "studio" && (
+  <button
+    onClick={newProject}
+    className="flex h-9 items-center gap-1.5 rounded-lg border border-border bg-secondary/40 px-2.5 text-xs font-semibold text-foreground transition hover:border-primary/40 hover:bg-secondary"
+  >
+    <Plus className="h-4 w-4" />
+    <span className="hidden sm:inline">New Project</span>
+  </button>
+)}
               {view === "studio" && lastCode && (
                 <button onClick={() => setGithubOpen(true)} className="flex h-9 items-center gap-1.5 rounded-lg border border-border bg-secondary/40 px-2.5 text-xs font-semibold text-foreground transition hover:border-primary/40 hover:bg-secondary">
                   <GithubIcon className="h-4 w-4" /><span className="hidden sm:inline">Connect to GitHub</span>
