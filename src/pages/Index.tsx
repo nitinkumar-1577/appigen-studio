@@ -1374,7 +1374,7 @@ const unsubscribeSession = subscribeToStudioSession(
     const existingMemory = (editMode || Boolean(baseCodeForEdit)) ? readProjectMemory(projectKey) : null;
     const recentChanges = (editMode || Boolean(baseCodeForEdit)) ? readProjectChangeRecords(projectKey) : [];
     const recentChangeSummary = recentChanges[0] ? formatChangeRecord(recentChanges[0]) : "";
-    const followUp = resolveFollowUp(trimmed, {
+    const followUp = resolveFollowUp(effectivePrompt, {
       hasExistingProject: Boolean(baseCodeForEdit),
       recentFiles: recentChanges.flatMap((record) => record.changedPaths),
       lastAssistantMessage: [...messages].reverse().find((message) => message.role === "assistant" && message.kind !== "activity")?.content,
@@ -1382,7 +1382,7 @@ const unsubscribeSession = subscribeToStudioSession(
     const followUpText = followUp.referencesPrevious
       ? `Follow-up references: ${followUp.undo ? "revert the previous change; " : ""}${followUp.mentionedFiles.length ? `target files: ${followUp.mentionedFiles.join(", ")}` : "the previous change"}${followUp.previousFileContext ? `\nPrevious assistant summary: ${followUp.previousFileContext}` : ""}`
       : "";
-    const memoryPreview = (editMode || Boolean(baseCodeForEdit)) ? updateProjectMemory({ existing: existingMemory, projectKey, projectId, title: projectTitle, understanding, messages: nextMessages, prompt: trimmed }) : null;
+    const memoryPreview = (editMode || Boolean(baseCodeForEdit)) ? updateProjectMemory({ existing: existingMemory, projectKey, projectId, title: projectTitle, understanding, messages: nextMessages,prompt: effectivePrompt }) : null;
     if (understanding) setBuildTimeline((current) => [...current, `Understood project: ${understanding.architectureSummary}`]);
     if (memoryPreview?.conflicts.length) setBuildTimeline((current) => [...current, `Potential conflicts detected: ${memoryPreview.conflicts[0]}`]);
     const clarificationNeeded = (memoryPreview?.clarifications ?? []).filter((item) => !/too ambiguous/i.test(item) || trimmed.split(/\s+/).length < 4);
@@ -1405,7 +1405,7 @@ abortRef.current = controller;
 activeRequestModeRef.current = questionMode ? "chat" : "build";
     setBuildFiles([]);
     setChangeBaseCode(baseCodeForEdit);
-    setWorkingCode(partialBuildRef.current?.prompt === trimmed ? partialBuildRef.current.code : baseCodeForEdit);
+    setWorkingCode(partialBuildRef.current?.prompt === effectivePrompt ? partialBuildRef.current.code : baseCodeForEdit);
     let buildProvider: string = generationSettings.provider;
     try {
       assertSupabaseFunctionAccess();
