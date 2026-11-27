@@ -187,6 +187,9 @@ const Index = () => {
   currentPromptRef.current = prompt;
   currentTitleRef.current = projectTitle;
   currentMessagesRef.current = messages;
+  const studioSessionHydratingRef = useRef(false);
+const lastStudioSessionSerializedRef = useRef<string | null>(null);const studioSessionHydratingRef = useRef(false);
+const lastStudioSessionSerializedRef = useRef<string | null>(null);
   const [versions, setVersions] = useState<LocalProjectVersion[]>(initialState.versions);
   const openedSavedProjectRef = useRef(false);
 
