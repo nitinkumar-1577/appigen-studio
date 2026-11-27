@@ -34,7 +34,8 @@ import { clearLocalVersions, clearProjectChangeRecords, clearProjectMemory, dele
 import { computeChangeRecord, formatChangeRecord } from "@/lib/projects/changeTracking";
 import { formatUnderstandingForPrompt, understandProject } from "@/lib/projects/projectUnderstanding";
 import { detectConflicts, formatMemoryForPrompt, updateProjectMemory } from "@/lib/projects/projectMemory";
-import { clearProjectVersions, createProjectVersion, deleteProject, deleteProjectVersion, loadProject, loadProjectVersions, persistActivity, persistProject, persistProjectThumbnail, subscribeToProjectSync } from "@/lib/projects/projectRepository";
+import { clearProjectVersions, createProjectVersion, deleteProject, deleteProjectVersion, enqueueBuildJob, loadLatestBuildJob, loadProject, loadProjectVersions, persistActivity, persistProject, persistProjectThumbnail, subscribeToBuildJob, subscribeToProjectSync, type DurableBuildJob } from "@/lib/projects/projectRepository";
+import { loadLatestAccountBuildJob, loadLatestActiveBuildJob, subscribeToActiveBuildJobs, loadStudioSession, saveStudioSession, subscribeToStudioSession } from "@/lib/projects/projectRepository";
 import { readAppPreferences, readGenerationSettings, recordActivity } from "@/lib/appPreferences";
 import { trackAnonymousUsage } from "@/lib/telemetry";
 import { analyzeIntent, intentSummary, isVagueNewAppPrompt, resolveFollowUp, responseLanguageInstruction } from "@/lib/projects/conversationIntelligence";
@@ -186,6 +187,8 @@ const Index = () => {
   currentPromptRef.current = prompt;
   currentTitleRef.current = projectTitle;
   currentMessagesRef.current = messages;
+  const studioSessionHydratingRef = useRef(false);
+  const lastStudioSessionSerializedRef = useRef<string | null>(null);
   const [versions, setVersions] = useState<LocalProjectVersion[]>(initialState.versions);
   const openedSavedProjectRef = useRef(false);
 
@@ -214,6 +217,7 @@ const studioWorkspaceSnapshotRef = useRef<{
   const [versionMenuOpen, setVersionMenuOpen] = useState(false);
   const [previewRuntime, setPreviewRuntime] = useState<{ status: "idle" | "pending" | "mounted" | "error"; message?: string; errorKind?: string }>({ status: "idle" });
   const abortRef = useRef<AbortController | null>(null);
+  const durableQueueAcceptedRef = useRef(false);
   const promptInputRef = useRef<HTMLTextAreaElement>(null);
   const previousUserRef = useRef(false);
   const [sidebarPinned, setSidebarPinned] = useState(true);
@@ -406,6 +410,294 @@ const navigateView = (next: ViewKey) => {
     // Start signed-in users with a clean Studio. Saved projects are opened explicitly from My Apps.
     setAccountProjectLoading(false);
   }, [authReady, session?.user.id]);
+  useEffect(() => {
+    if (!authReady || !session?.user.id) return;
+
+    let disposed = false;
+    const userId = session.user.id;
+
+    const restoreStudioSession = async () => {
+      studioSessionHydratingRef.current = true;
+
+      try {
+        const saved = await loadStudioSession(userId);
+        if (disposed) return;
+
+        if (!saved) return;
+
+        lastStudioSessionSerializedRef.current = JSON.stringify({
+          project_id: saved.project_id,
+          title: saved.title,
+          prompt: saved.prompt,
+          messages: saved.messages,
+        });
+
+        setProjectTitle(saved.title || "Untitled Project");
+        setTitleManuallyEdited(Boolean(saved.title && saved.title !== "Untitled Project"));
+        setPrompt(saved.prompt || "");
+        setMessages(saved.messages || []);
+
+        if (saved.project_id) {
+          const project = await loadProject(saved.project_id, userId);
+          if (disposed) return;
+
+          const projectVersions = await loadProjectVersions(project.id, userId);
+          if (disposed) return;
+
+          setProjectId(project.id);
+          setProjectUpdatedAt(project.updated_at);
+          setProjectTitle(project.title);
+          setPrompt(project.prompt);
+          setLastCode(project.code);
+          setWorkingCode(project.code);
+          setMessages(project.messages);
+          setVersions(projectVersions);
+          setDoc(buildDocFromPrompt(project.prompt, project.code));
+
+          setLastSyncedCode(project.code);
+          lastSyncedPromptRef.current = project.prompt;
+          lastSyncedTitleRef.current = project.title;
+          lastSyncedMessagesRef.current = JSON.stringify(project.messages);
+        } else {
+          setProjectId(null);
+          setLastCode(null);
+          setWorkingCode(null);
+          setVersions([]);
+          setDoc(buildDocFromPrompt(saved.prompt || ""));
+        }
+
+        promptDirtyRef.current = false;
+      } catch (error) {
+        console.warn("Could not restore Studio session", error);
+      } finally {
+        studioSessionHydratingRef.current = false;
+      }
+    };
+
+    void restoreStudioSession();
+
+    return () => {
+      disposed = true;
+      studioSessionHydratingRef.current = false;
+    };
+  }, [authReady, session?.user.id]);
+    useEffect(() => {
+    if (!authReady || !session?.user.id) return;
+
+    let disposed = false;
+    const userId = session.user.id;
+
+    const unsubscribe = subscribeToStudioSession(userId, (remote) => {
+      void (async () => {
+        const remoteMessages = Array.isArray(remote.messages) ? remote.messages : [];
+        const remoteSnapshot = JSON.stringify({
+          project_id: remote.project_id,
+          title: remote.title,
+          prompt: remote.prompt,
+          messages: remoteMessages,
+        });
+
+        if (remoteSnapshot === lastStudioSessionSerializedRef.current) return;
+        if (studioSessionHydratingRef.current) return;
+
+        const localSnapshot = JSON.stringify({
+          project_id: projectId,
+          title: currentTitleRef.current,
+          prompt: currentPromptRef.current,
+          messages: currentMessagesRef.current,
+        });
+
+        if (
+          lastStudioSessionSerializedRef.current !== null &&
+          localSnapshot !== lastStudioSessionSerializedRef.current
+        ) {
+          return;
+        }
+
+        try {
+          if (remote.project_id) {
+            const project = await loadProject(remote.project_id, userId);
+            if (disposed) return;
+
+            const projectVersions = await loadProjectVersions(project.id, userId);
+            if (disposed) return;
+
+            setProjectId(project.id);
+            setProjectUpdatedAt(project.updated_at);
+            setProjectTitle(project.title);
+            setPrompt(project.prompt);
+            setLastCode(project.code);
+            setWorkingCode(project.code);
+            setMessages(project.messages);
+            setVersions(projectVersions);
+            setDoc(buildDocFromPrompt(project.prompt, project.code));
+
+            setLastSyncedCode(project.code);
+            lastSyncedPromptRef.current = project.prompt;
+            lastSyncedTitleRef.current = project.title;
+            lastSyncedMessagesRef.current = JSON.stringify(project.messages);
+          } else {
+            setProjectId(null);
+            setProjectUpdatedAt(null);
+            setProjectTitle(remote.title || "Untitled Project");
+            setPrompt(remote.prompt || "");
+            setLastCode(null);
+            setWorkingCode(null);
+            setMessages(remoteMessages);
+            setVersions([]);
+            setDoc(buildDocFromPrompt(remote.prompt || ""));
+            setLastSyncedCode(null);
+            lastSyncedPromptRef.current = remote.prompt || "";
+            lastSyncedTitleRef.current = remote.title || "Untitled Project";
+            lastSyncedMessagesRef.current = JSON.stringify(remoteMessages);
+          }
+
+          lastStudioSessionSerializedRef.current = remoteSnapshot;
+          promptDirtyRef.current = false;
+        } catch (error) {
+          console.warn("Could not apply remote Studio session", error);
+        }
+      })();
+    });
+
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, [authReady, session?.user.id, projectId]);
+  
+  useEffect(() => {
+    if (!authReady || !session?.user.id) return;
+    if (studioSessionHydratingRef.current) return;
+
+    const userId = session.user.id;
+
+    const snapshot = JSON.stringify({
+      project_id: projectId,
+      title: projectTitle,
+      prompt,
+      messages,
+    });
+
+    if (snapshot === lastStudioSessionSerializedRef.current) return;
+
+    const timeoutId = window.setTimeout(() => {
+      if (studioSessionHydratingRef.current) return;
+
+      void saveStudioSession({
+        userId,
+        projectId,
+        title: projectTitle,
+        prompt,
+        messages,
+      })
+        .then(() => {
+          lastStudioSessionSerializedRef.current = snapshot;
+        })
+        .catch((error) => {
+          console.warn("Could not auto-save Studio session", error);
+        });
+    }, 600);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [authReady, session?.user.id, projectId, projectTitle, prompt, messages]);
+
+  useEffect(() => {
+    if (!authReady || !session?.user.id) return;
+
+    let disposed = false;
+    const restoringJobs = new Set<string>();
+
+    const restoreActiveBuild = async (job: DurableBuildJob) => {
+      if (disposed || !["queued", "running", "retrying"].includes(job.status)) return;
+
+      // This project is already open; its project-level listener handles updates.
+      if (projectId === job.project_id) return;
+
+      // Never replace another open project or unsaved local work.
+      const hasLocalWork =
+        Boolean(projectId) ||
+        Boolean(currentPromptRef.current.trim()) ||
+        Boolean(lastCode) ||
+        currentMessagesRef.current.length > 0;
+
+      if (hasLocalWork) return;
+      if (restoringJobs.has(job.id)) return;
+
+      restoringJobs.add(job.id);
+
+      try {
+        const project = await loadProject(job.project_id, session.user.id);
+        if (disposed) return;
+
+        const projectVersions = await loadProjectVersions(
+          job.project_id,
+          session.user.id,
+        );
+        if (disposed) return;
+
+        setProjectId(project.id);
+        setProjectUpdatedAt(project.updated_at);
+        setProjectTitle(project.title);
+        setTitleManuallyEdited(true);
+
+        setPrompt(project.prompt);
+        setLastCode(project.code);
+        setWorkingCode(job.working_code || project.code);
+        setMessages(project.messages);
+        setVersions(projectVersions);
+        setDoc(buildDocFromPrompt(project.prompt, project.code));
+
+        setLastSyncedCode(project.code);
+        lastSyncedPromptRef.current = project.prompt;
+        lastSyncedTitleRef.current = project.title;
+        lastSyncedMessagesRef.current = JSON.stringify(project.messages);
+        promptDirtyRef.current = false;
+
+        durableQueueAcceptedRef.current = true;
+        setIsBuilding(true);
+        setIsGeneratingApp(true);
+        setProgressStage(job.current_stage || "Building");
+
+        setBuildFiles(
+          Array.isArray(job.build_files)
+            ? job.build_files as unknown as BuildFileProgress[]
+            : [],
+        );
+
+        setBuildTimeline(
+          Array.isArray(job.build_timeline)
+            ? job.build_timeline.filter(
+                (item): item is string => typeof item === "string",
+              )
+            : [],
+        );
+      } catch (error) {
+        console.warn("Could not restore active build on this device", error);
+      }
+    };
+
+    const unsubscribe = subscribeToActiveBuildJobs(
+      session.user.id,
+      (job) => {
+        void restoreActiveBuild(job);
+      },
+    );
+
+    void loadLatestActiveBuildJob(session.user.id)
+      .then((job) => {
+        if (job) void restoreActiveBuild(job);
+      })
+      .catch((error) => {
+        console.warn("Could not find an active account build", error);
+      });
+
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, [authReady, session?.user.id, projectId, lastCode]);
+
 
   useEffect(() => {
     if (!authReady || !session?.user.id) return;
@@ -483,9 +775,114 @@ const navigateView = (next: ViewKey) => {
       unsubscribe();
     };
   }, [authReady, session?.user.id, projectId, lastCode, lastSyncedCode]);
-
   useEffect(() => {
-    if (!authReady || !user || !session?.user.id || !projectId || lastCode === null) return;
+    if (!authReady || !session?.user.id || !projectId) return;
+
+    let disposed = false;
+
+    const applyDurableJob = async (job: DurableBuildJob) => {
+      if (disposed) return;
+
+      const active = ["queued", "running", "retrying"].includes(job.status);
+
+      if (active) {
+        durableQueueAcceptedRef.current = true;
+        setIsBuilding(true);
+        setIsGeneratingApp(true);
+        setProgressStage(job.current_stage || "Building");
+
+        setBuildFiles(
+          Array.isArray(job.build_files)
+            ? job.build_files as unknown as BuildFileProgress[]
+            : []
+        );
+
+        setBuildTimeline(
+          Array.isArray(job.build_timeline)
+            ? job.build_timeline.filter((item): item is string => typeof item === "string")
+            : []
+        );
+
+        if (job.working_code) {
+          setWorkingCode(job.working_code);
+        }
+
+        return;
+      }
+
+      if (job.status === "completed") {
+        durableQueueAcceptedRef.current = false;
+        setIsBuilding(false);
+        setIsGeneratingApp(false);
+        setProgressStage("Completed");
+
+        try {
+          const remote = await loadProject(projectId, session!.user.id);
+          if (disposed) return;
+
+          setProjectTitle(remote.title);
+          setTitleManuallyEdited(true);
+          setPrompt(remote.prompt);
+          setLastCode(remote.code);
+          setWorkingCode(remote.code);
+          setLastSyncedCode(remote.code);
+          setProjectUpdatedAt(remote.updated_at);
+          lastSyncedPromptRef.current = remote.prompt;
+          lastSyncedTitleRef.current = remote.title;
+          lastSyncedMessagesRef.current = JSON.stringify(remote.messages);
+          setMessages(remote.messages);
+          setDoc(buildDocFromPrompt(remote.prompt, remote.code));
+
+          const remoteVersions = await loadProjectVersions(remote.id, session!.user.id);
+          if (!disposed) setVersions(remoteVersions);
+        } catch (error) {
+          if (!disposed) {
+            toast({
+              title: "Build completed, but project refresh failed",
+              description: error instanceof Error ? error.message : "Reload the project to see the final result.",
+              variant: "destructive",
+            });
+          }
+        }
+
+        return;
+      }
+
+      if (job.status === "failed" || job.status === "cancelled") {
+        durableQueueAcceptedRef.current = false;
+        setIsBuilding(false);
+        setIsGeneratingApp(false);
+        setProgressStage(job.status === "failed" ? "Failed" : "Stopped");
+
+        if (job.error) {
+          toast({
+            title: job.status === "failed" ? "Build failed" : "Build stopped",
+            description: job.error,
+            variant: "destructive",
+          });
+        }
+      }
+    };
+
+    const unsubscribe = subscribeToBuildJob(projectId, (job) => {
+      void applyDurableJob(job);
+    });
+
+    void loadLatestBuildJob(projectId, session.user.id)
+      .then((job) => {
+        if (job) void applyDurableJob(job);
+      })
+      .catch((error: unknown) => {
+        console.warn("Could not load the latest durable build job", error);
+      });
+
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, [authReady, session?.user.id, projectId]);
+  useEffect(() => {
+   if (!authReady || !user || !session?.user.id || !projectId || lastCode === null || durableQueueAcceptedRef.current) return;
     const timeout = window.setTimeout(() => {
       void persistProject({ projectId, userId: session.user.id, title: projectTitle, prompt, code: lastCode, messages, expectedUpdatedAt: projectUpdatedAt ?? undefined })
         .then(async (savedId) => {
@@ -734,6 +1131,18 @@ const navigateView = (next: ViewKey) => {
     const editMode = Boolean(lastCode) && !isNewAppPrompt(trimmed);
     const clarifyFirst = requiresClarification(trimmed, Boolean(lastCode));
     const questionMode = !intent.shouldBuild || clarifyFirst;
+    // Prevent a second device from starting another account-level build.
+if (!questionMode && session?.user?.id) {
+  const activeJob = await loadLatestActiveBuildJob(session.user.id);
+  if (activeJob) {
+    toast({
+      title: "A build is already active",
+      description: "Your existing build is running on this account. Open that project or wait for it to finish before starting another build.",
+      variant: "destructive",
+    });
+    return;
+  }
+}
     const generationSettings = readGenerationSettings();
     const buildStartedAt = Date.now();
     const activityId = createActivityId();
@@ -798,6 +1207,7 @@ const navigateView = (next: ViewKey) => {
     }
     const understandingText = understanding ? formatUnderstandingForPrompt(understanding) : "";
     const memoryText = memoryPreview ? formatMemoryForPrompt(memoryPreview, understanding) : "";
+    durableQueueAcceptedRef.current = false;
     setIsBuilding(true);
     setIsGeneratingApp(!questionMode);
     let generatedPreview = false;
@@ -809,6 +1219,70 @@ const navigateView = (next: ViewKey) => {
     let buildProvider: string = generationSettings.provider;
     try {
       assertSupabaseFunctionAccess();
+            if (!questionMode && session?.user?.id) {
+        const durableTitle = editMode
+          ? projectTitle
+          : titleManuallyEdited
+            ? projectTitle
+            : suggestProjectTitle(trimmed);
+
+        const durableProjectId = await persistProject({
+          projectId: editMode ? projectId : null,
+          userId: session.user.id,
+          title: durableTitle,
+          prompt: trimmed,
+          code: baseCodeForEdit ?? "",
+          messages: nextMessages,
+        });
+
+        setProjectId(durableProjectId);
+
+        const queuedMessage: ChatMessage = {
+          role: "assistant",
+          content: "Build accepted and queued. The background worker will continue generation.",
+          timestamp: Date.now(),
+        };
+
+        const queuedMessages = [...nextMessages, queuedMessage];
+
+        await enqueueBuildJob({
+          userId: session.user.id,
+          projectId: durableProjectId,
+          requestPayload: {
+            prompt: trimmed,
+            provider: generationSettings.provider,
+            model: generationSettings.model,
+            existingProject: editMode,
+            code: baseCodeForEdit ?? "",
+            conversation: baseMessages.slice(-12),
+            projectUnderstanding: understandingText,
+            projectMemory: memoryText,
+            changeSummary: recentChangeSummary,
+            responseLanguage: intent.responseLanguage,
+            intent: intent.intent,
+            followUp: followUpText,
+            system: [
+              generationSettings.systemInstructions,
+              responseLanguageInstruction(intent.responseLanguage),
+            ].filter(Boolean).join("\n\n"),
+            temperature: generationSettings.temperature,
+            topP: generationSettings.topP,
+            safety: generationSettings.safety,
+            title: durableTitle,
+            messages: queuedMessages,
+          },
+        });
+durableQueueAcceptedRef.current = true;
+        setMessages(queuedMessages);
+        setPrompt("");
+        setProgressStage("Queued");
+        setBuildTimeline(["Build successfully added to background queue"]);
+        toast({
+          title: "Build queued",
+          description: "Your project is saved. Background generation has been started.",
+        });
+        return;
+      }
       if (questionMode) {
         setProgressStage("Planning");
         const { data: chatData, error: chatError } = await supabase.functions.invoke("Appigen", {
@@ -1242,22 +1716,22 @@ setSidebarOverlayOpen(false);
         { role: "assistant", content: `Build failed: ${msg}`, timestamp: Date.now() },
         { role: "assistant", content: failedActivity.title, kind: "activity", title: failedActivity.title, explanation: resolvedExplanation, activity: failedActivity, timestamp: Date.now() },
       ]);
-      toast({ title: staleGenerator ? "Generator update required" : "Build failed", description: msg, variant: "destructive" });
-    } finally {
-      abortRef.current = null;
-      setIsBuilding(false);
-      setIsGeneratingApp(false);
-      setProgressStage("Planning");
-      if (!generatedPreview && !lastCode) setMobileStudioTab("chat");
-      // Return the caret to the prompt once the build settles, even if the
-      // workspace layout remounted the chat panel during generation.
-      window.setTimeout(() => {
-        const desktop = window.matchMedia("(min-width: 768px)").matches;
-        if (desktop || mobileStudioTab === "chat") promptInputRef.current?.focus();
-      }, 0);
+         } finally {
+      if (!durableQueueAcceptedRef.current) {
+        abortRef.current = null;
+        setIsBuilding(false);
+        setIsGeneratingApp(false);
+        setProgressStage("Planning");
+
+        if (!generatedPreview && !lastCode) setMobileStudioTab("chat");
+
+        window.setTimeout(() => {
+          const desktop = window.matchMedia("(min-width: 768px)").matches;
+          if (desktop || mobileStudioTab === "chat") promptInputRef.current?.focus();
+        }, 0);
+      }
     }
   };
-
   const stopBuild = () => abortRef.current?.abort();
   const handlePromptChange = (value: string) => {
     promptDirtyRef.current = true;

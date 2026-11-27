@@ -188,7 +188,30 @@ function getSafetyViolation(prompt: string, thresholds: SafetyThresholds): strin
 function numericSetting(value: unknown, fallback: number, min: number, max: number): number {
   return typeof value === "number" && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
 }
+export function ensureAppStylesImport(source: string): string {
+  const  s = (source ?? "").replace(/\r\n/g, "\n");
 
+  const appMarker = /^\s*\/\/\s*FILE:\s*src\/App\.(?:tsx|jsx)\s*$/m.exec(s);
+  const hasAppStyles = /^\s*\/\/\s*FILE:\s*src\/styles\.css\s*$/m.test(s);
+
+  if (!appMarker || !hasAppStyles) return s;
+
+  const appStart = appMarker.index + appMarker[0].length;
+  const nextFileMarker = s.indexOf("\n// FILE:", appStart);
+  const appEnd = nextFileMarker < 0 ? s.length : nextFileMarker;
+  const appSource = s.slice(appStart, appEnd);
+
+  if (/^\s*import\s*["']\.\/styles\.css["']\s*;?/m.test(appSource)) {
+    return s;
+  }
+
+  const clientDirective = appSource.match(/^\s*["']use client["'];?\s*/);
+  const insertAt = appStart + (clientDirective?.[0].length ?? 0);
+
+  return s.slice(0, insertAt)
+    + '\nimport "./styles.css";\n'
+    + s.slice(insertAt);
+}
 function cleanCode(raw: string): string {
   let s = (raw ?? "").trim();
   // strip fenced blocks
@@ -206,7 +229,7 @@ function cleanCode(raw: string): string {
     // Remove any stray ReactDOM.createRoot calls (loader handles mounting)
     s = s.replace(/ReactDOM\s*\.\s*createRoot\s*\([\s\S]*?\)\s*\.\s*render\s*\([\s\S]*?\)\s*;?/g, "");
     s = s.replace(/ReactDOM\s*\.\s*render\s*\([\s\S]*?\)\s*;?/g, "");
-    return s.trim();
+ return ensureAppStylesImport(s).trim();
   }
 
   // Legacy single-file: keep the old behavior (strip modules, append render).
@@ -1402,7 +1425,12 @@ async function reviewAndImproveCode(
     throw new ProviderRequestError(provider, undefined, "INVALID_RESPONSE", "review found issues but supplied no focused file repairs");
   }
   const delta = Object.entries(updates).map(([path, content]) => `// FILE: ${path}\n${content}`).join("\n\n");
-  return { code: delta ? mergeProjectFiles(code, delta) : code, findings, changedPaths: Object.keys(updates) };
+ const mergedCode = delta ? mergeProjectFiles(code, delta) : code;
+return {
+  code: ensureAppStylesImport(mergedCode),
+  findings,
+  changedPaths: Object.keys(updates),
+};
 }
 
 async function answerProjectQuestion(
@@ -1651,16 +1679,46 @@ Deno.serve(async (req) => {
       }
 
       const requireArchitecture = body.existingProject !== true;
-      const reviewed = await executeProviderFailover(providers, provider, async (candidate, timeoutMs) => {
-        const reviewResult = await reviewAndImproveCode(providers, candidate, prompt, code, body.plan, body.model, timeoutMs);
-        const reviewedCode = reviewResult.code;
-        const reviewValidation = validateGeneratedCode(reviewedCode, requireArchitecture) || (requireArchitecture ? validatePlannedFiles(reviewedCode, body.plan) : null);
-        if (reviewValidation) throw new Error(`${providerLabel(candidate)} review returned invalid project code: ${reviewValidation}`);
-        const reviewModelUsed = modelForTask(getProviderConfig(candidate).models.map((entry) => entry.id), typeof body.model === "string" ? body.model : undefined, getDefaultModel(candidate), "review");
-        return { code: reviewedCode, repairAttempted: reviewResult.changedPaths.length > 0, findings: reviewResult.findings, changedPaths: reviewResult.changedPaths, model: reviewModelUsed };
-      });
+   
+      let reviewed;
+      try {
+        reviewed = await executeProviderFailover(providers, provider, async (candidate, timeoutMs) => {
+          const reviewResult = await reviewAndImproveCode(providers, candidate, prompt, code, body.plan, body.model, timeoutMs);
+          const reviewedCode = reviewResult.code;
+          const reviewValidation = validateGeneratedCode(reviewedCode, requireArchitecture) || (requireArchitecture ? validatePlannedFiles(reviewedCode, body.plan) : null);
+          if (reviewValidation) throw new Error(`${providerLabel(candidate)} review returned invalid project code: ${reviewValidation}`);
+          const reviewModelUsed = modelForTask(getProviderConfig(candidate).models.map((entry) => entry.id), typeof body.model === "string" ? body.model : undefined, getDefaultModel(candidate), "review");
+          return { code: reviewedCode, repairAttempted: reviewResult.changedPaths.length > 0, findings: reviewResult.findings, changedPaths: reviewResult.changedPaths, model: reviewModelUsed };
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const providersUnavailable = /\[(?:INVALID_CREDENTIALS|PERMISSION_DENIED|QUOTA_EXCEEDED|RATE_LIMITED|MODEL_UNAVAILABLE|PROVIDER_ERROR|REQUEST_REJECTED|TIMEOUT|NETWORK_ERROR)\]/i.test(message);
+
+        if (!providersUnavailable) throw error;
+
+        const fallbackValidation = validateGeneratedCode(code, requireArchitecture)
+          || (requireArchitecture ? validatePlannedFiles(code, body.plan) : null);
+
+        if (fallbackValidation) {
+          throw new Error(`AI review unavailable and local validation failed: ${fallbackValidation}`);
+        }
+
+        console.warn("AppiGen review skipped because all providers were unavailable:", message.slice(0, 500));
+
+        return jsonResponse({
+          code,
+          repairAttempted: false,
+          findings: ["AI review was skipped because all configured providers were unavailable. Local validation passed."],
+          changedPaths: [],
+          reviewSkipped: true,
+          reviewWarning: "AI review unavailable; locally validated project was preserved.",
+          requestedProvider: provider,
+          mode,
+        });
+      }
+
       return jsonResponse({ code: reviewed.value.code, repairAttempted: reviewed.value.repairAttempted, findings: reviewed.value.findings, changedPaths: reviewed.value.changedPaths, provider: `${reviewed.provider}:${reviewed.value.model}`, requestedProvider: provider, mode });
-    }
+   }
 
     // build or edit mode
     const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";

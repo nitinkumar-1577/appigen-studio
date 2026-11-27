@@ -13,6 +13,7 @@ describe("Appigen v126 provider and review behavior", () => {
   let relevantProjectSource: (source: string, prompt: string) => string;
   let outputTokenBudget: (provider: string, inputCharacters?: number) => number;
   let validatePlannedFiles: (source: string, plan: unknown) => string | null;
+  let ensureAppStylesImport: (source: string) => string;
   beforeAll(async () => {
     (globalThis as typeof globalThis & {
       Deno?: { env: { get: () => undefined }; serve: ReturnType<typeof vi.fn> };
@@ -20,8 +21,43 @@ describe("Appigen v126 provider and review behavior", () => {
       env: { get: () => undefined },
       serve: vi.fn(),
     };
-  ({ providerErrorCode, providerErrorMetadata, incrementalReviewResponse, splitPromptIntoChunks, mergeProjectFiles, providerRequestBody, providerFallbackOrder, executeProviderFailover, isProviderUnavailable, relevantProjectSource, outputTokenBudget, validatePlannedFiles } = await import("./index.ts"));
+  ({ providerErrorCode, providerErrorMetadata, incrementalReviewResponse, splitPromptIntoChunks, mergeProjectFiles, providerRequestBody, providerFallbackOrder, executeProviderFailover, isProviderUnavailable, relevantProjectSource, outputTokenBudget, validatePlannedFiles,ensureAppStylesImport } = await import("./index.ts"));
   });
+  it("restores the app stylesheet import when it is missing", () => {
+  const source = [
+    "// FILE: src/App.tsx",
+    "export default function App() { return null; }",
+    "// FILE: src/styles.css",
+    "body { margin: 0; }",
+  ].join("\n");
+
+  const result = ensureAppStylesImport(source);
+
+  expect(result).toContain('import "./styles.css";');
+  expect(result).toContain("// FILE: src/styles.css");
+});
+
+it("does not duplicate an existing app stylesheet import", () => {
+  const source = [
+    "// FILE: src/App.tsx",
+    'import "./styles.css";',
+    "export default function App() { return null; }",
+    "// FILE: src/styles.css",
+    "body { margin: 0; }",
+  ].join("\n");
+
+  const result = ensureAppStylesImport(source);
+  expect((result.match(/import ["']\.\/styles\.css["']/g) ?? []).length).toBe(1);
+});
+
+it("does not add an import when the app stylesheet file is absent", () => {
+  const source = [
+    "// FILE: src/App.tsx",
+    "export default function App() { return null; }",
+  ].join("\n");
+
+  expect(ensureAppStylesImport(source)).not.toContain('import "./styles.css";');
+});
   it("rejects generation when any planned file is missing", () => {
     const plan = {
       fileBlueprint: [

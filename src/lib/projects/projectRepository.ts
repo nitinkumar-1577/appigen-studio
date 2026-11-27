@@ -1,4 +1,4 @@
-import type { Json } from "@/integrations/supabase/types";
+import type { Database, Json } from "@/integrations/supabase/types";
 import { supabase } from "@/integrations/supabase/client";
 import type { ActivityEntry } from "@/lib/appPreferences";
 import { formatFileMarkers, parseFileMarkers } from "@/lib/preview/parseFileMarkers";
@@ -31,7 +31,122 @@ export type ProjectSummary = Pick<
 >;
 
 const toJson = (value: unknown): Json => value as Json;
+export const enqueueBuildJob = async (input: {
+  userId: string;
+  projectId: string;
+  requestPayload: Record<string, unknown>;
+}) => {
+  const { data, error } = await supabase
+    .from("build_jobs")
+    .insert({
+      user_id: input.userId,
+      project_id: input.projectId,
+      request_payload: toJson(input.requestPayload),
+    })
+    .select("*")
+    .single();
 
+  if (error) throw error;
+  return data;
+};
+export type DurableBuildJob = Database["public"]["Tables"]["build_jobs"]["Row"];
+
+let durableBuildJobChannelCounter = 0;
+
+export const loadLatestBuildJob = async (projectId: string, userId: string) => {
+  const { data, error } = await supabase
+    .from("build_jobs")
+    .select("*")
+    .eq("project_id", projectId)
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+};
+
+export const loadLatestActiveBuildJob = async (userId: string) => {
+  const { data, error } = await supabase
+    .from("build_jobs")
+    .select("*")
+    .eq("user_id", userId)
+    .in("status", ["queued", "running", "retrying"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+};
+
+export const loadLatestAccountBuildJob = async (userId: string) => {
+  const { data, error } = await supabase
+    .from("build_jobs")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+};
+
+export const subscribeToActiveBuildJobs = (
+  userId: string,
+  onChange: (job: DurableBuildJob) => void,
+) => {
+  const channel = supabase
+    .channel(`account-build-jobs-${userId}-${++durableBuildJobChannelCounter}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "build_jobs",
+        filter: `user_id=eq.${userId}`,
+      },
+      (payload) => {
+        const job = payload.new as DurableBuildJob;
+        if (job?.id && job.user_id === userId) {
+          onChange(job);
+        }
+      },
+    )
+    .subscribe();
+
+  return () => {
+    void supabase.removeChannel(channel);
+  };
+};
+
+export const subscribeToBuildJob = (
+  projectId: string,
+  onChange: (job: DurableBuildJob) => void,
+) => {
+  const channel = supabase
+    .channel(`build-job-${projectId}-${++durableBuildJobChannelCounter}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "build_jobs",
+        filter: `project_id=eq.${projectId}`,
+      },
+      (payload) => {
+        const job = payload.new as DurableBuildJob;
+        if (job?.id) onChange(job);
+      },
+    )
+    .subscribe();
+
+  return () => {
+    void supabase.removeChannel(channel);
+  };
+};
 export const extractProjectFiles = (code: string): Record<string, string> => {
   const parsed = parseFileMarkers(code);
   return parsed?.files ?? { "src/App.tsx": code };
@@ -323,7 +438,87 @@ export const deleteProject = async (projectId: string, userId: string) => {
 };
 
 export const softDeleteProject = deleteProject;
+export interface StudioSession {
+  user_id: string;
+  project_id: string | null;
+  title: string;
+  prompt: string;
+  messages: ChatMessage[];
+  active_build_job_id: string | null;
+  updated_at: string;
+}
 
+export const loadStudioSession = async (
+  userId: string,
+): Promise<StudioSession | null> => {
+  const { data, error } = await supabase
+   .from("studio_sessions")
+    .select("*")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+
+  return {
+    ...data,
+    messages: Array.isArray(data.messages) ? data.messages : [],
+  } as StudioSession;
+};
+
+export const saveStudioSession = async (input: {
+  userId: string;
+  projectId: string | null;
+  title: string;
+  prompt: string;
+  messages: ChatMessage[];
+  activeBuildJobId?: string | null;
+}): Promise<void> => {
+  const { error } = await supabase
+.from("studio_sessions")
+    .upsert(
+      {
+        user_id: input.userId,
+        project_id: input.projectId,
+        title: input.title,
+        prompt: input.prompt,
+        messages: toJson(input.messages),
+        active_build_job_id: input.activeBuildJobId ?? null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id" },
+    );
+
+  if (error) throw error;
+};
+
+export const subscribeToStudioSession = (
+  userId: string,
+  onChange: (session: StudioSession) => void,
+) => {
+  const channel = supabase
+    .channel(`studio-session-${userId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "studio_sessions",
+        filter: `user_id=eq.${userId}`,
+      },
+      (payload) => {
+        if (payload.new && "user_id" in payload.new) {
+          const session = payload.new as StudioSession;
+          if (session.user_id === userId) onChange(session);
+        }
+      },
+    )
+    .subscribe();
+
+  return () => {
+    void supabase.removeChannel(channel);
+  };
+};
 export type ProjectSyncEvent = {
   refreshProjects: () => Promise<void>;
   refreshProject: (projectId: string) => Promise<void>;
