@@ -571,6 +571,26 @@ export const PromptPanel = ({
   const [recording, setRecording] = useState(false);
   const [ideaIndex, setIdeaIndex] = useState(0);
   const [animatedPlaceholder, setAnimatedPlaceholder] = useState("");
+  const [thinkingStage, setThinkingStage] = useState(0);
+
+useEffect(() => {
+  if (!isChatThinking) {
+    setThinkingStage(0);
+    return;
+  }
+
+  const timer = window.setInterval(() => {
+    setThinkingStage((current) => (current + 1) % 3);
+  }, 1800);
+
+  return () => window.clearInterval(timer);
+}, [isChatThinking]);
+
+const thinkingLabels = [
+  "Understanding your question",
+  "Preparing a helpful response",
+  "Putting the answer together",
+];
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(() => new Set());
 
   const fileRef = useRef<HTMLInputElement>(null);
