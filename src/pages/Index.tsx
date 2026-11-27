@@ -1246,7 +1246,8 @@ const unsubscribeSession = subscribeToStudioSession(
     });
 
     const generationSettings = readGenerationSettings();
-    let intent = fallbackIntent;
+      let intent = fallbackIntent;
+    let effectivePrompt = trimmed;
 
     try {
       const { data, error } = await supabase.functions.invoke("Appigen", {
@@ -1267,12 +1268,43 @@ const unsubscribeSession = subscribeToStudioSession(
 
       const result = data?.understanding;
       if (result && typeof result.shouldBuild === "boolean") {
+        const allowedIntents = [
+          "general_conversation",
+          "question",
+          "explanation",
+          "app_planning",
+          "new_app_creation",
+          "existing_project_edit",
+          "follow_up_modification",
+          "bug_fixing",
+          "clarification",
+          "undo_revert",
+          "feature_discussion",
+        ] as const;
+
         intent = {
           ...fallbackIntent,
+          intent: allowedIntents.includes(result.intent)
+            ? result.intent
+            : fallbackIntent.intent,
           shouldBuild: result.shouldBuild,
+          isQuestion: result.isQuestion === true,
           needsClarification: result.needsClarification === true,
         };
+
+        if (
+          typeof result.resolvedPrompt === "string" &&
+          result.resolvedPrompt.trim()
+        ) {
+          effectivePrompt = result.resolvedPrompt.trim();
+        }
       }
+    } catch (error) {
+      console.warn(
+        "AI conversation understanding unavailable; using local fallback:",
+        error,
+      );
+    }
     } catch (error) {
       console.warn(
         "AI conversation understanding unavailable; using local fallback:",
