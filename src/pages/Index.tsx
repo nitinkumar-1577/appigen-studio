@@ -1159,6 +1159,7 @@ if (!questionMode && session?.user?.id) {
     let buildMessages = nextMessages;
     let versionsAfterBuild = versions;
     setMessages(nextMessages);
+    setPrompt("");
     if (clarifyFirst) {
       setMessages([...nextMessages, { role: "assistant", content: CLARIFY_NEW_APP, timestamp: Date.now() }]);
       setPrompt("");
