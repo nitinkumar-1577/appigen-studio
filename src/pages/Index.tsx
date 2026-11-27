@@ -641,7 +641,7 @@ const navigateView = (next: ViewKey) => {
         setProjectTitle(project.title);
         setTitleManuallyEdited(true);
 
-        setPrompt(project.prompt);
+      setPrompt("");
         setLastCode(project.code);
         setWorkingCode(job.working_code || project.code);
         setMessages(project.messages);
@@ -709,7 +709,7 @@ const navigateView = (next: ViewKey) => {
         const remoteChanged = remote.code !== lastSyncedCode;
         const localAlsoChanged = lastCode !== lastSyncedCode;
         const remotePromptChanged = remote.prompt !== lastSyncedPromptRef.current;
-        const localPromptChanged = currentPromptRef.current !== lastSyncedPromptRef.current;
+   const localPromptChanged = promptDirtyRef.current;
         const remoteTitleChanged = remote.title !== lastSyncedTitleRef.current;
         const localTitleChanged = currentTitleRef.current !== lastSyncedTitleRef.current;
         const remoteMessagesChanged = JSON.stringify(remote.messages) !== lastSyncedMessagesRef.current;
@@ -726,7 +726,7 @@ const navigateView = (next: ViewKey) => {
         }
         setProjectTitle(remote.title);
         setTitleManuallyEdited(remote.title !== "Untitled Project");
-        setPrompt(remote.prompt);
+      
         setLastCode(remote.code);
         setLastSyncedCode(remote.code);
         setProjectUpdatedAt(remote.updated_at);
@@ -822,7 +822,7 @@ const navigateView = (next: ViewKey) => {
 
           setProjectTitle(remote.title);
           setTitleManuallyEdited(true);
-          setPrompt(remote.prompt);
+        
           setLastCode(remote.code);
           setWorkingCode(remote.code);
           setLastSyncedCode(remote.code);
@@ -1163,6 +1163,7 @@ if (!questionMode && session?.user?.id) {
     if (clarifyFirst) {
       setMessages([...nextMessages, { role: "assistant", content: CLARIFY_NEW_APP, timestamp: Date.now() }]);
       setPrompt("");
+      promptDirtyRef.current = false;
       setActivityStartedAt(undefined);
       setActivityExplanation(undefined);
       setBuildTimeline([]);
@@ -2326,7 +2327,7 @@ setSidebarOverlayOpen(false);
                       promptDirtyRef.current = false;
                       setProjectTitle(project.title);
                       setTitleManuallyEdited(true);
-                      setPrompt(project.prompt);
+                     setPrompt("");
                       setLastCode(project.code);
                       setWorkingCode(project.code);
                       setMessages(project.messages);
