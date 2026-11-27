@@ -1018,7 +1018,7 @@ const thinkingLabels = isBuildThinking
                 </article>
               );
             })}
-           {isChatThinking && (
+          {(isChatThinking || isBuildThinking) && (
               <div
                 className="mr-auto flex items-center gap-2 px-2 py-2 text-xs text-muted-foreground"
                 role="status"
