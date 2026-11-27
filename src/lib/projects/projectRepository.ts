@@ -118,6 +118,36 @@ export const resumeBuildJob = async (jobId: string, userId: string) => {
   if (error) throw error;
   return data;
 };
+export const saveBuildCheckpoint = async (
+  jobId: string,
+  userId: string,
+  checkpoint: {
+    workingCode: string;
+    buildFiles: BuildFileProgress[];
+    buildTimeline: string[];
+    currentStage: string;
+  },
+) => {
+  const { data, error } = await supabase
+    .from("build_jobs")
+    .update({
+      working_code: checkpoint.workingCode,
+      build_files: toJson(checkpoint.buildFiles),
+      build_timeline: toJson(checkpoint.buildTimeline),
+      current_stage: checkpoint.currentStage,
+      heartbeat_at: new Date().toISOString(),
+    })
+    .eq("id", jobId)
+    .eq("user_id", userId)
+    .eq("status", "paused")
+    .select("id")
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) {
+    throw new Error("Build checkpoint could not be saved.");
+  }
+};
 export const loadLatestAccountBuildJob = async (userId: string) => {
   const { data, error } = await supabase
     .from("build_jobs")
