@@ -2056,8 +2056,7 @@ setSidebarOverlayOpen(false);
               )}
               {view === "studio" && (
                 <span className="hidden rounded-md border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-primary sm:inline">
-                  {titleManuallyEdited ? "Draft" : "Auto title"}
-                </span>
+{titleManuallyEdited && projectTitle !== "Untitled Project" ? "Draft" : "Auto title"}                </span>
               )}
             </div>
             <div className="flex shrink-0 items-center gap-1 sm:gap-2">
