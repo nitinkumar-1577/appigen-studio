@@ -52,7 +52,7 @@ export const enqueueBuildJob = async (input: {
 export type DurableBuildJob = Database["public"]["Tables"]["build_jobs"]["Row"];
 
 let durableBuildJobChannelCounter = 0;
-
+let studioSessionChannelCounter = 0;
 export const loadLatestBuildJob = async (projectId: string, userId: string) => {
   const { data, error } = await supabase
     .from("build_jobs")
@@ -499,7 +499,7 @@ export const subscribeToStudioSession = (
   onChange: (session: StudioSession) => void,
 ) => {
   const channel = supabase
-    .channel(`studio-session-${userId}`)
+   .channel(`studio-session-${userId}-${++studioSessionChannelCounter}`)
     .on(
       "postgres_changes",
       {
