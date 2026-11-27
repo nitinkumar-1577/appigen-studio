@@ -1961,7 +1961,7 @@ Deno.serve(async (req) => {
           .map((turn) => ({ role: turn.role as "user" | "assistant", content: (turn.content as string).slice(0, 2400) }))
         : [];
       const contextBrief = projectContextBrief(code || undefined, prompt, body);
-      const response = await answerProjectQuestion(
+           return await answerProjectQuestionStream(
         providers,
         provider,
         prompt,
@@ -1969,7 +1969,16 @@ Deno.serve(async (req) => {
         conversation,
         typeof body.system === "string" ? body.system.slice(0, 4000) : undefined,
         typeof body.model === "string" ? body.model : undefined,
-        { ...contextBrief, responseLanguage: typeof body.responseLanguage === "string" ? body.responseLanguage : undefined, intent: typeof body.intent === "string" ? body.intent : undefined },
+        {
+          ...contextBrief,
+          responseLanguage: typeof body.responseLanguage === "string"
+            ? body.responseLanguage
+            : undefined,
+          intent: typeof body.intent === "string"
+            ? body.intent
+            : undefined,
+        },
+        req.signal,
       );
       return jsonResponse({ ...response, mode, intent: body.intent ?? null, responseLanguage: body.responseLanguage ?? null, requestedProvider: provider });
     }
