@@ -1887,6 +1887,36 @@ setPrompt("");
         description: "Static/project validation passed. Awaiting live preview verification; errors will be reported if detected.",
       });
     } catch (err: unknown) {
+            if (questionMode) {
+        const wasAborted =
+          (err instanceof Error && err.name === "AbortError") ||
+          controller.signal.aborted;
+
+        console.error("Chat response failed:", err);
+
+        const message = wasAborted
+          ? "Response stopped. You can send another message."
+          : await getFunctionErrorMessage(
+              err,
+              "I couldn't complete that response."
+            );
+
+        setMessages((current) => [
+          ...current,
+          {
+            role: "assistant",
+            content: message,
+            timestamp: Date.now(),
+          },
+        ]);
+
+        toast({
+          title: wasAborted ? "Response stopped" : "Chat response failed",
+          description: message,
+        });
+
+        return;
+      }
       setSidebarHidden(false);
 setSidebarPinned(true);
 setSidebarOverlayOpen(false); 
