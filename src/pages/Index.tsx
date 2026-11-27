@@ -1241,19 +1241,53 @@ const intent = analyzeIntent(trimmed, {
   conversation: messages.slice(-12).map(({ role, content }) => ({
     role,
     content,
-  })),
-});
-    const editMode = Boolean(lastCode) && !isNewAppPrompt(trimmed);
-    const clarifyFirst = requiresClarification(trimmed, Boolean(lastCode));
-    const questionMode = !intent.shouldBuild || clarifyFirst;
-    
-         const generationSettings = readGenerationSettings();
-    const buildStartedAt = Date.now();
+    const fallbackIntent = analyzeIntent(trimmed, {
+      hasExistingProject: Boolean(lastCode),
+      conversation: messages.slice(-12).map(({ role, content }) => ({
+        role,
+        content,
+      })),
+    });
 
-    // Show progress immediately while checking for another active build.
-    if (!questionMode) {
-      setIsBuilding(true);
-      setIsGeneratingApp(true);
+    const generationSettings = readGenerationSettings();
+    let intent = fallbackIntent;
+
+    try {
+      const { data, error } = await supabase.functions.invoke("Appigen", {
+        body: {
+          mode: "understand",
+          provider: generationSettings.provider,
+          model: generationSettings.model,
+          prompt: trimmed,
+          code: lastCode ?? "",
+          conversation: messages.slice(-12).map(({ role, content }) => ({
+            role,
+            content,
+          })),
+        },
+      });
+
+      if (error) throw error;
+
+      const result = data?.understanding;
+      if (result && typeof result.shouldBuild === "boolean") {
+        intent = {
+          ...fallbackIntent,
+          shouldBuild: result.shouldBuild,
+          needsClarification: result.needsClarification === true,
+        };
+      }
+    } catch (error) {
+      console.warn(
+        "AI conversation understanding unavailable; using local fallback:",
+        error,
+      );
+    }
+
+    const editMode = Boolean(lastCode) && !isNewAppPrompt(trimmed);
+    const clarifyFirst = intent.needsClarification;
+    const questionMode = !intent.shouldBuild || clarifyFirst;
+    const buildStartedAt = Date.now();
     }
 
     // Prevent duplicate account-level builds.
