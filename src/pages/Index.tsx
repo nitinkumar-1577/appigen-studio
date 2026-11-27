@@ -1464,9 +1464,10 @@ setPrompt("");
         const reader = chatResponse.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
-        let streamedAnswer = "";
-        let streamProvider = "";
-        const assistantTimestamp = Date.now();
+       let streamedAnswer = "";
+let streamProvider = "";
+let streamCompleted = false;
+const assistantTimestamp = Date.now();
 
         const processStreamLine = (line: string) => {
           if (!line.startsWith("data:")) return;
