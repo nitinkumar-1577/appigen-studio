@@ -1038,6 +1038,7 @@ export const PromptPanel = ({
               <button
                 key={idea}
                 type="button"
+                onMouseDown={(event) => event.preventDefault()}
              onClick={() => {
   onPromptChange(`Build ${idea.charAt(0).toLowerCase()}${idea.slice(1)}`);
   focusPrompt();
