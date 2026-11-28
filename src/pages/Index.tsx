@@ -1803,6 +1803,24 @@ const patchPlanEvent = (
           if (event.status === "generating") {
             setBuildTimeline((current) => [...current, `Creating ${event.path}`]);
             setProgressStage(`Generating ${event.path}`);
+            const existingFileEventId = fileEventIds.get(event.path);
+
+if (existingFileEventId) {
+  patchPlanEvent(existingFileEventId, {
+    status: "running",
+    detail: "Generating file content.",
+  });
+} else {
+  const fileEventId = addPlanEvent({
+    kind: "file",
+    status: "running",
+    title: `Creating ${event.path}`,
+    detail: "Generating file content.",
+    filePath: event.path,
+  });
+
+  fileEventIds.set(event.path, fileEventId);
+}
           } else if (event.status === "validating") {
             setBuildTimeline((current) => [...current, `Validating ${event.path}`]);
             setProgressStage(`Validating ${event.path}`);
