@@ -2692,47 +2692,78 @@ setMessages((current) => {
         validation: [],
         errors: [msg],
       };
-         setMessages((current) => [
-        ...current.map((message) =>
-          message.timestamp === planMessageTimestamp && message.events
-            ? {
-                ...message,
-                events: [
-                  ...message.events.map((event) =>
-                    event.status === "running" || event.status === "pending"
-                      ? {
-                          ...event,
-                          status: "error" as const,
-                          detail: msg,
-                          endedAt: Date.now(),
-                        }
-                      : event,
-                  ),
-                  createBuildActivityEvent({
-                    kind: "error",
-                    status: "error",
-                    title: "Build failed",
-                    detail: msg,
-                  }),
-                ],
-              }
-            : message,
-        ),
-        {
-          role: "assistant",
-          content: `Build failed: ${msg}`,
-          timestamp: Date.now(),
-        },
-        {
-          role: "assistant",
-          content: failedActivity.title,
-          kind: "activity",
-          title: failedActivity.title,
-          explanation: resolvedExplanation,
-          activity: failedActivity,
-          timestamp: Date.now(),
-        },
-      ]);
+ setMessages((current) => {
+  const nextMessages = [
+    ...current.map((message) =>
+      message.timestamp === planMessageTimestamp && message.events
+        ? {
+            ...message,
+            events: [
+              ...message.events.map((event) =>
+                event.status === "running" || event.status === "pending"
+                  ? {
+                      ...event,
+                      status: "error" as const,
+                      detail: msg,
+                      endedAt: Date.now(),
+                    }
+                  : event,
+              ),
+              createBuildActivityEvent({
+                kind: "error",
+                status: "error",
+                title: "Build failed",
+                detail: msg,
+              }),
+            ],
+          }
+        : message,
+    ),
+    {
+      role: "assistant" as const,
+      content: `Build failed: ${msg}`,
+      timestamp: Date.now(),
+    },
+    {
+      role: "assistant" as const,
+      content: failedActivity.title,
+      kind: "activity" as const,
+      title: failedActivity.title,
+      explanation: resolvedExplanation,
+      activity: failedActivity,
+      timestamp: Date.now(),
+    },
+  ];
+
+  const partial = partialBuildRef.current;
+  const existingDraft = readProjectDraft();
+
+  if (
+    !user &&
+    partial &&
+    readAppPreferences().autoDraft &&
+    !existingDraft?.ownerId
+  ) {
+    writeProjectDraft({
+      projectId: null,
+      title: projectTitle,
+      prompt: partial.prompt,
+      code: partial.code,
+      messages: nextMessages,
+      versions,
+      updatedAt: Date.now(),
+      buildRecovery: {
+        prompt: partial.prompt,
+        completedPaths: [...partial.completedPaths],
+        buildFiles: failedFiles,
+        buildTimeline: [...buildTimelineRef.current, `Failed: ${msg}`],
+        currentStage: "Failed",
+      },
+    });
+  }
+
+  return nextMessages;
+});
          } finally {
       if (!durableQueueAcceptedRef.current) {
         setIsChatThinking(false);
