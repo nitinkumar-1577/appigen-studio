@@ -2079,6 +2079,10 @@ const reviewEventId = addPlanEvent({
       });
       if (reviewError) throw reviewError;
       if (typeof reviewData?.code !== "string" || !reviewData.code.trim()) throw new Error("The review stage returned no project source.");
+    patchPlanEvent(reviewProviderEventId, {
+  status: "success",
+  detail: `${buildProvider} completed the project review.`,
+});
       const aiReviewFindings = normalizeReviewFindings(reviewData?.findings);
       if (aiReviewFindings.length) setBuildTimeline((current) => [...current, ...aiReviewFindings.map((finding) => `Review finding — ${finding.path}: ${finding.issue}`)]);
       if (reviewData?.repairAttempted && Array.isArray(reviewData?.changedPaths)) setBuildTimeline((current) => [...current, ...reviewData.changedPaths.filter((path: unknown): path is string => typeof path === "string").map((path: string) => `Repaired ${path}`)]);
