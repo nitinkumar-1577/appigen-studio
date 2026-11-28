@@ -2167,32 +2167,44 @@ Deno.serve(async (req) => {
       let webSearchSources: Array<{ title: string; url: string }> = [];
       let webSearchStatus: "success" | "warning" | "error" | undefined;
 let webSearchMessage: string | undefined;
-      if (shouldSearchWeb(prompt)) {
-        const tavilyApiKey = Deno.env.get("TAVILY_API_KEY");
+     if (shouldSearchWeb(prompt)) {
+  const tavilyApiKey = Deno.env.get("TAVILY_API_KEY");
 
-        if (!tavilyApiKey) {
-          webSearchText = "Web search was requested, but Tavily API key is not configured. Do not claim that a web search was performed.";
-        } else {
-          try {
-            const searchResult = await searchTavily(
-              prompt,
-              tavilyApiKey,
-              req.signal,
-            );
-            webSearchSources = searchResult.results.map((item) => ({
-              title: item.title,
-              url: item.url,
-            }));
-            webSearchText = searchResult.results.length
-              ? searchResult.results.map((item, index) =>
-                `[${index + 1}] ${item.title}\nURL: ${item.url}\n${item.content}`
-              ).join("\n\n")
-              : "Tavily search completed but returned no results.";
-          } catch (error) {
-            webSearchText = `Web search could not be completed: ${error instanceof Error ? error.message : "Unknown search error"}. Do not claim that a web search was performed.`;
-          }
-        }
+  if (!tavilyApiKey) {
+    webSearchStatus = "warning";
+    webSearchMessage = "Tavily API key is not configured.";
+    webSearchText = "Web search was requested, but Tavily API key is not configured. Do not claim that a web search was performed.";
+  } else {
+    try {
+      const searchResult = await searchTavily(
+        prompt,
+        tavilyApiKey,
+        req.signal,
+      );
+
+      webSearchSources = searchResult.results.map((item) => ({
+        title: item.title,
+        url: item.url,
+      }));
+
+      if (searchResult.results.length > 0) {
+        webSearchStatus = "success";
+        webSearchMessage = `Found ${searchResult.results.length} web search results.`;
+        webSearchText = searchResult.results.map((item, index) =>
+          `[${index + 1}] ${item.title}\nURL: ${item.url}\n${item.content}`
+        ).join("\n\n");
+      } else {
+        webSearchStatus = "warning";
+        webSearchMessage = "Tavily search returned no results.";
+        webSearchText = "Tavily search completed but returned no results.";
       }
+    } catch (error) {
+      webSearchStatus = "error";
+      webSearchMessage = "Web search could not be completed.";
+      webSearchText = `Web search could not be completed: ${error instanceof Error ? error.message : "Unknown search error"}. Do not claim that a web search was performed.`;
+    }
+  }
+}
            return await answerProjectQuestionStream(
         providers,
         provider,
