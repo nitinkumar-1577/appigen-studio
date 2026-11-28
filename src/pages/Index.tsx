@@ -1804,7 +1804,25 @@ const understandingEvent = createBuildActivityEvent({
   endedAt: understandingEndedAt,
 });
 
-publishBuildEvents([understandingEvent]);
+const initialActivityEvents: BuildActivityEvent[] = [understandingEvent];
+
+if (baseCodeForEdit) {
+  const inspectedAt = Date.now();
+
+  initialActivityEvents.push(
+    createBuildActivityEvent({
+      kind: "review",
+      status: "success",
+      title: "Inspecting existing project",
+      detail:
+        "Existing project source, architecture context, and recent change history were analyzed before applying updates.",
+      startedAt: inspectedAt,
+      endedAt: inspectedAt,
+    }),
+  );
+}
+
+publishBuildEvents(initialActivityEvents);
 const addPlanEvent = (
   event: Omit<BuildActivityEvent, "id" | "startedAt">,
 ) => {
