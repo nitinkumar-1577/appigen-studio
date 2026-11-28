@@ -1322,7 +1322,7 @@ const understandingStartedAt = Date.now();
     const generationSettings = readGenerationSettings();
       let intent = fallbackIntent;
     let effectivePrompt = trimmed;
-
+let understandingFallbackUsed = false;
     try {
       const { data, error } = await supabase.functions.invoke("Appigen", {
         body: {
@@ -1374,6 +1374,7 @@ const understandingStartedAt = Date.now();
         }
       }
     } catch (error) {
+      understandingFallbackUsed = true;
       console.warn(
         "AI conversation understanding unavailable; using local fallback:",
         error,
