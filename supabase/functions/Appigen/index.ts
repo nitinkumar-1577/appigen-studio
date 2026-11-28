@@ -1761,6 +1761,8 @@ async function answerProjectQuestionStream(
     intent?: string;
     webSearchText?: string;
     webSearchSources?: Array<{ title: string; url: string }>;
+    webSearchStatus?: "success" | "warning" | "error";
+webSearchMessage?: string;
   } | undefined,
   requestSignal: AbortSignal,
 ) {
