@@ -136,7 +136,7 @@ async function processJob(job: Json) {
     followUp: payload.followUp,
   };
 
-  let stage = String(job.current_stage ?? "Planning");
+ const stage = String(job.current_stage ?? "Planning");
   let plan = (job.implementation_plan && typeof job.implementation_plan === "object" ? job.implementation_plan : null) as Json | null;
   let files = (Array.isArray(job.build_files) ? job.build_files : []) as BuildFile[];
   files = files.map((file) => file.status === "generating"
