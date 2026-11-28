@@ -1372,15 +1372,23 @@ const understandingStartedAt = Date.now();
     if (session?.user?.id) {
       try {
         const archivedChats = await loadAccountConversationArchive(session.user.id, 40);
+      
         const archivedTurns = archivedChats
           .filter((chat) => chat.projectId !== projectId)
           .flatMap((chat) =>
-            chat.messages.map(({ role, content }) => ({ role, content }))
-          );
-conversationContext = [
-  ...archivedTurns.slice(-24),
-  ...conversationContext.slice(-16),
-];
+            chat.messages.map(({ role, content, timestamp }) => ({
+              role,
+              content: `[Previous chat: ${chat.title}] ${content}`,
+              timestamp,
+            }))
+          )
+          .sort((a, b) => a.timestamp - b.timestamp);
+
+        conversationContext = [
+          ...archivedTurns.slice(-24).map(({ role, content }) => ({ role, content })),
+          ...conversationContext.slice(-16),
+        ];
+
       } catch (error) {
         console.warn("Could not load previous conversation archive:", error);
       }
