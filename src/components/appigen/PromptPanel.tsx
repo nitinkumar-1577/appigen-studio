@@ -46,7 +46,21 @@ progressStage: string;
 }
 
 const BUILD_STAGES = ["Planning", "Generating", "Reviewing", "Validating", "Updating preview", "Saving"] as const;
+function AssistantMarkdown({ content }: { content: string }) {
+  const html = DOMPurify.sanitize(
+    marked.parse(content, { async: false }) as string
+  );
 
+  return (
+    <div
+      className="prose prose-sm dark:prose-invert max-w-none break-words
+        prose-p:my-2 prose-headings:my-3 prose-ul:my-2 prose-ol:my-2
+        prose-pre:overflow-x-auto prose-pre:rounded-lg
+        prose-code:before:content-none prose-code:after:content-none"
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+}
 const PROMPT_IDEAS = [
   "A sleek SaaS analytics dashboard with revenue charts and a collapsible sidebar",
   "A warm, editorial online bookstore with search, genre filters, and a shopping bag",
