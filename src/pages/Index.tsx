@@ -413,9 +413,13 @@ useEffect(() => {
       status: file.status as BuildFileProgress["status"],
     }))
   );
-  setBuildTimeline(recovery.buildTimeline ?? []);
-  setProgressStage(recovery.currentStage || "Paused");
-
+ setBuildTimeline(recovery.buildTimeline ?? []);
+buildFilesRef.current = recovery.buildFiles.map((file) => ({
+  ...file,
+  status: file.status as BuildFileProgress["status"],
+}));
+buildTimelineRef.current = recovery.buildTimeline ?? [];
+setProgressStage(recovery.currentStage || "Paused");
   partialBuildRef.current = {
     prompt: recovery.prompt,
     code: draft.code,
