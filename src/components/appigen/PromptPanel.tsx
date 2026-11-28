@@ -1029,6 +1029,16 @@ const thinkingLabels = isBuildThinking
             <p className="mt-0.5 break-words text-muted-foreground">
               {event.detail}
             </p>
+        <p className="mt-0.5 text-[10px] text-muted-foreground">
+  {new Date(event.startedAt).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  })}
+  {event.endedAt
+    ? ` · ${formatActivityDuration(event.endedAt - event.startedAt)}`
+    : " · In progress"}
+</p>
           )}
           {event.filePath && (
             <p className="mt-0.5 break-all font-mono text-muted-foreground">
