@@ -1032,7 +1032,8 @@ Project context:
 ${projectContext || "(not available)"}
 
 Recent conversation:
-${conversation.slice(-24).map((turn) => `${turn.role}: ${turn.content.slice(0, 1200)}`).join("\n") || "(none)"}            },
+${conversation.slice(-24).map((turn) => `$DIL2: $DIL3`).join("\n") || "(none)"}`,
+            },          },
           ],
         },
         { timeoutMs: Math.min(timeoutMs, 30000) },
