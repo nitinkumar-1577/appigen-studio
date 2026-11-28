@@ -1502,10 +1502,22 @@ activeRequestModeRef.current = questionMode ? "chat" : "build";
 
         setProjectId(durableProjectId);
 
-        const queuedMessage: ChatMessage = {
+              const queuedMessage: ChatMessage = {
           role: "assistant",
           content: "Build accepted and queued. The background worker will continue generation.",
           timestamp: Date.now(),
+          events: [
+            createBuildActivityEvent({
+              kind: "understanding",
+              status: understandingFallbackUsed ? "warning" : "success",
+              title: "Understanding your request",
+              detail: understandingFallbackUsed
+                ? "AI understanding was unavailable. Local intent analysis was used."
+                : `Request understood successfully. Intent: ${intent.intent}.`,
+              startedAt: understandingStartedAt,
+              endedAt: understandingEndedAt,
+            }),
+          ],
         };
 
         const queuedMessages = [...nextMessages, queuedMessage];
