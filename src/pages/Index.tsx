@@ -1850,7 +1850,7 @@ if (existingValidationId) {
   });
 
   fileEventIds.set(`${event.path}:validation`, validationEventId);
-}          } else if (event.status === "retrying") {
+} else if (event.status === "retrying") {
             setBuildTimeline((current) => [...current, `Retrying ${event.path}${event.error ? `: ${event.error}` : ""}`]);
             setProgressStage(`Retrying ${event.path}`);
             const retryFileEventId = fileEventIds.get(event.path);
