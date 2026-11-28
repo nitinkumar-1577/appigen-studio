@@ -2145,7 +2145,8 @@ Deno.serve(async (req) => {
       return jsonResponse({ plan: { implementationPlan: { ...plan.implementationPlan, ...implementationPlan } }, projectContext: { focusFiles, understanding: contextBrief.understandingText, memory: contextBrief.memoryText, changes: contextBrief.changeText }, requestedProvider: provider, mode });
     }
 
-    if (mode === "chat") {
+    if (mode === "chat")
+    {
       const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
       const code = typeof body.code === "string" ? body.code : "";
       if (!prompt) return jsonResponse({ error: "Question missing" }, 400);
@@ -2156,7 +2157,7 @@ Deno.serve(async (req) => {
         : [];
       const contextBrief = projectContextBrief(code || undefined, prompt, body);
             let webSearchText: string | undefined;
-
+      let webSearchSources: Array<{ title: string; url: string }> = [];
       if (shouldSearchWeb(prompt)) {
         const tavilyApiKey = Deno.env.get("TAVILY_API_KEY");
 
