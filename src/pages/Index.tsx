@@ -1380,7 +1380,7 @@ let understandingFallbackUsed = false;
         error,
       );
     }
-   
+   AI conversation understanding unavailable; using local fallback:",
 
     const editMode = Boolean(lastCode) && !isNewAppPrompt(trimmed);
     const clarifyFirst = intent.needsClarification;
