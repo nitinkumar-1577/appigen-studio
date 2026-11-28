@@ -1,6 +1,6 @@
 import type { ProjectMemory } from "./projectMemory";
 import type { ChangeRecord } from "./changeTracking";
-import type { BuildActivity } from "./conversationActivity";
+import type { BuildActivity, BuildActivityEvent } from "./conversationActivity";
 
 export type MessageFeedback = "up" | "down" | null;
 
@@ -13,6 +13,7 @@ export type ChatMessage = {
   title?: string;
   explanation?: string;
   activity?: BuildActivity;
+  events?: BuildActivityEvent[];
   previewCode?: string;
   versionId?: string;
   feedback?: MessageFeedback;
