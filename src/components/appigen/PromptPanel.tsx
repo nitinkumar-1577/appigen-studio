@@ -1006,6 +1006,46 @@ const thinkingLabels = isBuildThinking
 
                   {message.content}
 
+{message.events && message.events.length > 0 && (
+  <div className="mt-3 space-y-2 border-l-2 border-border/70 pl-3">
+    {message.events.map((event) => (
+      <div key={event.id} className="flex items-start gap-2 text-xs">
+        <span className="mt-0.5 shrink-0">
+          {event.status === "running" ? (
+            <LoaderCircle className="h-3.5 w-3.5 animate-spin text-primary" />
+          ) : event.status === "success" ? (
+            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+          ) : event.status === "error" ? (
+            <AlertCircle className="h-3.5 w-3.5 text-destructive" />
+          ) : event.status === "warning" ? (
+            <AlertCircle className="h-3.5 w-3.5 text-amber-500" />
+          ) : (
+            <span className="block h-3 w-3 rounded-full border border-muted-foreground/50" />
+          )}
+        </span>
+        <div className="min-w-0">
+          <p className="font-medium text-foreground">{event.title}</p>
+          {event.detail && (
+            <p className="mt-0.5 break-words text-muted-foreground">
+              {event.detail}
+            </p>
+          )}
+          {event.filePath && (
+            <p className="mt-0.5 break-all font-mono text-muted-foreground">
+              {event.filePath}
+            </p>
+          )}
+          {event.source && (
+            <p className="mt-0.5 text-muted-foreground">
+              {event.source.name}
+            </p>
+          )}
+        </div>
+      </div>
+    ))}
+  </div>
+)}
+
                   {message.role === "assistant" && (
                     <MessageActions
                       message={message}
