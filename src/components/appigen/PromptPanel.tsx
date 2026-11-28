@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import type { ChatMessage } from "@/lib/projects/projectStorage";
 import type { BuildFileProgress } from "@/lib/projects/buildWorkflow";
-import { activityDurationMs, activityStatusLabel, formatActivityDuration, type BuildActivity } from "@/lib/projects/conversationActivity";
+import { activityDurationMs, activityStatusLabel, formatActivityDuration, type BuildActivity, type BuildActivityEvent } from "@/lib/projects/conversationActivity";
 import { parseFileMarkers } from "@/lib/preview/parseFileMarkers";
 
 interface PromptPanelProps {
