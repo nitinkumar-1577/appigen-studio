@@ -1830,25 +1830,27 @@ if (existingFileEventId) {
           } else if (event.status === "validating") {
             setBuildTimeline((current) => [...current, `Validating ${event.path}`]);
             setProgressStage(`Validating ${event.path}`);
-            const validationEventId = addPlanEvent({
-  kind: "validation",
-  status: "running",
-  title: `Checking ${event.path}`,
-  detail: "Validating generated file structure and content.",
-  filePath: event.path,
-});
+          const existingValidationId = fileEventIds.get(
+  `${event.path}:validation`,
+);
 
-const previousValidationId = fileEventIds.get(`${event.path}:validation`);
-
-if (previousValidationId) {
-  patchPlanEvent(previousValidationId, {
-    status: "success",
-    detail: "Validation completed.",
+if (existingValidationId) {
+  patchPlanEvent(existingValidationId, {
+    status: "running",
+    detail: "Validating generated file structure and content.",
+    endedAt: undefined,
   });
-}
+} else {
+  const validationEventId = addPlanEvent({
+    kind: "validation",
+    status: "running",
+    title: `Checking ${event.path}`,
+    detail: "Validating generated file structure and content.",
+    filePath: event.path,
+  });
 
-fileEventIds.set(`${event.path}:validation`, validationEventId);
-          } else if (event.status === "retrying") {
+  fileEventIds.set(`${event.path}:validation`, validationEventId);
+}          } else if (event.status === "retrying") {
             setBuildTimeline((current) => [...current, `Retrying ${event.path}${event.error ? `: ${event.error}` : ""}`]);
             setProgressStage(`Retrying ${event.path}`);
             const retryFileEventId = fileEventIds.get(event.path);
