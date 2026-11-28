@@ -1020,8 +1020,11 @@ const thinkingLabels = isBuildThinking
                       You
                     </div>
                   )}
-
-                  {message.content}
+{message.role === "assistant" ? (
+  <AssistantMarkdown content={message.content} />
+) : (
+  message.content
+)}
 
 {message.events && message.events.length > 0 && (
   <div className="mt-3 space-y-2 border-l-2 border-border/70 pl-3">
