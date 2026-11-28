@@ -2142,7 +2142,7 @@ Deno.serve(async (req) => {
       const existingCode = typeof body.code === "string" ? body.code : undefined;
       if (body.existingProject === true && !existingCode) return jsonResponse({ error: "Existing project code missing for plan" }, 400);
       const conversation: ConversationTurn[] = Array.isArray(body.conversation)
-        ? body.conversation.slice(-12).filter((turn): turn is Record<string, unknown> => isRecord(turn) && (turn.role === "user" || turn.role === "assistant") && typeof turn.content === "string")
+        ? body.conversation.slice(-24).filter((turn): turn is Record<string, unknown> => isRecord(turn) && (turn.role === "user" || turn.role === "assistant") && typeof turn.content === "string")
           .map((turn) => ({ role: turn.role as "user" | "assistant", content: (turn.content as string).slice(0, 2400) }))
         : [];
       const stage = typeof body.stage === "string" ? body.stage : undefined;
