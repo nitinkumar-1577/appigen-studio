@@ -2329,7 +2329,8 @@ webSearchMessage,
     const topP = numericSetting(body.topP, 1, 0, 1);
     const conversation: ConversationTurn[] = [];
     let remainingContext = 12000;
-    if (Array.isArray(body.conversation)) {for (const turn of body.conversation.slice(-24)) {
+    if (Array.isArray(body.conversation))  {
+      for (const turn of body.conversation.slice(-24)) {
         if (!isRecord(turn) || (turn.role !== "user" && turn.role !== "assistant") || typeof turn.content !== "string") continue;
         const content = turn.content.slice(0, Math.min(2400, remainingContext));
         if (!content) break;
