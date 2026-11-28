@@ -1699,6 +1699,40 @@ buildMessages = [
 setMessages(buildMessages);
       setMessages(buildMessages);
       setBuildTimeline((current) => [...current, "Implementation plan ready"]);
+      let liveBuildEvents: BuildActivityEvent[] = [];
+
+const publishBuildEvents = (nextEvents: BuildActivityEvent[]) => {
+  liveBuildEvents = nextEvents;
+
+  setMessages((current) =>
+    current.map((message) =>
+      message.timestamp === planMessageTimestamp
+        ? { ...message, events: nextEvents }
+        : message,
+    ),
+  );
+};
+
+const addPlanEvent = (
+  event: Omit<BuildActivityEvent, "id" | "startedAt">,
+) => {
+  const nextEvent = createBuildActivityEvent(event);
+  publishBuildEvents([...liveBuildEvents, nextEvent]);
+  return nextEvent.id;
+};
+
+const patchPlanEvent = (
+  eventId: string,
+  patch: Parameters<typeof updateBuildActivityEvent>[1],
+) => {
+  publishBuildEvents(
+    liveBuildEvents.map((event) =>
+      event.id === eventId
+        ? updateBuildActivityEvent(event, patch)
+        : event,
+    ),
+  );
+};
       const canResume = partialBuildRef.current?.prompt === effectivePrompt;
       let generatedCode = canResume
         ? partialBuildRef.current?.code ?? ""
