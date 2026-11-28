@@ -2030,11 +2030,11 @@ const patchPlanEvent = (
         },
         merge: (source, file, result) => mergeGeneratedFile(source, file.path, result.content),
         onProgress: (event, source, completedPaths) => {
-          setBuildFiles((current) => {
-            const next = current.map((item) => item.path === event.path ? { ...item, ...event } : item);
-            buildFilesRef.current = next;
-            return next;
-          });
+        const nextBuildFiles = buildFilesRef.current.map((item) =>
+  item.path === event.path ? { ...item, ...event } : item
+);
+buildFilesRef.current = nextBuildFiles;
+setBuildFiles(nextBuildFiles);
           if (event.status === "generating") {
             setBuildTimeline((current) => [...current, `Creating ${event.path}`]);
             setProgressStage(`Generating ${event.path}`);
