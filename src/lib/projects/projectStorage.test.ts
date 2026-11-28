@@ -73,6 +73,47 @@ describe("project draft persistence", () => {
 
     expect(readLocalVersionsForProject("local:current")).toEqual([second]);
   });
+    it("persists and clears guest build recovery checkpoints", () => {
+    const recovery = {
+      prompt: "Build a portfolio website",
+      completedPaths: ["src/App.tsx", "src/styles.css"],
+      buildFiles: [
+        {
+          path: "src/App.tsx",
+          purpose: "Main application",
+          status: "completed",
+          attempts: 1,
+        },
+      ],
+      buildTimeline: ["Completed src/App.tsx"],
+      currentStage: "Paused",
+    };
+
+    writeProjectDraft({
+      projectId: null,
+      title: "Portfolio",
+      prompt: recovery.prompt,
+      code: "export default function App() {}",
+      messages: [],
+      versions: [],
+      buildRecovery: recovery,
+      updatedAt: 100,
+    });
+
+    expect(readProjectDraft()?.buildRecovery).toEqual(recovery);
+
+    const savedDraft = readProjectDraft();
+    if (!savedDraft) throw new Error("Draft was not saved");
+
+    writeProjectDraft({
+      ...savedDraft,
+      buildRecovery: null,
+      updatedAt: 101,
+    });
+
+    expect(readProjectDraft()?.buildRecovery).toBeNull();
+    expect(readProjectDraft()?.code).toBe("export default function App() {}");
+  });
 });
   it("stores and isolates project memory and change records by project key", () => {
     writeProjectMemory("p1", { projectId: "p1", projectKey: "p1", title: "A", architectureSummary: "a", keyModules: [], decisions: [], requirements: ["req"], changeHistory: [], conflicts: [], clarifications: [], updatedAt: 1 });
