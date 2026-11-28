@@ -229,75 +229,7 @@ const MessageActions = ({
           Saved
         </span>
       )}
-      describe("build activity event status labels", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    Object.defineProperty(window, "SpeechRecognition", {
-      configurable: true,
-      value: MockSpeechRecognition,
-    });
-  });
-
-  it("shows the correct label for all five event statuses", () => {
-    const { container } = render(
-      <PromptPanel
-        {...props()}
-        messages={[
-          {
-            role: "assistant",
-            content: "Build progress",
-            timestamp: 10,
-            events: [
-              {
-                id: "pending-event",
-                kind: "file",
-                status: "pending",
-                title: "Pending file",
-                startedAt: 1000,
-              },
-              {
-                id: "running-event",
-                kind: "file",
-                status: "running",
-                title: "Running file",
-                startedAt: 1000,
-              },
-              {
-                id: "warning-event",
-                kind: "review",
-                status: "warning",
-                title: "Warning review",
-                startedAt: 1000,
-              },
-              {
-                id: "error-event",
-                kind: "error",
-                status: "error",
-                title: "Failed operation",
-                startedAt: 1000,
-              },
-              {
-                id: "success-event",
-                kind: "complete",
-                status: "success",
-                title: "Completed operation",
-                startedAt: 1000,
-              },
-            ],
-          },
-        ]}
-      />
-    );
-
-    const renderedText = container.textContent ?? "";
-
-    expect(renderedText).toContain("Pending");
-    expect(renderedText).toContain("In progress");
-    expect(renderedText).toContain("Warning");
-    expect(renderedText).toContain("Failed");
-    expect(renderedText).toContain("Completed");
-  });
-});
+   
     </div>
   );
 };
