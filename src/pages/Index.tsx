@@ -2291,10 +2291,47 @@ setSidebarOverlayOpen(false);
         validation: [],
         errors: [msg],
       };
-      setMessages((current) => [...current,
-        { role: "assistant", content: `Build failed: ${msg}`, timestamp: Date.now() },
-        { role: "assistant", content: failedActivity.title, kind: "activity", title: failedActivity.title, explanation: resolvedExplanation, activity: failedActivity, timestamp: Date.now() },
-      ]);
+     setMessages((current) => [
+  ...current.map((message) =>
+    message.events
+      ? {
+          ...message,
+          events: [
+            ...message.events.map((event) =>
+              event.status === "running" || event.status === "pending"
+                ? {
+                    ...event,
+                    status: "error" as const,
+                    detail: msg,
+                    endedAt: Date.now(),
+                  }
+                : event,
+            ),
+            createBuildActivityEvent({
+              kind: "error",
+              status: "error",
+              title: "Build failed",
+              detail: msg,
+            }),
+          ],
+        }
+      : message,
+  ),
+  {
+    role: "assistant",
+    content: `Build failed: ${msg}`,
+    timestamp: Date.now(),
+  },
+  {
+    role: "assistant",
+    content: failedActivity.title,
+    kind: "activity",
+    title: failedActivity.title,
+    explanation: resolvedExplanation,
+    activity: failedActivity,
+    timestamp: Date.now(),
+  },
+]);
          } finally {
       if (!durableQueueAcceptedRef.current) {
         setIsChatThinking(false);
