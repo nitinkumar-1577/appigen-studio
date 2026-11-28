@@ -1831,6 +1831,15 @@ if (existingFileEventId) {
             setBuildTimeline((current) => [...current, `Failed ${event.path}: ${event.error ?? "unknown error"}`]);
           }
           if (event.status === "completed") {
+            const completedFileEventId = fileEventIds.get(event.path);
+
+if (completedFileEventId) {
+  patchPlanEvent(completedFileEventId, {
+    status: "success",
+    detail: "File generated successfully.",
+    endedAt: Date.now(),
+  });
+}
             setBuildTimeline((current) => [...current, `Completed ${event.path}`]);
             partialBuildRef.current = { prompt: trimmed, code: source, completedPaths };
             generatedCode = source;
