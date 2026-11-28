@@ -1835,27 +1835,78 @@ const patchPlanEvent = (
         completedPaths: [...previouslyCompleted],
         signal: controller.signal,
         retries: 1,
-        generate: async (file) => {
-          setProgressStage(`Generating ${file.path}`);
-          const { data: fileData, error: fileError } = await supabase.functions.invoke("Appigen", {
-            body: {
-             mode: "build_file", prompt: effectivePrompt, file,
-              requirements: Array.isArray(implementationPlan?.requirements) ? implementationPlan.requirements 	: [effectivePrompt],
-              specification: implementationPlan?.specification ?? null,
-              requirementTrace: Array.isArray(implementationPlan?.requirementTrace) ? implementationPlan.requirementTrace : [],
-              fileTree: [...new Set([...requiredPaths, ...uniqueFiles.map(({ path }) => path)])],
-              existingSource: editMode ? (lastCode ?? "").slice(0, 22000) : "",
-              implementationContext: generatedCode.slice(-14000),
-              architecture: `${planSummary}\nArchitecture strategy: ${typeof (implementationPlan?.architecture as { strategy?: string } | undefined)?.strategy === "string" ? (implementationPlan?.architecture as { strategy?: string }).strategy : "adaptive"}\nUser architecture instructions: ${generationSettings.systemInstructions ?? ""}\nResponse language: ${intent.responseLanguage}`,
-              projectUnderstanding: understandingText,
-              projectMemory: memoryText,
-              changeSummary: recentChangeSummary,
-              provider: generationSettings.provider, model: generationSettings.model,
-              temperature: generationSettings.temperature, topP: generationSettings.topP,
-              responseLanguage: intent.responseLanguage,
-              intent: intent.intent,
-              followUp: followUpText,
-            },
+       generate: async (file) => {
+  setProgressStage(`Generating ${file.path}`);
+
+  const providerEventId = addPlanEvent({
+    kind: "tool",
+    status: "running",
+    title: `AI is generating ${file.path}`,
+    detail: `Sending generation request to ${generationSettings.provider}.`,
+    source: {
+      name: generationSettings.provider,
+    },
+  });
+
+  try {
+    const { data: fileData, error: fileError } =
+      await supabase.functions.invoke("Appigen", {
+        body: {
+          mode: "build_file",
+          prompt: effectivePrompt,
+          file,
+          requirements: Array.isArray(implementationPlan?.requirements)
+            ? implementationPlan.requirements
+            : [effectivePrompt],
+          specification: implementationPlan?.specification ?? null,
+          requirementTrace: Array.isArray(implementationPlan?.requirementTrace)
+            ? implementationPlan.requirementTrace
+            : [],
+          fileTree: [...new Set([
+            ...requiredPaths,
+            ...uniqueFiles.map(({ path }) => path),
+          ])],
+          existingSource: editMode ? (lastCode ?? "").slice(0, 22000) : "",
+          implementationContext: generatedCode.slice(-14000),
+          architecture: `${planSummary}\nArchitecture strategy: ${
+            typeof (implementationPlan?.architecture as { strategy?: string } | undefined)?.strategy === "string"
+              ? (implementationPlan?.architecture as { strategy?: string }).strategy
+              : "adaptive"
+          }\nUser architecture instructions: ${generationSettings.systemInstructions ?? ""}\nResponse language: ${intent.responseLanguage}`,
+          projectUnderstanding: understandingText,
+          projectMemory: memoryText,
+          changeSummary: recentChangeSummary,
+          provider: generationSettings.provider,
+          model: generationSettings.model,
+          temperature: generationSettings.temperature,
+          topP: generationSettings.topP,
+          responseLanguage: intent.responseLanguage,
+          intent: intent.intent,
+          followUp: followUpText,
+        },
+        signal: controller.signal,
+      });
+
+    if (fileError) throw fileError;
+
+    const validatedResult = validateBuildFileResponse(fileData, file.path);
+    const providerName = validatedResult.provider ?? generationSettings.provider;
+
+    patchPlanEvent(providerEventId, {
+      status: "success",
+      detail: `${providerName} successfully generated ${file.path}.`,
+      source: { name: providerName },
+    });
+
+    return validatedResult;
+  } catch (error) {
+    patchPlanEvent(providerEventId, {
+      status: "error",
+      detail: error instanceof Error ? error.message : "AI generation failed.",
+    });
+    throw error;
+  }
+},
             signal: controller.signal,
           });
        if (fileError) throw fileError;
