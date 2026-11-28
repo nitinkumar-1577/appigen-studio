@@ -221,6 +221,7 @@ const studioWorkspaceSnapshotRef = useRef<{
   const [buildFiles, setBuildFiles] = useState<BuildFileProgress[]>([]);
   const [buildTimeline, setBuildTimeline] = useState<string[]>([]);
   const partialBuildRef = useRef<{ prompt: string; code: string; completedPaths: string[] } | null>(null);
+  const guestDraftHydratedRef = useRef(false);
   const [versionMenuOpen, setVersionMenuOpen] = useState(false);
   const [previewRuntime, setPreviewRuntime] = useState<{ status: "idle" | "pending" | "mounted" | "error"; message?: string; errorKind?: string }>({ status: "idle" });
   const abortRef = useRef<AbortController | null>(null);
@@ -380,7 +381,54 @@ const navigateView = (next: ViewKey) => {
   useEffect(() => {
     if (recoveryPending) setAuthOpen(true);
   }, [recoveryPending]);
+useEffect(() => {
+  if (!authReady) return;
 
+  if (user) {
+    guestDraftHydratedRef.current = false;
+    return;
+  }
+
+  if (guestDraftHydratedRef.current) return;
+  guestDraftHydratedRef.current = true;
+
+  if (!readAppPreferences().autoDraft) return;
+
+  const draft = readProjectDraft();
+  const recovery = draft?.buildRecovery;
+
+  if (!draft || draft.ownerId || !recovery || !draft.code) return;
+
+  setProjectId(draft.projectId);
+  setProjectTitle(draft.title || "Untitled Project");
+  setPrompt(recovery.prompt);
+  setLastCode(draft.code);
+  setWorkingCode(draft.code);
+  setDoc(buildDocFromPrompt(recovery.prompt));
+  setMessages(draft.messages ?? []);
+  setVersions(draft.versions ?? []);
+  setBuildFiles(
+    recovery.buildFiles.map((file) => ({
+      ...file,
+      status: file.status as BuildFileProgress["status"],
+    }))
+  );
+  setBuildTimeline(recovery.buildTimeline ?? []);
+  setProgressStage(recovery.currentStage || "Paused");
+
+  partialBuildRef.current = {
+    prompt: recovery.prompt,
+    code: draft.code,
+    completedPaths: recovery.completedPaths ?? [],
+  };
+
+  setMobileStudioTab("chat");
+
+  toast({
+    title: "Build recovery available",
+    description: "Completed files have been restored. Resend the same prompt to continue.",
+  });
+}, [authReady, user]);
   const chatKey = projectId || "local:current";
   useEffect(() => {
     if (authReady && !user) writeProjectMessages(chatKey, messages);
@@ -389,11 +437,12 @@ const navigateView = (next: ViewKey) => {
     if (!authReady || user) return;
     if (!readAppPreferences().autoDraft) {
       const existingDraft = readProjectDraft();
-      if (existingDraft?.code) writeProjectDraft({ ...existingDraft, prompt: "", updatedAt: Date.now() });
+    if (existingDraft?.code) writeProjectDraft({ ...existingDraft, prompt: "", buildRecovery: null, updatedAt: Date.now() });
       else discardProjectDraft();
       return;
     }
-    if (readProjectDraft()?.ownerId) return;
+   const existingDraft = readProjectDraft();
+if (existingDraft?.ownerId || existingDraft?.buildRecovery) return;
     writeProjectDraft({ projectId, title: projectTitle, prompt, code: lastCode, messages, versions, updatedAt: Date.now() });
   }, [authReady, user, projectId, projectTitle, prompt, lastCode, messages, versions]);
   const [accountProjectLoading, setAccountProjectLoading] = useState(false);
