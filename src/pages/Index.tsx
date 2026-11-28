@@ -1858,6 +1858,17 @@ if (completedFileEventId) {
     endedAt: Date.now(),
   });
 }
+           const completedValidationId = fileEventIds.get(
+  `${event.path}:validation`,
+);
+
+if (completedValidationId) {
+  patchPlanEvent(completedValidationId, {
+    status: "success",
+    detail: "Validation completed successfully.",
+    endedAt: Date.now(),
+  });
+} 
             setBuildTimeline((current) => [...current, `Completed ${event.path}`]);
             partialBuildRef.current = { prompt: trimmed, code: source, completedPaths };
             generatedCode = source;
