@@ -2170,7 +2170,10 @@ Deno.serve(async (req) => {
               tavilyApiKey,
               req.signal,
             );
-
+            webSearchSources = searchResult.results.map((item) => ({
+              title: item.title,
+              url: item.url,
+            }));
             webSearchText = searchResult.results.length
               ? searchResult.results.map((item, index) =>
                 `[${index + 1}] ${item.title}\nURL: ${item.url}\n${item.content}`
