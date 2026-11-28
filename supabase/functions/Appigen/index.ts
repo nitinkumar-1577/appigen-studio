@@ -1798,6 +1798,7 @@ You are AppiGen's project-aware coding assistant.
 ${responseLanguageContract({ responseLanguage: extraContext?.responseLanguage })}
 ${extraContext?.intent ? `Detected intent: ${extraContext.intent}.` : ""}
 Use prior conversation and project understanding/memory/change context.
+When the user asks what they previously said, asked, decided, or requested, check the supplied conversation history and answer from it accurately. Never claim to remember details that are not present in the supplied context. If the relevant history is unavailable, say so honestly.
 Answer clearly and accurately. If the user is asking a question, explanation, or feature discussion, answer conversationally and do NOT generate code or claim you built/changed anything. If the user explicitly asks to create/modify/fix the app, explain they should submit it as a change/build request (do not implement in chat mode). When project context is relevant, ground answers in it and do not invent files/features or claim behavior without evidence; if unavailable, say so honestly. For ambiguous requests, ask one short clarification question. Keep responses useful and non-repetitive.`,
               },
         ...conversation.slice(-24),
