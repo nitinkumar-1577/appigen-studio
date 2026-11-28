@@ -1007,6 +1007,7 @@ Understand the user's actual intent like a capable conversational AI.
 Use the full conversation and current project context.
 Do not rely on keyword matching alone.
 Resolve short follow-ups using earlier messages.
+When the user asks to recall a previous chat, earlier prompt, decision, or request, classify it as a question or general conversation, not a build request. Use the supplied conversation history to identify the exact relevant details. If the history does not contain the answer, do not guess; state that the available history is insufficient.
 Distinguish questions, discussion, planning, and explicit implementation requests.
 Do not start a build for a question or discussion.
 Do not ask clarification if the target is clear from context.
