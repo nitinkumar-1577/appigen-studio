@@ -2,6 +2,40 @@ import type { BuildFileProgress } from "./buildWorkflow";
 
 export type BuildActivityStatus = "running" | "success" | "error" | "stopped";
 
+export type BuildActivityEventKind =
+  | "understanding"
+  | "planning"
+  | "tool"
+  | "file"
+  | "validation"
+  | "review"
+  | "preview"
+  | "saving"
+  | "complete"
+  | "error";
+
+export type BuildActivityEventStatus =
+  | "pending"
+  | "running"
+  | "success"
+  | "warning"
+  | "error";
+
+export interface BuildActivityEvent {
+  id: string;
+  kind: BuildActivityEventKind;
+  status: BuildActivityEventStatus;
+  title: string;
+  detail?: string;
+  startedAt: number;
+  endedAt?: number;
+  filePath?: string;
+  source?: {
+    name: string;
+    url?: string;
+  };
+}
+
 export interface BuildActivity {
   id: string;
   status: BuildActivityStatus;
