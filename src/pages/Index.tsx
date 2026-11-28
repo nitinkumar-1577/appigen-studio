@@ -1385,10 +1385,7 @@ const understandingStartedAt = Date.now();
     }
     const fallbackIntent = analyzeIntent(trimmed, {
       hasExistingProject: Boolean(lastCode),
-      conversation: messages.slice(-12).map(({ role, content }) => ({
-        role,
-        content,
-      })),
+    conversation: conversationContext,
     });
 
     const generationSettings = readGenerationSettings();
@@ -1403,10 +1400,7 @@ let understandingFallbackUsed = false;
           model: generationSettings.model,
          prompt: effectivePrompt,
           code: lastCode ?? "",
-          conversation: messages.slice(-12).map(({ role, content }) => ({
-            role,
-            content,
-          })),
+        conversation: conversationContext,
         },
       });
 
