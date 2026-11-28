@@ -1737,6 +1737,20 @@ streamSearchEvents = (Array.isArray(event.sources) ? event.sources : [])    .fil
         url: source.url,
       },
     }));
+
+  if (streamSearchEvents.length === 0) {
+    streamSearchEvents = [{
+      id: createActivityId(),
+      kind: "tool",
+      status: event.status === "error" ? "error" : "warning",
+      title: event.status === "error" ? "Web search failed" : "Web search unavailable",
+      detail: typeof event.message === "string"
+        ? event.message
+        : "No web search sources were returned.",
+      startedAt: eventTime,
+      endedAt: eventTime,
+    }];
+  }
 }
           if (event.type === "delta" && typeof event.text === "string") {
             streamedAnswer += event.text;
