@@ -2571,6 +2571,7 @@ setMessages((current) => [
         : errorMessage;
       const failedFiles = buildFilesRef.current.map((file) => file.status === "generating" || file.status === "validating" || file.status === "queued" || file.status === "retrying" ? { ...file, status: "failed" as const, error: file.error ?? msg } : file);
       buildFilesRef.current = failedFiles;
+      setBuildFiles(failedFiles);
       const failedActivity: BuildActivity = {
         id: activityId,
         status: "error",
