@@ -2202,6 +2202,7 @@ Deno.serve(async (req) => {
             ? body.intent
             : undefined,
                     webSearchText,
+          webSearchSources,
         },
         req.signal,
       );
