@@ -1036,8 +1036,10 @@ const thinkingLabels = isBuildThinking
     minute: "2-digit",
     second: "2-digit",
   })}
-  {event.endedAt
-    ? ` · ${formatActivityDuration(event.endedAt - event.startedAt)}`
+ {event.endedAt
+  ? ` · ${formatActivityDuration(event.endedAt - event.startedAt)}`
+  : event.status === "pending"
+    ? " · Pending"
     : " · In progress"}
 </p>
       
