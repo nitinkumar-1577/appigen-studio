@@ -1847,6 +1847,27 @@ fileEventIds.set(`${event.path}:validation`, validationEventId);
             setProgressStage(`Retrying ${event.path}`);
           } else if (event.status === "failed") {
             setBuildTimeline((current) => [...current, `Failed ${event.path}: ${event.error ?? "unknown error"}`]);
+            const failedFileEventId = fileEventIds.get(event.path);
+
+if (failedFileEventId) {
+  patchPlanEvent(failedFileEventId, {
+    status: "error",
+    detail: event.error ?? "File generation failed.",
+    endedAt: Date.now(),
+  });
+}
+
+const failedValidationId = fileEventIds.get(
+  `${event.path}:validation`,
+);
+
+if (failedValidationId) {
+  patchPlanEvent(failedValidationId, {
+    status: "error",
+    detail: event.error ?? "File validation failed.",
+    endedAt: Date.now(),
+  });
+}
           }
           if (event.status === "completed") {
             const completedFileEventId = fileEventIds.get(event.path);
