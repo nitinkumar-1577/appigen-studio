@@ -1964,6 +1964,12 @@ patchPlanEvent(reviewEventId, {
     : "Project review completed successfully.",
   endedAt: Date.now(),
 });
+      const finalValidationEventId = addPlanEvent({
+  kind: "validation",
+  status: "running",
+  title: "Running final project validation",
+  detail: "Checking the reviewed project structure and generated code.",
+});
       setProgressStage("Validating");
       setBuildTimeline((current) => [...current, "Running final project validation"]);
       const validationError = validateFileTree(generatedCode, requiredPaths) || validateGeneratedCode(generatedCode, !editMode);
