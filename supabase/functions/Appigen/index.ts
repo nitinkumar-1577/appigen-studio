@@ -2161,7 +2161,7 @@ Deno.serve(async (req) => {
       const code = typeof body.code === "string" ? body.code : "";
       if (!prompt) return jsonResponse({ error: "Question missing" }, 400);
       const conversation: ConversationTurn[] = Array.isArray(body.conversation)
-        ? body.conversation.slice(-12).filter((turn): turn is Record<string, unknown> =>
+        ? body.conversation.slice(-24).filter((turn): turn is Record<string, unknown> =>
           isRecord(turn) && (turn.role === "user" || turn.role === "assistant") && typeof turn.content === "string")
           .map((turn) => ({ role: turn.role as "user" | "assistant", content: (turn.content as string).slice(0, 2400) }))
         : [];
