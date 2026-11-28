@@ -2055,6 +2055,15 @@ const reviewEventId = addPlanEvent({
 });
       setProgressStage("Reviewing");
       setBuildTimeline((current) => [...current, "Reviewing the complete project"]);
+      const reviewProviderEventId = addPlanEvent({
+  kind: "tool",
+  status: "running",
+  title: "AI provider is reviewing the project",
+  detail: `Sending project review request to ${buildProvider}.`,
+  source: {
+    name: buildProvider,
+  },
+});
       const { data: reviewData, error: reviewError } = await supabase.functions.invoke("Appigen", {
         body: {
           mode: "review",
