@@ -1907,24 +1907,7 @@ const patchPlanEvent = (
     throw error;
   }
 },
-                    signal: controller.signal,
-          });
-       if (fileError) throw fileError;
-
-const validatedResult = validateBuildFileResponse(fileData, file.path);
-const providerName = validatedResult.provider ?? generationSettings.provider;
-
-addPlanEvent({
-  kind: "tool",
-  status: "success",
-  title: "AI generation provider",
-  detail: `${providerName} generated ${file.path}.`,
-  source: {
-    name: providerName,
-  },
-});
-
-return validatedResult;
+ 
         validate: (file, result) => {
           const fileValidationError = validateGeneratedFile(result.path, result.content, [...new Set([...requiredPaths, ...uniqueFiles.map(({ path }) => path)])]);
           if (fileValidationError) throw new Error(fileValidationError);
