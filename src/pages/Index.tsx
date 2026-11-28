@@ -2293,7 +2293,7 @@ patchPlanEvent(reviewEventId, {
               writeLocalVersion(savedId, initialVersion);
             }
 
-            patchPlanEvent(savingEventId, {
+                        patchPlanEvent(savingEventId, {
               status: "success",
               detail: "Project and version saved successfully.",
               endedAt: Date.now(),
@@ -2314,10 +2314,6 @@ patchPlanEvent(reviewEventId, {
             const finalProject = await loadProject(savedId, uid);
             setProjectUpdatedAt(finalProject.updated_at);
             discardProjectDraft();
-          } catch (saveError) {
-            patchPlanEvent(savingEventId, {
-              status: "warning",
-              detail: `Cloud save could not be fully confirmed: ${saveError instanceof Error ? saveError.message : "Unknown save error"}. Recovery draft was preserved.`,
               endedAt: Date.now(),
             });
 
