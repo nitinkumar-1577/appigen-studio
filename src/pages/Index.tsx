@@ -1683,7 +1683,20 @@ if (!streamedAnswer.trim()) {
       const planExplanation = typeof planDetails?.explanation === "string" ? planDetails.explanation.trim().slice(0, 400) : "";
       if (planExplanation) { resolvedExplanation = planExplanation; setActivityExplanation(planExplanation); }
       if (!editMode && planTitle && !titleManuallyEdited) { planTitleApplied = planTitle; setProjectTitle(planTitle); }
-      buildMessages = [...nextMessages, { role: "assistant", content: planSummary, timestamp: Date.now() }];
+
+const planMessageTimestamp = Date.now();
+
+buildMessages = [
+  ...nextMessages,
+  {
+    role: "assistant",
+    content: planSummary,
+    timestamp: planMessageTimestamp,
+    events: [],
+  },
+];
+
+setMessages(buildMessages);
       setMessages(buildMessages);
       setBuildTimeline((current) => [...current, "Implementation plan ready"]);
       const canResume = partialBuildRef.current?.prompt === effectivePrompt;
