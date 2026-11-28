@@ -2267,6 +2267,10 @@ patchPlanEvent(reviewEventId, {
           try {
             const savedId = await persistProject({
               projectId: editMode ? projectId : null,
+                    if (uid) {
+          try {
+            const savedId = await persistProject({
+              projectId: editMode ? projectId : null,
               userId: uid,
               title: finalTitle,
               prompt: trimmed,
@@ -2293,12 +2297,6 @@ patchPlanEvent(reviewEventId, {
               writeLocalVersion(savedId, initialVersion);
             }
 
-                        patchPlanEvent(savingEventId, {
-              status: "success",
-              detail: "Project and version saved successfully.",
-              endedAt: Date.now(),
-            });
-
             const finalizedMessages = getFinalSaveMessages();
 
             await persistProject({
@@ -2314,6 +2312,16 @@ patchPlanEvent(reviewEventId, {
             const finalProject = await loadProject(savedId, uid);
             setProjectUpdatedAt(finalProject.updated_at);
             discardProjectDraft();
+
+            patchPlanEvent(savingEventId, {
+              status: "success",
+              detail: "Project, version, and final conversation saved successfully.",
+              endedAt: Date.now(),
+            });
+          } catch (saveError) {
+            patchPlanEvent(savingEventId, {
+              status: "warning",
+              detail: `Cloud save could not be fully confirmed: ${saveError instanceof Error ? saveError.message : "Unknown save error"}. Recovery draft was preserved.`,
               endedAt: Date.now(),
             });
 
@@ -2343,6 +2351,12 @@ patchPlanEvent(reviewEventId, {
             });
           }
         } else {
+          patchPlanEvent(savingEventId, {
+            status: "warning",
+            detail: "Account session was unavailable. Project could not be confirmed as saved.",
+            endedAt: Date.now(),
+          });
+        }
           patchPlanEvent(savingEventId, {
             status: "warning",
             detail: "Account session was unavailable. Project could not be confirmed as saved.",
