@@ -2098,6 +2098,28 @@ if (completedValidationId) {
             partialBuildRef.current = { prompt: trimmed, code: source, completedPaths };
             generatedCode = source;
             setWorkingCode(source);
+            if (!user && readAppPreferences().autoDraft && !readProjectDraft()?.ownerId) {
+  const checkpointFiles = buildFilesRef.current.map((item) =>
+    item.path === event.path ? { ...item, ...event } : item
+  );
+
+  writeProjectDraft({
+    projectId: null,
+    title: projectTitle,
+    prompt: trimmed,
+    code: source,
+    messages: currentMessagesRef.current,
+    versions,
+    updatedAt: Date.now(),
+    buildRecovery: {
+      prompt: trimmed,
+      completedPaths: [...completedPaths],
+      buildFiles: checkpointFiles,
+      buildTimeline: [...buildTimeline, `Completed ${event.path}`],
+      currentStage: `Completed ${event.path}`,
+    },
+  });
+}
             const count = completedPaths.length;
             setMessages((current) => current.map((message, messageIndex) => messageIndex === current.length - 1 && message.role === "assistant" && message.content.startsWith("Implementation plan")
               ? { ...message, content: `${planSummary}\n\nFiles completed: ${count}/${uniqueFiles.length}` }
