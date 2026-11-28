@@ -1074,9 +1074,21 @@ const thinkingLabels = isBuildThinking
               {event.filePath}
             </p>
           )}
-          {event.source && (
+                  {event.source && (
             <p className="mt-0.5 text-muted-foreground">
-              {event.source.name}
+              {event.source.url &&
+              /^https?:\/\//i.test(event.source.url) ? (
+                <a
+                  href={event.source.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="break-all text-primary underline underline-offset-2 hover:text-primary/80"
+                >
+                  {event.source.name}
+                </a>
+              ) : (
+                event.source.name
+              )}
             </p>
           )}
         </div>
