@@ -1733,6 +1733,12 @@ const patchPlanEvent = (
     ),
   );
 };
+      addPlanEvent({
+  kind: "planning",
+  status: "success",
+  title: "Implementation plan ready",
+  detail: "The requested changes have been organized into a file-by-file build plan.",
+});
       const canResume = partialBuildRef.current?.prompt === effectivePrompt;
       let generatedCode = canResume
         ? partialBuildRef.current?.code ?? ""
