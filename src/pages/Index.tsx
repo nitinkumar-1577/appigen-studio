@@ -1714,11 +1714,7 @@ sources?: Array<{ title?: string; url?: string }>;
           if (event.type === "meta" && typeof event.provider === "string") {
             streamProvider = event.provider;
           }
-if (
-  event.type === "tool_result" &&
-  event.tool === "web_search" &&
-  Array.isArray(event.sources)
-) {
+if (event.type === "tool_result" && event.tool === "web_search") {
   const eventTime = Date.now();
 
   streamSearchEvents = event.sources
