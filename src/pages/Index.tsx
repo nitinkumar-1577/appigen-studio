@@ -1717,8 +1717,7 @@ sources?: Array<{ title?: string; url?: string }>;
 if (event.type === "tool_result" && event.tool === "web_search") {
   const eventTime = Date.now();
 
-  streamSearchEvents = event.sources
-    .filter(
+streamSearchEvents = (Array.isArray(event.sources) ? event.sources : [])    .filter(
       (source): source is { title: string; url: string } =>
         typeof source.title === "string" &&
         typeof source.url === "string"
