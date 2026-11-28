@@ -141,7 +141,14 @@ export async function searchTavily(
         504,
       );
     }
+export function shouldSearchWeb(prompt: string): boolean {
+  const text = prompt.trim().toLowerCase();
 
+  if (!text) return false;
+
+  return /\b(search the web|search online|search internet|web search|google search|look up online|find online|latest|current|today|breaking news|recent news|news today)\b/i.test(text)
+    || /\b(internet par search|web par search|online search|latest news|aaj ki news|taaza khabar|abhi ki jankari)\b/i.test(text);
+}
     throw new TavilySearchError("Could not connect to Tavily.");
   } finally {
     clearTimeout(timeout);
