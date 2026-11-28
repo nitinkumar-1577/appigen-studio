@@ -1697,7 +1697,7 @@ buildMessages = [
 ];
 
 setMessages(buildMessages);
-      setMessages(buildMessages);
+      
       setBuildTimeline((current) => [...current, "Implementation plan ready"]);
       let liveBuildEvents: BuildActivityEvent[] = [];
 
