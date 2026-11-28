@@ -58,6 +58,41 @@ export function createActivityId(): string {
   return `activity-${Date.now()}-${activityCounter}`;
 }
 
+export function createBuildActivityEvent(
+  event: Omit<BuildActivityEvent, "id" | "startedAt"> & {
+    startedAt?: number;
+  },
+): BuildActivityEvent {
+  return {
+    ...event,
+    id: createActivityId(),
+    startedAt: event.startedAt ?? Date.now(),
+  };
+}
+
+export function updateBuildActivityEvent(
+  event: BuildActivityEvent,
+  patch: Partial<
+    Pick<
+      BuildActivityEvent,
+      "status" | "detail" | "endedAt" | "source"
+    >
+  >,
+): BuildActivityEvent {
+  const updated = { ...event, ...patch };
+
+  if (
+    patch.status &&
+    patch.status !== "pending" &&
+    patch.status !== "running" &&
+    patch.endedAt === undefined
+  ) {
+    updated.endedAt = Date.now();
+  }
+
+  return updated;
+}
+
 export function activityDurationMs(activity: BuildActivity, now = Date.now()): number {
   return Math.max(0, (activity.endedAt ?? now) - activity.startedAt);
 }
