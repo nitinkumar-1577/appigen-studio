@@ -8,6 +8,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import type { ChatMessage } from "@/lib/projects/projectStorage";
 import type { BuildFileProgress } from "@/lib/projects/buildWorkflow";
 import { activityDurationMs, activityStatusLabel, formatActivityDuration, type BuildActivity, type BuildActivityEvent } from "@/lib/projects/conversationActivity";
+import DOMPurify from "dompurify";
+import { marked } from "marked";
 import { parseFileMarkers } from "@/lib/preview/parseFileMarkers";
 
 interface PromptPanelProps {
