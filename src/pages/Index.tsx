@@ -2223,29 +2223,46 @@ patchPlanEvent(reviewEventId, {
         errors: [],
       };
       const activityMessage: ChatMessage = { role: "assistant", content: finalActivity.title, kind: "activity", title: finalActivity.title, explanation: resolvedExplanation, activity: finalActivity, timestamp: Date.now() };
- const messagesWithBuildEvents = buildMessages.map((message) =>
-  message.timestamp === planMessageTimestamp
-    ? { ...message, events: liveBuildEvents }
-    : message
-);
+      const savingEventId = addPlanEvent({
+        kind: "saving",
+        status: "running",
+        title: "Saving project",
+        detail: "Saving generated files, conversation, and project version.",
+      });
 
-const completedMessages = [
-  ...messagesWithBuildEvents,
-  {
-    role: "assistant" as const,
-    content: editMode
-      ? `Project updated. ${validationSummary}${changeRecord ? `\n\n${formatChangeRecord(changeRecord)}` : ""}${memoryNote}\n\nLive preview verification: pending (awaiting successful mount). I will report runtime errors if detected. Your previous version is available to restore.`
-      : `Project generated. ${validationSummary}\n\nLive preview verification: pending (awaiting successful mount). I will report runtime errors if detected.`,
-    timestamp: Date.now(),
-  },
-  activityMessage,
-];
+      const messagesWithBuildEvents = buildMessages.map((message) =>
+        message.timestamp === planMessageTimestamp
+          ? { ...message, events: liveBuildEvents }
+          : message
+      );
+
+      const completedMessages = [
+        ...messagesWithBuildEvents,
+        {
+          role: "assistant" as const,
+          content: editMode
+            ? `Project updated. ${validationSummary}${changeRecord ? `\n\n${formatChangeRecord(changeRecord)}` : ""}${memoryNote}\n\nLive preview verification: pending (awaiting successful mount). I will report runtime errors if detected. Your previous version is available to restore.`
+            : `Project generated. ${validationSummary}\n\nLive preview verification: pending (awaiting successful mount). I will report runtime errors if detected.`,
+          timestamp: Date.now(),
+        },
+        activityMessage,
+      ];
+
+      const getFinalSaveMessages = () =>
+        completedMessages.map((message) =>
+          message.timestamp === planMessageTimestamp
+            ? { ...message, events: liveBuildEvents }
+            : message
+        );
+
       setPrompt("");
 
       if (user) {
         setProgressStage("Saving");
         setBuildTimeline((current) => [...current, "Saving project and version"]);
+
         const uid = session?.user.id;
+
         if (uid) {
           try {
             const savedId = await persistProject({
@@ -2257,37 +2274,116 @@ const completedMessages = [
               messages: completedMessages,
               expectedUpdatedAt: editMode ? projectUpdatedAt ?? undefined : undefined,
             });
+
             setProjectId(savedId);
             setLastSyncedCode(generatedCode);
+
             const authoritative = await loadProject(savedId, uid);
             setProjectUpdatedAt(authoritative.updated_at);
+
             if (!editMode) {
-              const initialVersion = await createProjectVersion({ projectId: savedId, userId: uid, code: generatedCode, prompt: trimmed, id: activityVersionId });
+              const initialVersion = await createProjectVersion({
+                projectId: savedId,
+                userId: uid,
+                code: generatedCode,
+                prompt: trimmed,
+                id: activityVersionId,
+              });
               setVersions([initialVersion]);
               writeLocalVersion(savedId, initialVersion);
             }
+
+            patchPlanEvent(savingEventId, {
+              status: "success",
+              detail: "Project and version saved successfully.",
+              endedAt: Date.now(),
+            });
+
+            const finalizedMessages = getFinalSaveMessages();
+
+            await persistProject({
+              projectId: savedId,
+              userId: uid,
+              title: finalTitle,
+              prompt: trimmed,
+              code: generatedCode,
+              messages: finalizedMessages,
+              expectedUpdatedAt: authoritative.updated_at,
+            });
+
+            const finalProject = await loadProject(savedId, uid);
+            setProjectUpdatedAt(finalProject.updated_at);
             discardProjectDraft();
           } catch (saveError) {
+            patchPlanEvent(savingEventId, {
+              status: "warning",
+              detail: `Cloud save could not be fully confirmed: ${saveError instanceof Error ? saveError.message : "Unknown save error"}. Recovery draft was preserved.`,
+              endedAt: Date.now(),
+            });
+
+            const finalizedMessages = getFinalSaveMessages();
             const recoveryDraft = readProjectDraft();
-            if (recoveryDraft?.ownerId === uid && recoveryDraft.code === generatedCode) {
-              setProjectId(recoveryDraft.projectId);
-            }
+
+            writeProjectDraft({
+              projectId:
+                recoveryDraft?.code === generatedCode
+                  ? recoveryDraft.projectId
+                  : editMode ? projectId : null,
+              ownerId: uid,
+              title: finalTitle,
+              prompt: trimmed,
+              code: generatedCode,
+              messages: finalizedMessages,
+              versions: versionsAfterBuild,
+              updatedAt: Date.now(),
+            });
+
             toast({
-              title: "Build complete, cloud save failed",
-              description: saveError instanceof Error ? saveError.message : "Your project could not be saved. Keep this tab open and retry.",
+              title: "Build complete, cloud save needs attention",
+              description: saveError instanceof Error
+                ? saveError.message
+                : "Your recovery draft was preserved. Retry saving when possible.",
               variant: "destructive",
             });
           }
+        } else {
+          patchPlanEvent(savingEventId, {
+            status: "warning",
+            detail: "Account session was unavailable. Project could not be confirmed as saved.",
+            endedAt: Date.now(),
+          });
         }
       } else {
         setProgressStage("Saving");
+
         if (!editMode && activityVersionId) {
-          const initialVersion: LocalProjectVersion = { id: activityVersionId, code: generatedCode, prompt: trimmed, createdAt: Date.now() };
+          const initialVersion: LocalProjectVersion = {
+            id: activityVersionId,
+            code: generatedCode,
+            prompt: trimmed,
+            createdAt: Date.now(),
+          };
           versionsAfterBuild = [initialVersion];
           setVersions(versionsAfterBuild);
           writeLocalVersion(chatKey, initialVersion);
         }
-        writeProjectDraft({ projectId: null, title: finalTitle, prompt: trimmed, code: generatedCode, messages: completedMessages, versions: versionsAfterBuild, updatedAt: Date.now() });
+
+        patchPlanEvent(savingEventId, {
+          status: "success",
+          detail: "Project draft and conversation saved locally.",
+          endedAt: Date.now(),
+        });
+
+        writeProjectDraft({
+          projectId: null,
+          title: finalTitle,
+          prompt: trimmed,
+          code: generatedCode,
+          messages: getFinalSaveMessages(),
+          versions: versionsAfterBuild,
+          updatedAt: Date.now(),
+        });
+
         setBuildTimeline((current) => [...current, "Saved local project draft"]);
       }
 
