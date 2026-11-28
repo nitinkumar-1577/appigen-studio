@@ -2104,7 +2104,7 @@ Deno.serve(async (req) => {
 
       const code = typeof body.code === "string" ? body.code : "";
       const conversation: ConversationTurn[] = Array.isArray(body.conversation)
-        ?body.conversation.slice(-40)
+    ? body.conversation.slice(-40)
             .filter((turn): turn is Record<string, unknown> =>
               isRecord(turn) &&
               (turn.role === "user" || turn.role === "assistant") &&
