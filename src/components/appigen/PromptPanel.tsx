@@ -1036,11 +1036,17 @@ const thinkingLabels = isBuildThinking
     minute: "2-digit",
     second: "2-digit",
   })}
- {event.endedAt
+{event.endedAt
   ? ` · ${formatActivityDuration(event.endedAt - event.startedAt)}`
   : event.status === "pending"
     ? " · Pending"
-    : " · In progress"}
+    : event.status === "running"
+      ? " · In progress"
+      : event.status === "warning"
+        ? " · Warning"
+        : event.status === "error"
+          ? " · Failed"
+          : " · Completed"}
 </p>
       
           {event.filePath && (
