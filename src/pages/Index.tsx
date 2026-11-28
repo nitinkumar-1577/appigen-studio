@@ -1974,6 +1974,11 @@ patchPlanEvent(reviewEventId, {
       setBuildTimeline((current) => [...current, "Running final project validation"]);
       const validationError = validateFileTree(generatedCode, requiredPaths) || validateGeneratedCode(generatedCode, !editMode);
       if (validationError) throw new Error(`The reviewed project is invalid: ${validationError}`);
+      patchPlanEvent(finalValidationEventId, {
+  status: "success",
+  detail: "Final project validation passed successfully.",
+  endedAt: Date.now(),
+});
       partialBuildRef.current = null;
       let activityVersionId: string | undefined;
       if (editMode && lastCode) {
