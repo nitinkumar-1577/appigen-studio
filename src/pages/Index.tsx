@@ -1693,6 +1693,7 @@ setPrompt("");
        let streamedAnswer = "";
 let streamProvider = "";
 let streamCompleted = false;
+        let streamSearchEvents: BuildActivityEvent[] = [];
 const assistantTimestamp = Date.now();
 
         const processStreamLine = (line: string) => {
@@ -1706,12 +1707,40 @@ const assistantTimestamp = Date.now();
             text?: string;
             provider?: string;
             error?: string;
+            tool?: string;
+sources?: Array<{ title?: string; url?: string }>;
           };
 
           if (event.type === "meta" && typeof event.provider === "string") {
             streamProvider = event.provider;
           }
+if (
+  event.type === "tool_result" &&
+  event.tool === "web_search" &&
+  Array.isArray(event.sources)
+) {
+  const eventTime = Date.now();
 
+  streamSearchEvents = event.sources
+    .filter(
+      (source): source is { title: string; url: string } =>
+        typeof source.title === "string" &&
+        typeof source.url === "string"
+    )
+    .map((source, index) => ({
+      id: createActivityId(),
+      kind: "tool",
+      status: "success",
+      title: `Web search source ${index + 1}`,
+      detail: source.title,
+      startedAt: eventTime,
+      endedAt: eventTime,
+      source: {
+        name: source.title,
+        url: source.url,
+      },
+    }));
+}
           if (event.type === "delta" && typeof event.text === "string") {
             streamedAnswer += event.text;
             setMessages([
@@ -1763,7 +1792,8 @@ if (!streamedAnswer.trim()) {
           {
             role: "assistant" as const,
             content: streamedAnswer.trim(),
-            timestamp: assistantTimestamp,
+            timestamp: assistantTimestamp,\
+            events: streamSearchEvents,
           },
         ];
 
