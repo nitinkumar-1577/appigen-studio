@@ -1709,6 +1709,8 @@ const assistantTimestamp = Date.now();
             error?: string;
             tool?: string;
 sources?: Array<{ title?: string; url?: string }>;
+            status?: "success" | "warning" | "error";
+message?: string;
           };
 
           if (event.type === "meta" && typeof event.provider === "string") {
