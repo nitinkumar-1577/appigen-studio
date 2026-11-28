@@ -39,7 +39,13 @@ import { loadLatestAccountBuildJob, loadLatestActiveBuildJob, subscribeToActiveB
 import { readAppPreferences, readGenerationSettings, recordActivity } from "@/lib/appPreferences";
 import { trackAnonymousUsage } from "@/lib/telemetry";
 import { analyzeIntent, intentSummary, isVagueNewAppPrompt, resolveFollowUp, responseLanguageInstruction } from "@/lib/projects/conversationIntelligence";
-import { createActivityId, type BuildActivity } from "@/lib/projects/conversationActivity";
+import {
+  createActivityId,
+  createBuildActivityEvent,
+  updateBuildActivityEvent,
+  type BuildActivity,
+  type BuildActivityEvent,
+} from "@/lib/projects/conversationActivity";
 import { attemptsForIssue, buildQualityState, canAttemptRepair, createRepairAttempt, emptyQualityState, finalizeRepairAttempt, MAX_REPAIR_ATTEMPTS_PER_ISSUE, mergeRuntimeError, normalizeReviewFindings, type CheckStatus, type QualityState, type RepairAttempt, type RuntimeIssue } from "@/lib/projects/qualityEngine";
 
 const SPLIT_STORAGE_KEY = "appigen.studio.split.v1";
