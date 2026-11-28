@@ -1963,9 +1963,9 @@ if (existingValidationId) {
     detail: "Validating generated file structure and content.",
     filePath: event.path,
   });
-
   fileEventIds.set(`${event.path}:validation`, validationEventId);
-} else if (event.status === "retrying") {
+}
+          } else if (event.status === "retrying") {
             setBuildTimeline((current) => [...current, `Retrying ${event.path}${event.error ? `: ${event.error}` : ""}`]);
             setProgressStage(`Retrying ${event.path}`);
             const retryFileEventId = fileEventIds.get(event.path);
