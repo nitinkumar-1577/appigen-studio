@@ -273,7 +273,46 @@ export const loadProjects = async (userId: string): Promise<ProjectSummary[]> =>
   if (error) throw error;
   return data ?? [];
 };
+export type AccountConversationArchive = {
+  projectId: string;
+  title: string;
+  prompt: string;
+  updatedAt: string;
+  messages: ChatMessage[];
+};
 
+export const loadAccountConversationArchive = async (
+  userId: string,
+  limit = 40,
+): Promise<AccountConversationArchive[]> => {
+  const { data, error } = await supabase
+    .from("projects")
+    .select("id, title, prompt, messages, updated_at")
+    .eq("user_id", userId)
+    .is("deleted_at", null)
+    .order("updated_at", { ascending: false })
+    .limit(Math.max(1, Math.min(limit, 100)));
+
+  if (error) throw error;
+
+  return (data ?? []).map((project) => ({
+    projectId: project.id,
+    title: project.title,
+    prompt: project.prompt,
+    updatedAt: project.updated_at,
+    messages: Array.isArray(project.messages)
+      ? (project.messages as unknown[]).filter((entry): entry is ChatMessage => {
+          if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return false;
+          const message = entry as Record<string, unknown>;
+          return (
+            (message.role === "user" || message.role === "assistant") &&
+            typeof message.content === "string" &&
+            typeof message.timestamp === "number"
+          );
+        })
+      : [],
+  }));
+};
 export const renameProject = async (projectId: string, userId: string, title: string): Promise<void> => {
   const { data, error } = await supabase
     .from("projects")
