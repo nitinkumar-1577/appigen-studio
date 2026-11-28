@@ -1910,13 +1910,15 @@ content: `${projectMemoryBlock ? `PROJECT UNDERSTANDING/MEMORY/CHANGES:\n${proje
         provider: `${result.provider}:${upstream.model}`,
         model: upstream.model,
       });
-      if (extraContext?.webSearchSources?.length) {
-        send({
-          type: "tool_result",
-          tool: "web_search",
-          sources: extraContext.webSearchSources,
-        });
-      }
+if (extraContext?.webSearchStatus || extraContext?.webSearchSources?.length) {
+  send({
+    type: "tool_result",
+    tool: "web_search",
+    status: extraContext.webSearchStatus,
+    message: extraContext.webSearchMessage,
+    sources: extraContext.webSearchSources ?? [],
+  });
+}
       void (async () => {
         let answer = "";
 
