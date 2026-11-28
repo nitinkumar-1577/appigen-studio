@@ -1754,6 +1754,7 @@ const patchPlanEvent = (
 
       const previouslyCompleted = new Set(canResume ? partialBuildRef.current?.completedPaths ?? [] : []);
       setBuildFiles(uniqueFiles.map(({ path, purpose }) => ({ path, purpose, status: previouslyCompleted.has(path) ? "completed" : "queued" })));
+     const fileEventIds = new Map<string, string>();
       const buildResult = await runSequentialFileBuild({
         files: uniqueFiles,
         initialSource: generatedCode,
