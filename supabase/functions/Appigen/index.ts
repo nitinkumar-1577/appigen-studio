@@ -1,7 +1,7 @@
 import { understandProject, formatUnderstandingForPrompt, rankFilesForIntent, impactedFiles } from "../../../src/lib/projects/projectUnderstanding.ts";
 import { formatMemoryForPrompt, type ProjectMemory } from "../../../src/lib/projects/projectMemory.ts";
 import { formatChangeRecord, type ChangeRecord } from "../../../src/lib/projects/changeTracking.ts";
-import { searchTavily } from "./tavilySearch.ts";
+import { searchTavily, shouldSearchWeb } from "./tavilySearch.ts";
 // AppiGen V4 — Timeout-safe Thinking Engine pipeline (Groq)
 // Local stages: 1 Intent · 2 Requirements · 3 Architecture · 4 Blueprint
 // AI stages: 5 Generate (multi-file) · 6 Validate · 7 Auto-Repair · 8 Clean
