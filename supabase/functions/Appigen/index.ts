@@ -2138,7 +2138,8 @@ Deno.serve(async (req) => {
       const stage = typeof body.stage === "string" ? body.stage : undefined;
       const contextBrief = projectContextBrief(existingCode, prompt, body);
       const plan = enhanceAndPlan("", prompt, stage, existingCode, conversation);
-      const implementationPlan = await createModelAssistedPlan(providers, provider, prompt, existingCode, conversation, { ...contextBrief, responseLanguage: typeof body.responseLanguage === "string" ? body.responseLanguage : undefined, intent: typeof body.intent === "string" ? body.intent : undefined });
+      const implementationPlan = await createModelAssistedPlan(providers, provider, prompt, existingCode, conversation, { ...contextBrief, responseLanguage: typeof body.responseLanguage === "string" ? body.responseLanguage : undefined, intent: typeof body.intent === "string" ? body.intent : undefined
+                                                                                                                                , });
       const understanding = existingCode ? understandProject(existingCode) : null;
       const focusFiles = understanding ? rankFilesForIntent(understanding, prompt).slice(0, 8).map((r) => r.path) : [];
       return jsonResponse({ plan: { implementationPlan: { ...plan.implementationPlan, ...implementationPlan } }, projectContext: { focusFiles, understanding: contextBrief.understandingText, memory: contextBrief.memoryText, changes: contextBrief.changeText }, requestedProvider: provider, mode });
@@ -2195,6 +2196,7 @@ Deno.serve(async (req) => {
           intent: typeof body.intent === "string"
             ? body.intent
             : undefined,
+                    webSearchText,
         },
         req.signal,
       );
