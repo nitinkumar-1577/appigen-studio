@@ -2221,8 +2221,10 @@ let webSearchMessage: string | undefined;
           intent: typeof body.intent === "string"
             ? body.intent
             : undefined,
-                    webSearchText,
-          webSearchSources,
+               webSearchText,
+webSearchSources,
+webSearchStatus,
+webSearchMessage,
         },
         req.signal,
       );
