@@ -1792,7 +1792,7 @@ if (!streamedAnswer.trim()) {
           {
             role: "assistant" as const,
             content: streamedAnswer.trim(),
-            timestamp: assistantTimestamp,\
+            timestamp: assistantTimestamp,
             events: streamSearchEvents,
           },
         ];
