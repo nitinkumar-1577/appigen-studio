@@ -20,6 +20,7 @@ export type ChatMessage = {
   bookmarked?: boolean;
 };
 
+
 export type LocalProjectDraft = {
   projectId: string | null;
   ownerId?: string | null;
@@ -29,7 +30,21 @@ export type LocalProjectDraft = {
   messages: ChatMessage[];
   versions: LocalProjectVersion[];
   updatedAt: number;
+  buildRecovery?: {
+    prompt: string;
+    completedPaths: string[];
+    buildFiles: Array<{
+      path: string;
+      purpose: string;
+      status: string;
+      attempts?: number;
+      error?: string;
+    }>;
+    buildTimeline: string[];
+    currentStage: string;
+  } | null;
 };
+
 
 export type LocalProjectVersion = {
   id: string;
