@@ -1781,7 +1781,18 @@ const publishBuildEvents = (nextEvents: BuildActivityEvent[]) => {
     ),
   );
 };
+const understandingEvent = createBuildActivityEvent({
+  kind: "understanding",
+  status: understandingFallbackUsed ? "warning" : "success",
+  title: "Understanding your request",
+  detail: understandingFallbackUsed
+    ? "AI understanding was unavailable. Local intent analysis was used."
+    : `Request understood successfully. Intent: ${intent.intent}.`,
+  startedAt: understandingStartedAt,
+  endedAt: understandingEndedAt,
+});
 
+publishBuildEvents([understandingEvent]);
 const addPlanEvent = (
   event: Omit<BuildActivityEvent, "id" | "startedAt">,
 ) => {
