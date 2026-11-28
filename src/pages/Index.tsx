@@ -2512,47 +2512,57 @@ setSidebarOverlayOpen(false);
           validation: [],
           errors: [],
         };
-      setMessages((current) => [
-  ...current.map((message) =>
-    message.events
-      ? {
-          ...message,
-          events: [
-            ...message.events.map((event) =>
-              event.status === "running" || event.status === "pending"
-                ? {
-                    ...event,
-                    status: "warning" as const,
-                    detail: "Build stopped by user.",
-                    endedAt: Date.now(),
-                  }
-                : event,
-            ),
-            createBuildActivityEvent({
-              kind: "complete",
-              status: "warning",
-              title: "Build stopped",
-              detail: `${stoppedSummary}. Completed files have been kept.`,
-            }),
-          ],
-        }
-      : message,
-  ),
-  {
-    role: "assistant",
-    content: `Build stopped by you. ${stoppedSummary}. Completed files are kept and this prompt can resume safely.`,
-    timestamp: Date.now(),
-  },
-  {
-    role: "assistant",
-    content: stoppedActivity.title,
-    kind: "activity",
-    title: stoppedActivity.title,
-    explanation: resolvedExplanation,
-    activity: stoppedActivity,
-    timestamp: Date.now(),
-  },
-]);
+         setMessages((current) => {
+        const latestEventMessageIndex = current.reduce(
+          (latest, message, index) =>
+            message.events ? index : latest,
+          -1,
+        );
+
+        return [
+          ...current.map((message, index) => {
+            if (index !== latestEventMessageIndex || !message.events) {
+              return message;
+            }
+
+            return {
+              ...message,
+              events: [
+                ...message.events.map((event) =>
+                  event.status === "running" || event.status === "pending"
+                    ? {
+                        ...event,
+                        status: "warning" as const,
+                        detail: "Build stopped by user.",
+                        endedAt: Date.now(),
+                      }
+                    : event,
+                ),
+                createBuildActivityEvent({
+                  kind: "complete",
+                  status: "warning",
+                  title: "Build stopped",
+                  detail: `${stoppedSummary}. Completed files have been kept.`,
+                }),
+              ],
+            };
+          }),
+          {
+            role: "assistant",
+            content: `Build stopped by you. ${stoppedSummary}. Completed files are kept and this prompt can resume safely.`,
+            timestamp: Date.now(),
+          },
+          {
+            role: "assistant",
+            content: stoppedActivity.title,
+            kind: "activity",
+            title: stoppedActivity.title,
+            explanation: resolvedExplanation,
+            activity: stoppedActivity,
+            timestamp: Date.now(),
+          },
+        ];
+      });
         toast({ title: "Build stopped", description: `Stopped after ${stoppedSummary}. Your prompt is still here; you can try again.` });
         return;
       }
