@@ -2086,16 +2086,23 @@ patchPlanEvent(reviewEventId, {
         errors: [],
       };
       const activityMessage: ChatMessage = { role: "assistant", content: finalActivity.title, kind: "activity", title: finalActivity.title, explanation: resolvedExplanation, activity: finalActivity, timestamp: Date.now() };
-  const messagesWithBuildEvents = buildMessages.map((message) =>
+ const messagesWithBuildEvents = buildMessages.map((message) =>
   message.timestamp === planMessageTimestamp
     ? { ...message, events: liveBuildEvents }
     : message
 );
 
-const completedMessages = [...messagesWithBuildEvents,
-        ? `Project updated. ${validationSummary}${changeRecord ? `\n\n${formatChangeRecord(changeRecord)}` : ""}${memoryNote}\n\nLive preview verification: pending (awaiting successful mount). I will report runtime errors if detected. Your previous version is available to restore.`
-        : `Project generated. ${validationSummary}\n\nLive preview verification: pending (awaiting successful mount). I will report runtime errors if detected.`, timestamp: Date.now() }, activityMessage];
-      setMessages(completedMessages);
+const completedMessages = [
+  ...messagesWithBuildEvents,
+  {
+    role: "assistant" as const,
+    content: editMode
+      ? `Project updated. ${validationSummary}${changeRecord ? `\n\n${formatChangeRecord(changeRecord)}` : ""}${memoryNote}\n\nLive preview verification: pending (awaiting successful mount). I will report runtime errors if detected. Your previous version is available to restore.`
+      : `Project generated. ${validationSummary}\n\nLive preview verification: pending (awaiting successful mount). I will report runtime errors if detected.`,
+    timestamp: Date.now(),
+  },
+  activityMessage,
+];
       setPrompt("");
 
       if (user) {
