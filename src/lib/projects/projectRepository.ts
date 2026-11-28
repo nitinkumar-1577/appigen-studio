@@ -295,12 +295,9 @@ export const loadAccountConversationArchive = async (
 
   if (error) throw error;
 
-  return (data ?? []).map((project) => ({
-    projectId: project.id,
-    title: project.title,
-    prompt: project.prompt,
-    updatedAt: project.updated_at,
-    messages: Array.isArray(project.messages)
+
+  return (data ?? []).map((project) => {
+    const messages = Array.isArray(project.messages)
       ? (project.messages as unknown[]).filter((entry): entry is ChatMessage => {
           if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return false;
           const message = entry as Record<string, unknown>;
@@ -310,8 +307,27 @@ export const loadAccountConversationArchive = async (
             typeof message.timestamp === "number"
           );
         })
-      : [],
-  }));
+      : [];
+
+    const savedMessages = messages.length > 0
+      ? messages
+      : project.prompt
+        ? [{
+            role: "user" as const,
+            content: project.prompt,
+            timestamp: new Date(project.updated_at).getTime(),
+          }]
+        : [];
+
+    return {
+      projectId: project.id,
+      title: project.title,
+      prompt: project.prompt,
+      updatedAt: project.updated_at,
+      messages: savedMessages,
+    };
+  });
+
 };
 export const renameProject = async (projectId: string, userId: string, title: string): Promise<void> => {
   const { data, error } = await supabase
