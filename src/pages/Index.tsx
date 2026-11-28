@@ -1366,12 +1366,14 @@ let understandingFallbackUsed = false;
           needsClarification: result.needsClarification === true,
         };
 
-        if (
+               if (
           typeof result.resolvedPrompt === "string" &&
           result.resolvedPrompt.trim()
         ) {
           effectivePrompt = result.resolvedPrompt.trim();
         }
+      } else {
+        understandingFallbackUsed = true;
       }
     } catch (error) {
       understandingFallbackUsed = true;
