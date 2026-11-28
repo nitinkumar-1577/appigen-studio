@@ -2367,13 +2367,6 @@ patchPlanEvent(reviewEventId, {
           setVersions(versionsAfterBuild);
           writeLocalVersion(chatKey, initialVersion);
         }
-
-        patchPlanEvent(savingEventId, {
-          status: "success",
-          detail: "Project draft and conversation saved locally.",
-          endedAt: Date.now(),
-        });
-
         writeProjectDraft({
           projectId: null,
           title: finalTitle,
@@ -2384,8 +2377,13 @@ patchPlanEvent(reviewEventId, {
           updatedAt: Date.now(),
         });
 
+        patchPlanEvent(savingEventId, {
+          status: "success",
+          detail: "Project draft and conversation saved locally.",
+          endedAt: Date.now(),
+        });
+
         setBuildTimeline((current) => [...current, "Saved local project draft"]);
-      }
 
       addNotification({ kind: "build", title: editMode ? "Project updated" : "Project generated", description: `${finalTitle} · preview verification pending` });
       void trackAnonymousUsage("build_completed").catch((error: unknown) => console.warn("Anonymous usage telemetry could not be recorded:", error));
