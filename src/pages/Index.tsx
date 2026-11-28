@@ -1127,10 +1127,45 @@ const unsubscribeSession = subscribeToStudioSession(
     if (["error", "promise", "compile", "render", "blank"].includes(kind)) {
       setBuildTimeline((current) => [...current, `Preview ${kind}: ${msg.slice(0, 120)}`]);
       if (pendingBuildRef.current) {
-        setMessages((current) => current.map((message, index) => {
-          if (index !== current.length - 1 || message.role !== "assistant" || !message.content.includes("Live preview verification: pending")) return message;
-          return { ...message, content: message.content.replace(/Live preview verification: pending[^\n]*/g, `Live preview verification: failed (${kind}: ${msg.slice(0, 160)}).`) };
-        }));
+      setMessages((current) => {
+  const idx = [...current].reverse().findIndex(
+    (message) =>
+      message.role === "assistant" &&
+      message.content.includes("Live preview verification: pending"),
+  );
+  const real = idx === -1 ? -1 : current.length - 1 - idx;
+
+  return current.map((message, index) => {
+    let updated = message;
+
+    if (message.events) {
+      updated = {
+        ...updated,
+        events: message.events.map((activityEvent) =>
+          activityEvent.title === "Waiting for live preview"
+            ? updateBuildActivityEvent(activityEvent, {
+                status: "error",
+                detail: `Preview verification failed (${kind}): ${msg}`,
+                endedAt: Date.now(),
+              })
+            : activityEvent,
+        ),
+      };
+    }
+
+    if (index === real) {
+      updated = {
+        ...updated,
+        content: updated.content.replace(
+          /Live preview verification: pending[^\n]*/g,
+          `Live preview verification: failed (${kind}: ${msg.slice(0, 160)}).`,
+        ),
+      };
+    }
+
+    return updated;
+  });
+});
       }
     }
   };
