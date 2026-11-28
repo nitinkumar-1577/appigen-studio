@@ -1076,12 +1076,45 @@ const unsubscribeSession = subscribeToStudioSession(
       if (pending) {
         pendingBuildRef.current = null;
         setBuildTimeline((current) => [...current, "Live preview mounted successfully"]);
-        setMessages((current) => {
-          const idx = [...current].reverse().findIndex((m) => m.role === "assistant" && m.content.includes("Live preview verification: pending"));
-          if (idx === -1) return current;
-          const real = current.length - 1 - idx;
-          return current.map((m, i) => i === real ? { ...m, content: m.content.replace(/\n\nLive preview verification: pending[^\n]*/g, "\n\nLive preview verification: mounted successfully.") } : m);
-        });
+       setMessages((current) => {
+  const idx = [...current].reverse().findIndex(
+    (message) =>
+      message.role === "assistant" &&
+      message.content.includes("Live preview verification: pending"),
+  );
+  const real = idx === -1 ? -1 : current.length - 1 - idx;
+
+  return current.map((message, index) => {
+    let updated = message;
+
+    if (message.events) {
+      updated = {
+        ...updated,
+        events: message.events.map((activityEvent) =>
+          activityEvent.title === "Waiting for live preview"
+            ? updateBuildActivityEvent(activityEvent, {
+                status: "success",
+                detail: "Preview mounted successfully. Live runtime verification passed.",
+                endedAt: Date.now(),
+              })
+            : activityEvent,
+        ),
+      };
+    }
+
+    if (index === real) {
+      updated = {
+        ...updated,
+        content: updated.content.replace(
+          /\n\nLive preview verification: pending[^\n]*/g,
+          "\n\nLive preview verification: mounted successfully.",
+        ),
+      };
+    }
+
+    return updated;
+  });
+});
         toast({ title: pending.editMode ? "Preview verified" : "App ready", description: `${pending.title} mounted in preview.` });
       }
       return;
