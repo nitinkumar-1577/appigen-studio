@@ -1907,7 +1907,7 @@ const patchPlanEvent = (
     throw error;
   }
 },
-            signal: controller.signal,
+                    signal: controller.signal,
           });
        if (fileError) throw fileError;
 
@@ -1925,7 +1925,6 @@ addPlanEvent({
 });
 
 return validatedResult;
-        },
         validate: (file, result) => {
           const fileValidationError = validateGeneratedFile(result.path, result.content, [...new Set([...requiredPaths, ...uniqueFiles.map(({ path }) => path)])]);
           if (fileValidationError) throw new Error(fileValidationError);
