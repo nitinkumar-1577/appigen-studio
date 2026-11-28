@@ -2154,6 +2154,31 @@ Deno.serve(async (req) => {
           .map((turn) => ({ role: turn.role as "user" | "assistant", content: (turn.content as string).slice(0, 2400) }))
         : [];
       const contextBrief = projectContextBrief(code || undefined, prompt, body);
+            let webSearchText: string | undefined;
+
+      if (shouldSearchWeb(prompt)) {
+        const tavilyApiKey = Deno.env.get("TAVILY_API_KEY");
+
+        if (!tavilyApiKey) {
+          webSearchText = "Web search was requested, but Tavily API key is not configured. Do not claim that a web search was performed.";
+        } else {
+          try {
+            const searchResult = await searchTavily(
+              prompt,
+              tavilyApiKey,
+              req.signal,
+            );
+
+            webSearchText = searchResult.results.length
+              ? searchResult.results.map((item, index) =>
+                `[${index + 1}] ${item.title}\nURL: ${item.url}\n${item.content}`
+              ).join("\n\n")
+              : "Tavily search completed but returned no results.";
+          } catch (error) {
+            webSearchText = `Web search could not be completed: ${error instanceof Error ? error.message : "Unknown search error"}. Do not claim that a web search was performed.`;
+          }
+        }
+      }
            return await answerProjectQuestionStream(
         providers,
         provider,
