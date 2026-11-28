@@ -2057,6 +2057,12 @@ patchPlanEvent(reviewEventId, {
       }
       const activityFiles = buildFilesRef.current.length ? buildFilesRef.current : uniqueFiles.map((file) => ({ path: file.path, purpose: file.purpose, status: "completed" as const }));
       const activityTimeline = buildTimelineRef.current;
+      addPlanEvent({
+  kind: "complete",
+  status: "success",
+  title: "Project generation completed",
+  detail: "All generated files passed final validation. Live preview verification is still pending.",
+});
       const finalActivity: BuildActivity = {
         id: activityId,
         status: "success",
