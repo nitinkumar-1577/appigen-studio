@@ -1845,6 +1845,26 @@ fileEventIds.set(`${event.path}:validation`, validationEventId);
           } else if (event.status === "retrying") {
             setBuildTimeline((current) => [...current, `Retrying ${event.path}${event.error ? `: ${event.error}` : ""}`]);
             setProgressStage(`Retrying ${event.path}`);
+            const retryFileEventId = fileEventIds.get(event.path);
+
+if (retryFileEventId) {
+  patchPlanEvent(retryFileEventId, {
+    status: "running",
+    detail: `Retrying file generation. ${event.error ?? ""}`,
+    endedAt: undefined,
+  });
+}
+
+const retryValidationId = fileEventIds.get(
+  `${event.path}:validation`,
+);
+
+if (retryValidationId) {
+  patchPlanEvent(retryValidationId, {
+    status: "warning",
+    detail: "Previous validation attempt needs another check.",
+  });
+}
           } else if (event.status === "failed") {
             setBuildTimeline((current) => [...current, `Failed ${event.path}: ${event.error ?? "unknown error"}`]);
             const failedFileEventId = fileEventIds.get(event.path);
