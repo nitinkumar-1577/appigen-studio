@@ -2165,6 +2165,8 @@ Deno.serve(async (req) => {
       const contextBrief = projectContextBrief(code || undefined, prompt, body);
             let webSearchText: string | undefined;
       let webSearchSources: Array<{ title: string; url: string }> = [];
+      let webSearchStatus: "success" | "warning" | "error" | undefined;
+let webSearchMessage: string | undefined;
       if (shouldSearchWeb(prompt)) {
         const tavilyApiKey = Deno.env.get("TAVILY_API_KEY");
 
