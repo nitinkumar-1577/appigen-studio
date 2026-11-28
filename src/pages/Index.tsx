@@ -1699,12 +1699,6 @@ buildMessages = [
 setMessages(buildMessages);
       setMessages(buildMessages);
       setBuildTimeline((current) => [...current, "Implementation plan ready"]);
-      addPlanEvent({
-  kind: "planning",
-  status: "success",
-  title: "Implementation plan ready",
-  detail: "The requested changes have been organized into a file-by-file build plan.",
-});
       let liveBuildEvents: BuildActivityEvent[] = [];
 
 const publishBuildEvents = (nextEvents: BuildActivityEvent[]) => {
