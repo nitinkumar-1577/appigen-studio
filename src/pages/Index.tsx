@@ -2267,10 +2267,6 @@ patchPlanEvent(reviewEventId, {
           try {
             const savedId = await persistProject({
               projectId: editMode ? projectId : null,
-                    if (uid) {
-          try {
-            const savedId = await persistProject({
-              projectId: editMode ? projectId : null,
               userId: uid,
               title: finalTitle,
               prompt: trimmed,
@@ -2357,17 +2353,39 @@ patchPlanEvent(reviewEventId, {
             endedAt: Date.now(),
           });
         }
-          patchPlanEvent(savingEventId, {
-            status: "warning",
-            detail: "Account session was unavailable. Project could not be confirmed as saved.",
-            endedAt: Date.now(),
-          });
-        }
       } else {
         setProgressStage("Saving");
 
         if (!editMode && activityVersionId) {
           const initialVersion: LocalProjectVersion = {
+            id: activityVersionId,
+            code: generatedCode,
+            prompt: trimmed,
+            createdAt: Date.now(),
+          };
+          versionsAfterBuild = [initialVersion];
+          setVersions(versionsAfterBuild);
+          writeLocalVersion(chatKey, initialVersion);
+        }
+
+        writeProjectDraft({
+          projectId: null,
+          title: finalTitle,
+          prompt: trimmed,
+          code: generatedCode,
+          messages: getFinalSaveMessages(),
+          versions: versionsAfterBuild,
+          updatedAt: Date.now(),
+        });
+
+        patchPlanEvent(savingEventId, {
+          status: "success",
+          detail: "Project draft and conversation saved locally.",
+          endedAt: Date.now(),
+        });
+
+        setBuildTimeline((current) => [...current, "Saved local project draft"]);
+      }
             id: activityVersionId,
             code: generatedCode,
             prompt: trimmed,
