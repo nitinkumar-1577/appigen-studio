@@ -2073,6 +2073,13 @@ patchPlanEvent(reviewEventId, {
   title: "Project generation completed",
   detail: "All generated files passed final validation. Live preview verification is still pending.",
 });
+    addPlanEvent({
+  kind: "preview",
+  status: "running",
+  title: "Waiting for live preview",
+  detail: "Generated project is ready. Waiting for the preview to mount and report runtime status.",
+});
+    
       const finalActivity: BuildActivity = {
         id: activityId,
         status: "success",
