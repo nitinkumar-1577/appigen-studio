@@ -196,7 +196,58 @@ describe("activity details and preview", () => {
     expect(screen.getByText("Stopped")).toBeInTheDocument();
   });
 });
+describe("assistant markdown rendering", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    Object.defineProperty(window, "SpeechRecognition", {
+      configurable: true,
+      value: MockSpeechRecognition,
+    });
+  });
 
+  it("renders assistant markdown and sanitizes unsafe HTML", () => {
+    render(
+      <PromptPanel
+        {...props()}
+        hasCode
+        messages={[
+          {
+            role: "assistant",
+            content: '## Build summary\n\n**Ready**\n\n<img src="x" onerror="alert(1)">',
+            timestamp: 99,
+          },
+        ]}
+      />,
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "Build summary" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Ready").tagName).toBe("STRONG");
+
+    const image = document.querySelector('img[src="x"]');
+    expect(image).not.toHaveAttribute("onerror");
+  });
+
+  it("keeps user messages as plain text", () => {
+    render(
+      <PromptPanel
+        {...props()}
+        hasCode
+        messages={[
+          {
+            role: "user",
+            content: "**Keep this as text**",
+            timestamp: 100,
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("**Keep this as text**")).toBeInTheDocument();
+    expect(screen.queryByText("Keep this as text", { selector: "strong" })).not.toBeInTheDocument();
+  });
+});
 describe("message actions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
