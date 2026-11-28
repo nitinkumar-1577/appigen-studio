@@ -1930,7 +1930,12 @@ if (completedValidationId) {
       generatedCode = buildResult.source;
       const generatedValidationError = validateFileTree(generatedCode, requiredPaths) || validateGeneratedCode(generatedCode, !editMode);
       if (generatedValidationError) throw new Error(`The generated project is invalid: ${generatedValidationError}`);
-
+const reviewEventId = addPlanEvent({
+  kind: "review",
+  status: "running",
+  title: "Reviewing generated project",
+  detail: "Checking the complete project for structural and implementation issues.",
+});
       setProgressStage("Reviewing");
       setBuildTimeline((current) => [...current, "Reviewing the complete project"]);
       const { data: reviewData, error: reviewError } = await supabase.functions.invoke("Appigen", {
