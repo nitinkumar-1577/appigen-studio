@@ -1031,8 +1031,7 @@ Project context:
 ${projectContext || "(not available)"}
 
 Recent conversation:
-${conversation.slice(-12).map((turn) => `${turn.role}: ${turn.content.slice(0, 1800)}`).join("\n") || "(none)"}`,
-            },
+${conversation.slice(-24).map((turn) => `${turn.role}: ${turn.content.slice(0, 1200)}`).join("\n") || "(none)"}            },
           ],
         },
         { timeoutMs: Math.min(timeoutMs, 30000) },
@@ -2105,7 +2104,7 @@ Deno.serve(async (req) => {
 
       const code = typeof body.code === "string" ? body.code : "";
       const conversation: ConversationTurn[] = Array.isArray(body.conversation)
-        ? body.conversation.slice(-12)
+        ?body.conversation.slice(-40)
             .filter((turn): turn is Record<string, unknown> =>
               isRecord(turn) &&
               (turn.role === "user" || turn.role === "assistant") &&
@@ -2330,8 +2329,7 @@ webSearchMessage,
     const topP = numericSetting(body.topP, 1, 0, 1);
     const conversation: ConversationTurn[] = [];
     let remainingContext = 12000;
-    if (Array.isArray(body.conversation)) {
-      for (const turn of body.conversation.slice(-12)) {
+    if (Array.isArray(body.conversation)) {for (const turn of body.conversation.slice(-24)) {
         if (!isRecord(turn) || (turn.role !== "user" && turn.role !== "assistant") || typeof turn.content !== "string") continue;
         const content = turn.content.slice(0, Math.min(2400, remainingContext));
         if (!content) break;
