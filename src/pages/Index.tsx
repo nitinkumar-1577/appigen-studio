@@ -1377,8 +1377,10 @@ const understandingStartedAt = Date.now();
           .flatMap((chat) =>
             chat.messages.map(({ role, content }) => ({ role, content }))
           );
-
-        conversationContext = [...archivedTurns, ...conversationContext].slice(-40);
+conversationContext = [
+  ...archivedTurns.slice(-24),
+  ...conversationContext.slice(-16),
+];
       } catch (error) {
         console.warn("Could not load previous conversation archive:", error);
       }
@@ -1616,7 +1618,7 @@ activeRequestModeRef.current = questionMode ? "chat" : "build";
             model: generationSettings.model,
             existingProject: editMode,
             code: baseCodeForEdit ?? "",
-            conversation: baseMessages.slice(-12),
+            conversation: conversationContext,
             projectUnderstanding: understandingText,
             projectMemory: memoryText,
             changeSummary: recentChangeSummary,
@@ -1676,7 +1678,7 @@ setPrompt("");
             provider: generationSettings.provider,
           prompt: effectivePrompt,
             code: lastCode ?? "",
-            conversation: baseMessages.slice(-12),
+            conversation: conversationContext,
             model: generationSettings.model,
             system: [
               generationSettings.systemInstructions,
@@ -1871,7 +1873,7 @@ if (!streamedAnswer.trim()) {
           topP: generationSettings.topP,
           existingProject: editMode,
           ...(editMode ? { code: lastCode } : {}),
-          conversation: baseMessages.slice(-12),
+          conversation: conversationContext,
           projectUnderstanding: understandingText,
           projectMemory: memoryText,
           changeSummary: recentChangeSummary,
