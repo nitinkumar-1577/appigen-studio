@@ -1957,7 +1957,13 @@ const reviewEventId = addPlanEvent({
       if (aiReviewFindings.length) setBuildTimeline((current) => [...current, ...aiReviewFindings.map((finding) => `Review finding — ${finding.path}: ${finding.issue}`)]);
       if (reviewData?.repairAttempted && Array.isArray(reviewData?.changedPaths)) setBuildTimeline((current) => [...current, ...reviewData.changedPaths.filter((path: unknown): path is string => typeof path === "string").map((path: string) => `Repaired ${path}`)]);
       generatedCode = normalizeFileMarkers(reviewData.code);
-
+patchPlanEvent(reviewEventId, {
+  status: "success",
+  detail: aiReviewFindings.length
+    ? `Review completed with ${aiReviewFindings.length} finding(s).`
+    : "Project review completed successfully.",
+  endedAt: Date.now(),
+});
       setProgressStage("Validating");
       setBuildTimeline((current) => [...current, "Running final project validation"]);
       const validationError = validateFileTree(generatedCode, requiredPaths) || validateGeneratedCode(generatedCode, !editMode);
