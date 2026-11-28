@@ -2511,6 +2511,7 @@ patchPlanEvent(reviewEventId, {
           code: generatedCode,
           messages: getFinalSaveMessages(),
           versions: versionsAfterBuild,
+          buildRecovery: null,
           updatedAt: Date.now(),
         });
 
