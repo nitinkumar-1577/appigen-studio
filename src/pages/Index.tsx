@@ -1364,6 +1364,25 @@ const unsubscribeSession = subscribeToStudioSession(
     lastReportedRef.current = "";
     isRepairingRef.current = false;
 const understandingStartedAt = Date.now();
+        let conversationContext = messages.slice(-40).map(({ role, content }) => ({
+      role,
+      content,
+    }));
+
+    if (session?.user?.id) {
+      try {
+        const archivedChats = await loadAccountConversationArchive(session.user.id, 40);
+        const archivedTurns = archivedChats
+          .filter((chat) => chat.projectId !== projectId)
+          .flatMap((chat) =>
+            chat.messages.map(({ role, content }) => ({ role, content }))
+          );
+
+        conversationContext = [...archivedTurns, ...conversationContext].slice(-40);
+      } catch (error) {
+        console.warn("Could not load previous conversation archive:", error);
+      }
+    }
     const fallbackIntent = analyzeIntent(trimmed, {
       hasExistingProject: Boolean(lastCode),
       conversation: messages.slice(-12).map(({ role, content }) => ({
