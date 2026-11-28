@@ -1506,18 +1506,35 @@ activeRequestModeRef.current = questionMode ? "chat" : "build";
           role: "assistant",
           content: "Build accepted and queued. The background worker will continue generation.",
           timestamp: Date.now(),
-          events: [
-            createBuildActivityEvent({
-              kind: "understanding",
-              status: understandingFallbackUsed ? "warning" : "success",
-              title: "Understanding your request",
-              detail: understandingFallbackUsed
-                ? "AI understanding was unavailable. Local intent analysis was used."
-                : `Request understood successfully. Intent: ${intent.intent}.`,
-              startedAt: understandingStartedAt,
-              endedAt: understandingEndedAt,
-            }),
-          ],
+         events: [
+  createBuildActivityEvent({
+    kind: "understanding",
+    status: understandingFallbackUsed ? "warning" : "success",
+    title: "Understanding your request",
+    detail: understandingFallbackUsed
+      ? "AI understanding was unavailable. Local intent analysis was used."
+      : `Request understood successfully. Intent: ${intent.intent}.`,
+    startedAt: understandingStartedAt,
+    endedAt: understandingEndedAt,
+  }),
+  ...(baseCodeForEdit
+    ? [
+        (() => {
+          const inspectedAt = Date.now();
+
+          return createBuildActivityEvent({
+            kind: "review",
+            status: "success",
+            title: "Inspecting existing project",
+            detail:
+              "Existing project source, architecture context, and recent change history were analyzed before applying updates.",
+            startedAt: inspectedAt,
+            endedAt: inspectedAt,
+          });
+        })(),
+      ]
+    : []),
+],
         };
 
         const queuedMessages = [...nextMessages, queuedMessage];
