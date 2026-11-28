@@ -1760,6 +1760,7 @@ async function answerProjectQuestionStream(
     changeText?: string;
     responseLanguage?: string;
     intent?: string;
+    webSearchText?: string;
   } | undefined,
   requestSignal: AbortSignal,
 ) {
